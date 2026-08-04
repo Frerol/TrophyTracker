@@ -1,0 +1,136 @@
+"""Data access for `achievements` and `user_achievements` (Database.md 2.5, 2.6)."""
+
+import sqlite3
+from typing import Optional
+
+from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
+from retrocheevos.models.achievement import Achievement, UserAchievement
+
+
+class AchievementRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def upsert_achievement(self, achievement: Achievement) -> None:
+        """Insert or update an achievement. Ids come from RetroAchievements."""
+        self._connection.execute(
+            """
+            INSERT INTO achievements (id, game_id, title, description, points, badge_path)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                description = excluded.description,
+                points = excluded.points,
+                badge_path = excluded.badge_path
+            """,
+            (
+                achievement.id,
+                achievement.game_id,
+                achievement.title,
+                achievement.description,
+                achievement.points,
+                achievement.badge_path,
+            ),
+        )
+
+    def get_for_game(self, game_id: int) -> list[Achievement]:
+        rows = self._connection.execute(
+            "SELECT * FROM achievements WHERE game_id = ?", (game_id,)
+        ).fetchall()
+        return [self._row_to_achievement(row) for row in rows]
+
+    def upsert_user_achievement(self, user_achievement: UserAchievement) -> UserAchievement:
+        """Record/update one account's unlock state for one achievement."""
+        self._connection.execute(
+            """
+            INSERT INTO user_achievements (account_id, achievement_id, unlocked_at, hardcore)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(account_id, achievement_id) DO UPDATE SET
+                unlocked_at = excluded.unlocked_at,
+                hardcore = excluded.hardcore
+            """,
+            (
+                user_achievement.account_id,
+                user_achievement.achievement_id,
+                datetime_to_sql(user_achievement.unlocked_at),
+                user_achievement.hardcore,
+            ),
+        )
+        row = self._connection.execute(
+            "SELECT id FROM user_achievements WHERE account_id = ? AND achievement_id = ?",
+            (user_achievement.account_id, user_achievement.achievement_id),
+        ).fetchone()
+        user_achievement.id = row["id"]
+        return user_achievement
+
+    def get_unlocked_for_account(
+        self, account_id: int, game_id: Optional[int] = None
+    ) -> list[UserAchievement]:
+        query = """
+            SELECT user_achievements.* FROM user_achievements
+            JOIN achievements ON achievements.id = user_achievements.achievement_id
+            WHERE user_achievements.account_id = ?
+        """
+        params: list = [account_id]
+        if game_id is not None:
+            query += " AND achievements.game_id = ?"
+            params.append(game_id)
+
+        rows = self._connection.execute(query, params).fetchall()
+        return [self._row_to_user_achievement(row) for row in rows]
+
+    def get_recent_unlocks(self, account_id: int, limit: int = 20) -> list[UserAchievement]:
+        """Most recent unlocks for an account, newest first (Dashboard 'Recent activity')."""
+        rows = self._connection.execute(
+            """
+            SELECT * FROM user_achievements
+            WHERE account_id = ? AND unlocked_at IS NOT NULL
+            ORDER BY unlocked_at DESC
+            LIMIT ?
+            """,
+            (account_id, limit),
+        ).fetchall()
+        return [self._row_to_user_achievement(row) for row in rows]
+
+    def get_mastered_game_ids(self, account_id: int) -> set[int]:
+        """Game IDs where every achievement has been unlocked in hardcore mode.
+
+        "Mastered" is defined here, at the query level, rather than stored
+        redundantly — same principle as `installed_roms` deriving install
+        status (Database.md 3.2).
+        """
+        rows = self._connection.execute(
+            """
+            SELECT achievements.game_id FROM achievements
+            LEFT JOIN user_achievements
+                ON user_achievements.achievement_id = achievements.id
+                AND user_achievements.account_id = ?
+                AND user_achievements.hardcore = 1
+            GROUP BY achievements.game_id
+            HAVING COUNT(achievements.id) = COUNT(user_achievements.id)
+                AND COUNT(achievements.id) > 0
+            """,
+            (account_id,),
+        ).fetchall()
+        return {row["game_id"] for row in rows}
+
+    @staticmethod
+    def _row_to_achievement(row: sqlite3.Row) -> Achievement:
+        return Achievement(
+            id=row["id"],
+            game_id=row["game_id"],
+            title=row["title"],
+            description=row["description"],
+            points=row["points"],
+            badge_path=row["badge_path"],
+        )
+
+    @staticmethod
+    def _row_to_user_achievement(row: sqlite3.Row) -> UserAchievement:
+        return UserAchievement(
+            id=row["id"],
+            account_id=row["account_id"],
+            achievement_id=row["achievement_id"],
+            unlocked_at=datetime_from_sql(row["unlocked_at"]),
+            hardcore=bool(row["hardcore"]),
+        )

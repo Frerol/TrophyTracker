@@ -21,8 +21,10 @@ logs/
 # Cache
 cache/
 
-# Database (contains the RetroAchievements API key in accounts.api_key)
-database/
+# Database (contains the RetroAchievements API key in accounts.api_key).
+# Leading slash anchors this to the repo root only — otherwise it would also
+# match src/retrocheevos/database/, the source code module.
+/database/
 *.sqlite3
 *.db
 *.db-wal
