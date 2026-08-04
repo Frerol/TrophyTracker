@@ -10,6 +10,7 @@ from retrocheevos.database.schema import (
     CREATE_TABLES,
     CREATE_TABLES_V3,
     CREATE_TABLES_V4,
+    CREATE_TABLES_V5,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     ),
     (3, CREATE_TABLES_V3),
     (4, CREATE_TABLES_V4),
+    (5, CREATE_TABLES_V5),
 ]
 
 

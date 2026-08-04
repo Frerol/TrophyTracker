@@ -35,6 +35,12 @@ class LibraryRepository:
         rows = self._connection.execute("SELECT * FROM rom_folders ORDER BY path").fetchall()
         return [self._row_to_rom_folder(row) for row in rows]
 
+    def get_rom_folder(self, rom_folder_id: int) -> Optional[RomFolder]:
+        row = self._connection.execute(
+            "SELECT * FROM rom_folders WHERE id = ?", (rom_folder_id,)
+        ).fetchone()
+        return self._row_to_rom_folder(row) if row else None
+
     def set_watch_enabled(self, rom_folder_id: int, enabled: bool) -> None:
         self._connection.execute(
             "UPDATE rom_folders SET watch_enabled = ? WHERE id = ?",
@@ -92,6 +98,14 @@ class LibraryRepository:
             "SELECT DISTINCT game_id FROM installed_roms WHERE game_id IS NOT NULL"
         ).fetchall()
         return {row["game_id"] for row in rows}
+
+    def get_installed_file_paths(self) -> set[str]:
+        """Every file path already recorded — lets Watch Folder scanning skip
+        files that were already scanned/matched (Database.md 7: `installed_roms`
+        only refreshes on a scan event, so previously scanned files are left alone).
+        """
+        rows = self._connection.execute("SELECT file_path FROM installed_roms").fetchall()
+        return {row["file_path"] for row in rows}
 
     @staticmethod
     def _row_to_rom_folder(row: sqlite3.Row) -> RomFolder:

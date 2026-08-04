@@ -120,6 +120,8 @@ component from Explorer.
 - ROM folders (Watch Folder configuration)
 - Emulators (executable path + optional launch arguments, per console;
   Database.md 3.4)
+- ROM Destinations (per-console folder Watch Folder organizing moves matched
+  files into; Database.md 3.5)
 - Download folders (future)
 - Download sources (future)
 - Theme

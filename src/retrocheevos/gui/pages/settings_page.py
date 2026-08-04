@@ -1,4 +1,5 @@
-"""Settings page (UI.md 3.7) — MVP scope: Accounts, ROM folders.
+"""Settings page (UI.md 3.7) — MVP scope: Accounts, ROM folders, Emulators,
+ROM Destinations (Watch Folder organizing target per console).
 
 Theme/Language/Cache management are deferred to the deepening pass.
 """
@@ -81,6 +82,26 @@ class SettingsPage(Page):
         remove_emulator_button = QPushButton("Remove Selected")
         remove_emulator_button.clicked.connect(self._on_remove_emulator)
 
+        self._destination_console_selector = QComboBox()
+        self._destination_path_input = QLineEdit()
+        self._destination_path_input.setPlaceholderText("Folder where this console's ROMs live")
+        browse_destination_button = QPushButton("Browse...")
+        browse_destination_button.clicked.connect(self._on_browse_destination)
+        destination_path_row = QHBoxLayout()
+        destination_path_row.addWidget(self._destination_path_input)
+        destination_path_row.addWidget(browse_destination_button)
+
+        save_destination_button = QPushButton("Save Destination")
+        save_destination_button.clicked.connect(self._on_save_destination)
+
+        destination_form = QFormLayout()
+        destination_form.addRow("Console", self._destination_console_selector)
+        destination_form.addRow("Folder", destination_path_row)
+
+        self._destinations_list = QListWidget()
+        remove_destination_button = QPushButton("Remove Selected")
+        remove_destination_button.clicked.connect(self._on_remove_destination)
+
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Accounts"))
         layout.addLayout(account_form)
@@ -95,6 +116,11 @@ class SettingsPage(Page):
         layout.addWidget(save_emulator_button)
         layout.addWidget(self._emulators_list)
         layout.addWidget(remove_emulator_button)
+        layout.addWidget(QLabel("ROM Destinations (Watch Folder organizing target per console)"))
+        layout.addLayout(destination_form)
+        layout.addWidget(save_destination_button)
+        layout.addWidget(self._destinations_list)
+        layout.addWidget(remove_destination_button)
         layout.addStretch(1)
 
     def refresh(self) -> None:
@@ -130,6 +156,26 @@ class SettingsPage(Page):
             item = QListWidgetItem(f"{console_name}: {config.executable_path}")
             item.setData(Qt.ItemDataRole.UserRole, config.console_id)
             self._emulators_list.addItem(item)
+
+        previous_destination_console = self._destination_console_selector.currentData()
+        self._destination_console_selector.blockSignals(True)
+        self._destination_console_selector.clear()
+        for console in consoles:
+            self._destination_console_selector.addItem(console.name, console.id)
+        if previous_destination_console is not None:
+            index = self._destination_console_selector.findData(previous_destination_console)
+            if index >= 0:
+                self._destination_console_selector.setCurrentIndex(index)
+        self._destination_console_selector.blockSignals(False)
+
+        self._destinations_list.clear()
+        for destination in library_service.list_rom_destinations():
+            console_name = console_names.get(
+                destination.console_id, f"Console #{destination.console_id}"
+            )
+            item = QListWidgetItem(f"{console_name}: {destination.path}")
+            item.setData(Qt.ItemDataRole.UserRole, destination.console_id)
+            self._destinations_list.addItem(item)
 
     def _on_add_account(self) -> None:
         username = self._username_input.text().strip()
@@ -196,4 +242,26 @@ class SettingsPage(Page):
         if item is None:
             return
         library_service.remove_emulator_config(item.data(Qt.ItemDataRole.UserRole))
+        self.refresh()
+
+    def _on_browse_destination(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select ROM Destination Folder")
+        if folder:
+            self._destination_path_input.setText(folder)
+
+    def _on_save_destination(self) -> None:
+        console_id = self._destination_console_selector.currentData()
+        path = self._destination_path_input.text().strip()
+        if console_id is None or not path:
+            QMessageBox.warning(self, "Missing info", "Pick a console and a destination folder.")
+            return
+        library_service.set_rom_destination(console_id, path)
+        self._destination_path_input.clear()
+        self.refresh()
+
+    def _on_remove_destination(self) -> None:
+        item = self._destinations_list.currentItem()
+        if item is None:
+            return
+        library_service.remove_rom_destination(item.data(Qt.ItemDataRole.UserRole))
         self.refresh()

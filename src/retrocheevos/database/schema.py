@@ -177,3 +177,17 @@ CREATE_TABLES_V4 = [
     )
     """,
 ]
+
+# Not in the original Database.md schema — added to power Watch Folder
+# organizing (Architecture.md library/ "console-folder organizer"): one
+# user-chosen destination folder per console, distinct from
+# `emulator_configs` (that's the emulator executable, this is where ROMs for
+# that console should live — different concerns, same one-row-per-console shape).
+CREATE_TABLES_V5 = [
+    """
+    CREATE TABLE IF NOT EXISTS rom_destinations (
+        console_id INTEGER PRIMARY KEY REFERENCES consoles(id),
+        path TEXT NOT NULL
+    )
+    """,
+]

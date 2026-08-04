@@ -1,8 +1,9 @@
-"""ROM folder management, manual ROM matching, and emulator launching
-(UI.md 3.3; MVP: no auto-scan yet).
+"""ROM folder management, manual ROM matching, Watch Folder scanning, and
+emulator launching (UI.md 3.3).
 """
 
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -13,10 +14,27 @@ from retrocheevos.database.repositories.emulator_config_repository import (
 )
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.library_repository import LibraryRepository
+from retrocheevos.database.repositories.rom_destination_repository import (
+    RomDestinationRepository,
+)
+from retrocheevos.library.console_detection import detect_console
 from retrocheevos.library.hashing import compute_rom_hash
 from retrocheevos.library.launcher import launch_emulator
+from retrocheevos.library.organizer import move_rom, resolve_destination
+from retrocheevos.library.zip_extraction import extract_member
 from retrocheevos.models.emulator_config import EmulatorConfig
-from retrocheevos.models.library import InstalledRom, RomFolder
+from retrocheevos.models.library import (
+    InstalledRom,
+    RomFolder,
+    WatchFolderAmbiguity,
+    WatchFolderMatch,
+    WatchFolderScanPreview,
+)
+from retrocheevos.models.rom_destination import RomDestination
+
+# Where `apply_watch_folder_scan` archives an original zip after extracting
+# its single ROM member — never deleted automatically (see `apply_watch_folder_scan`).
+ALREADY_EXTRACTED_DIRNAME = "already-extracted"
 
 
 class GameNotInstalledError(Exception):
@@ -29,6 +47,24 @@ class RomFileMissingError(Exception):
 
 class EmulatorNotConfiguredError(Exception):
     """No emulator is configured for this game's console (see Settings)."""
+
+
+class RomFolderNotFoundError(Exception):
+    """No `rom_folders` row with this ID (it may have been removed since scanning)."""
+
+
+class RomDestinationNotConfiguredError(Exception):
+    """No destination folder is configured for this console (Settings > ROM Destinations)."""
+
+
+def _normalize_path_for_comparison(path: str) -> str:
+    """Watch Folder scanning discovers files via `Path.rglob`, which yields
+    OS-native separators; `installed_roms.file_path` may hold whatever
+    separator style the manual Scan file dialog produced. Comparing raw
+    strings would let already-scanned files slip through as "new" and get
+    reorganized again — normalize both sides before comparing.
+    """
+    return str(Path(path).resolve()).casefold()
 
 
 def add_rom_folder(
@@ -79,7 +115,7 @@ def scan_and_record_rom(file_path: str, console_id: int) -> InstalledRom:
     Runs file I/O — call from a background thread, not the UI thread
     (CodingStandards' threading model).
     """
-    rom_hash = compute_rom_hash(Path(file_path))
+    rom_hash = compute_rom_hash(Path(file_path), console_id)
     return record_installed_rom(file_path, console_id, rom_hash)
 
 
@@ -104,6 +140,23 @@ def remove_emulator_config(console_id: int) -> None:
 def list_emulator_configs() -> list[EmulatorConfig]:
     with get_connection() as connection:
         return EmulatorConfigRepository(connection).list_all()
+
+
+def set_rom_destination(console_id: int, path: str) -> RomDestination:
+    with get_connection() as connection:
+        destination = RomDestination(console_id=console_id, path=path)
+        RomDestinationRepository(connection).upsert(destination)
+        return destination
+
+
+def remove_rom_destination(console_id: int) -> None:
+    with get_connection() as connection:
+        RomDestinationRepository(connection).remove(console_id)
+
+
+def list_rom_destinations() -> list[RomDestination]:
+    with get_connection() as connection:
+        return RomDestinationRepository(connection).list_all()
 
 
 def launch_game(game_id: int) -> subprocess.Popen:
@@ -142,3 +195,130 @@ def launch_game(game_id: int) -> subprocess.Popen:
     return launch_emulator(
         Path(emulator_config.executable_path), rom_path, emulator_config.arguments_template
     )
+
+
+def preview_watch_folder_scan(rom_folder_id: int) -> WatchFolderScanPreview:
+    """Read-only Watch Folder scan (UI.md 3.3 "Manual 'Scan now' action"):
+    walks the folder, detects each not-yet-installed file's console, and
+    reports what *would* happen — nothing is moved or recorded yet, so the
+    GUI can show the user a plan before touching any files. Already-installed
+    files are left untouched entirely (Database.md 7: `installed_roms` only
+    refreshes on a scan event, not silently reorganized on every scan).
+
+    Runs file I/O — call from a background thread, not the UI thread
+    (CodingStandards' threading model).
+    """
+    with get_connection() as connection:
+        rom_folder = LibraryRepository(connection).get_rom_folder(rom_folder_id)
+        if rom_folder is None:
+            raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
+        already_installed = {
+            _normalize_path_for_comparison(path)
+            for path in LibraryRepository(connection).get_installed_file_paths()
+        }
+
+    already_extracted_folder = Path(rom_folder.path) / ALREADY_EXTRACTED_DIRNAME
+    confident: list[WatchFolderMatch] = []
+    ambiguous: list[WatchFolderAmbiguity] = []
+    unrecognized_paths: list[str] = []
+
+    for file_path in Path(rom_folder.path).rglob("*"):
+        if not file_path.is_file():
+            continue
+        if file_path.is_relative_to(already_extracted_folder):
+            continue  # archived originals — already handled, never re-processed
+        if _normalize_path_for_comparison(str(file_path)) in already_installed:
+            continue
+
+        result = detect_console(file_path)
+        if result.is_confident:
+            confident.append(
+                WatchFolderMatch(
+                    file_path=str(file_path),
+                    console_id=result.console_id,
+                    inner_member=result.inner_member,
+                )
+            )
+        elif result.candidate_console_ids:
+            ambiguous.append(
+                WatchFolderAmbiguity(
+                    file_path=str(file_path),
+                    candidate_console_ids=result.candidate_console_ids,
+                    inner_member=result.inner_member,
+                )
+            )
+        else:
+            unrecognized_paths.append(str(file_path))
+
+    return WatchFolderScanPreview(
+        rom_folder_id=rom_folder_id,
+        confident=confident,
+        ambiguous=ambiguous,
+        unrecognized_paths=unrecognized_paths,
+    )
+
+
+def apply_watch_folder_scan(
+    rom_folder_id: int, decisions: list[WatchFolderMatch]
+) -> list[InstalledRom]:
+    """Moves each decided file into its console's configured destination
+    folder (Settings > ROM Destinations) and records it (UI.md 3.3).
+    `decisions` combines the preview's auto-detected matches with the user's
+    manual picks for its ambiguous ones — nothing here guesses a console on
+    its own, and nothing moves without a destination already configured for
+    that console (`RomDestinationNotConfiguredError` otherwise — the review
+    dialog is expected to only offer consoles that already have one, so
+    hitting this means something changed between preview and apply).
+
+    For a decision with `inner_member` set (a single-file zip), the member is
+    extracted and *that* file is moved/hashed/recorded — never the zip
+    itself. Only once that has fully succeeded is the original zip moved to
+    `<rom folder>/already-extracted/` (never deleted automatically: kept
+    around to build confidence in extraction before enabling that). If
+    extraction or recording fails partway, the original zip is left
+    untouched in place so a retry starts clean rather than from an
+    already-archived-but-unrecorded state.
+
+    `rom_folder_id` only confirms the watched folder still exists; unlike the
+    previous design, it no longer determines where files end up — the
+    destination is per-console, not nested under the watched folder.
+
+    Runs file I/O — call from a background thread, not the UI thread
+    (CodingStandards' threading model).
+    """
+    with get_connection() as connection:
+        rom_folder = LibraryRepository(connection).get_rom_folder(rom_folder_id)
+        if rom_folder is None:
+            raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
+        destinations = {
+            destination.console_id: destination.path
+            for destination in RomDestinationRepository(connection).list_all()
+        }
+
+    already_extracted_folder = Path(rom_folder.path) / ALREADY_EXTRACTED_DIRNAME
+    results: list[InstalledRom] = []
+    for decision in decisions:
+        destination_path = destinations.get(decision.console_id)
+        if destination_path is None:
+            raise RomDestinationNotConfiguredError(
+                f"No ROM destination configured for console {decision.console_id}. "
+                "Set one in Settings > ROM Destinations."
+            )
+
+        source_path = Path(decision.file_path)
+
+        if decision.inner_member:
+            with tempfile.TemporaryDirectory() as scratch_dir:
+                extracted_path = extract_member(source_path, decision.inner_member, Path(scratch_dir))
+                destination = resolve_destination(Path(destination_path), extracted_path)
+                moved_path = move_rom(extracted_path, destination)
+                results.append(scan_and_record_rom(str(moved_path), decision.console_id))
+
+            archive_destination = resolve_destination(already_extracted_folder, source_path)
+            move_rom(source_path, archive_destination)
+        else:
+            destination = resolve_destination(Path(destination_path), source_path)
+            moved_path = move_rom(source_path, destination)
+            results.append(scan_and_record_rom(str(moved_path), decision.console_id))
+
+    return results

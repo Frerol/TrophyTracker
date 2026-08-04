@@ -141,6 +141,18 @@ console, powering the "Play" button on the Game Card and Library page.
 | executable_path | TEXT | path to the emulator executable |
 | arguments_template | TEXT | nullable; optional `{rom_path}` placeholder — see Architecture.md's `library/` notes |
 
+### 3.5 `rom_destinations`
+
+Added post-MVP-planning (migration v5) — one user-chosen destination folder
+per console, powering Watch Folder organizing (distinct from
+`emulator_configs`: that's the emulator executable, this is where ROMs for
+that console should be moved to).
+
+| Column | Type | Notes |
+|---|---|---|
+| console_id | INTEGER PK, FK → consoles.id | one destination per console |
+| path | TEXT | folder chosen by the user in Settings > ROM Destinations |
+
 ## 4. Lists & Following
 
 ### 4.1 `user_lists`
