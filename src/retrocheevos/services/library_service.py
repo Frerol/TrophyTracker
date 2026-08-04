@@ -14,6 +14,7 @@ from retrocheevos.database.repositories.emulator_config_repository import (
 )
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.library_repository import LibraryRepository
+from retrocheevos.database.repositories.quick_link_repository import QuickLinkRepository
 from retrocheevos.database.repositories.rom_destination_repository import (
     RomDestinationRepository,
 )
@@ -30,6 +31,7 @@ from retrocheevos.models.library import (
     WatchFolderMatch,
     WatchFolderScanPreview,
 )
+from retrocheevos.models.quick_link import QuickLink
 from retrocheevos.models.rom_destination import RomDestination
 
 # Where `apply_watch_folder_scan` archives an original zip after extracting
@@ -89,6 +91,15 @@ def list_rom_folders() -> list[RomFolder]:
 def list_installed_roms(console_id: Optional[int] = None) -> list[InstalledRom]:
     with get_connection() as connection:
         return LibraryRepository(connection).list_installed_roms(console_id)
+
+
+def get_installed_game_ids() -> set[int]:
+    """Game IDs with a matched local ROM — powers the Explorer table's
+    "Installed" column (distinct from the `installed_only` *filter*, which
+    `core/explorer.py` already applies internally).
+    """
+    with get_connection() as connection:
+        return LibraryRepository(connection).get_installed_game_ids()
 
 
 def record_installed_rom(file_path: str, console_id: int, rom_hash: str) -> InstalledRom:
@@ -157,6 +168,28 @@ def remove_rom_destination(console_id: int) -> None:
 def list_rom_destinations() -> list[RomDestination]:
     with get_connection() as connection:
         return RomDestinationRepository(connection).list_all()
+
+
+def set_quick_link(console_id: int, url: str) -> QuickLink:
+    with get_connection() as connection:
+        quick_link = QuickLink(console_id=console_id, url=url)
+        QuickLinkRepository(connection).upsert(quick_link)
+        return quick_link
+
+
+def remove_quick_link(console_id: int) -> None:
+    with get_connection() as connection:
+        QuickLinkRepository(connection).remove(console_id)
+
+
+def list_quick_links() -> list[QuickLink]:
+    with get_connection() as connection:
+        return QuickLinkRepository(connection).list_all()
+
+
+def get_quick_link(console_id: int) -> Optional[QuickLink]:
+    with get_connection() as connection:
+        return QuickLinkRepository(connection).get(console_id)
 
 
 def launch_game(game_id: int) -> subprocess.Popen:

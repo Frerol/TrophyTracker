@@ -52,6 +52,12 @@ def search_games(
         has_achievements=filters.has_achievements,
     )
 
+    # Always excluded, unlike show_completed/show_abandoned/show_mastered
+    # below — no opt-in reveal filter. Blocking is only reversible via
+    # Settings' dedicated Blocked Games list (Database.md 4.1).
+    blocked_ids = list_repository.get_game_ids_in_list(account_id, ListType.BLOCKED)
+    games = [g for g in games if g.id not in blocked_ids]
+
     if filters.require_known_median_time:
         games = [g for g in games if g.median_time_to_beat_hardcore_seconds is not None]
 
@@ -111,3 +117,8 @@ def search_games_with_completion(
         GameWithCompletion(game=game, percent_complete=completion_by_game_id.get(game.id))
         for game in games
     ]
+
+
+def total_game_count(*, game_repository: GameRepository) -> int:
+    """All synced games, unfiltered — the "Y" in Explorer's "X of Y games" counter."""
+    return game_repository.count_all()

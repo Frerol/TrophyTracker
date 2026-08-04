@@ -47,14 +47,22 @@ class ProfileRepository:
     def upsert_badge(self, badge: Badge) -> Badge:
         self._connection.execute(
             """
-            INSERT INTO badges (account_id, name, image_path, owned, progress)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO badges (account_id, name, image_path, owned, progress, is_event)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, name) DO UPDATE SET
                 image_path = excluded.image_path,
                 owned = excluded.owned,
-                progress = excluded.progress
+                progress = excluded.progress,
+                is_event = excluded.is_event
             """,
-            (badge.account_id, badge.name, badge.image_path, badge.owned, badge.progress),
+            (
+                badge.account_id,
+                badge.name,
+                badge.image_path,
+                badge.owned,
+                badge.progress,
+                badge.is_event,
+            ),
         )
         row = self._connection.execute(
             "SELECT id FROM badges WHERE account_id = ? AND name = ?",
@@ -92,4 +100,5 @@ class ProfileRepository:
             owned=bool(row["owned"]),
             image_path=row["image_path"],
             progress=row["progress"],
+            is_event=bool(row["is_event"]),
         )

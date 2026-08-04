@@ -4,7 +4,7 @@ Sync runs on a background thread via `ServiceWorker` — it hits the network
 (CodingStandards' threading model forbids that on the UI thread).
 """
 
-from PySide6.QtWidgets import QLabel, QListWidget, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QLabel, QListWidget, QMessageBox, QPushButton, QTabWidget, QVBoxLayout
 
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.pages.base_page import Page
@@ -22,14 +22,19 @@ class ProfilePage(Page):
         self._sync_button = QPushButton("Sync Profile")
         self._sync_button.clicked.connect(self._on_sync)
 
+        # Split by `Badge.is_event` (decided once at sync time, see
+        # `core/mapping.py::map_badge`) — no dates/deadlines shown, RA's API
+        # has no structured data for those (confirmed by investigation).
         self._badges_list = QListWidget()
+        self._event_badges_list = QListWidget()
+        badges_tabs = QTabWidget()
+        badges_tabs.addTab(self._badges_list, "Badges")
+        badges_tabs.addTab(self._event_badges_list, "Event Badges")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._stats_label)
         layout.addWidget(self._sync_button)
-        layout.addWidget(QLabel("Badges"))
-        layout.addWidget(self._badges_list)
-        layout.addStretch(1)
+        layout.addWidget(badges_tabs)
 
     def refresh(self) -> None:
         account = self.app_context.active_account
@@ -37,6 +42,7 @@ class ProfilePage(Page):
             self._stats_label.setText("No account selected.")
             self._sync_button.setEnabled(False)
             self._badges_list.clear()
+            self._event_badges_list.clear()
             return
 
         self._sync_button.setEnabled(True)
@@ -51,8 +57,10 @@ class ProfilePage(Page):
             )
 
         self._badges_list.clear()
+        self._event_badges_list.clear()
         for badge in profile_service.get_badges(account.id):
-            self._badges_list.addItem(badge.name)
+            target = self._event_badges_list if badge.is_event else self._badges_list
+            target.addItem(badge.name)
 
     def _on_sync(self) -> None:
         account = self.app_context.active_account

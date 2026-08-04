@@ -16,12 +16,17 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
 from retrocheevos.gui.app_context import AppContext
+from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
 from retrocheevos.gui.pages.base_page import Page
-from retrocheevos.services import console_service, library_service, session_service
+from retrocheevos.library.quick_link_suggestions import QUICK_LINK_SUGGESTIONS
+from retrocheevos.services import console_service, library_service, lists_service, session_service
+from retrocheevos.utils.enums import ListType
 
 
 class SettingsPage(Page):
@@ -48,6 +53,9 @@ class SettingsPage(Page):
         account_buttons.addWidget(remove_account_button)
 
         self._rom_folders_list = QListWidget()
+        rom_folders_delegate = RemovableListDelegate(self._rom_folders_list)
+        rom_folders_delegate.remove_requested.connect(self._remove_rom_folder)
+        self._rom_folders_list.setItemDelegate(rom_folders_delegate)
         add_folder_button = QPushButton("Add ROM Folder...")
         add_folder_button.clicked.connect(self._on_add_rom_folder)
         remove_folder_button = QPushButton("Remove Selected Folder")
@@ -79,6 +87,9 @@ class SettingsPage(Page):
         emulator_form.addRow("Arguments", self._emulator_args_input)
 
         self._emulators_list = QListWidget()
+        emulators_delegate = RemovableListDelegate(self._emulators_list)
+        emulators_delegate.remove_requested.connect(self._remove_emulator)
+        self._emulators_list.setItemDelegate(emulators_delegate)
         remove_emulator_button = QPushButton("Remove Selected")
         remove_emulator_button.clicked.connect(self._on_remove_emulator)
 
@@ -99,10 +110,43 @@ class SettingsPage(Page):
         destination_form.addRow("Folder", destination_path_row)
 
         self._destinations_list = QListWidget()
+        destinations_delegate = RemovableListDelegate(self._destinations_list)
+        destinations_delegate.remove_requested.connect(self._remove_destination)
+        self._destinations_list.setItemDelegate(destinations_delegate)
         remove_destination_button = QPushButton("Remove Selected")
         remove_destination_button.clicked.connect(self._on_remove_destination)
 
-        layout = QVBoxLayout(self)
+        self._quick_link_console_selector = QComboBox()
+        self._quick_link_console_selector.currentIndexChanged.connect(
+            self._on_quick_link_console_changed
+        )
+        self._quick_link_url_input = QLineEdit()
+        self._quick_link_url_input.setPlaceholderText(
+            "Reference URL for this console (e.g. a homebrew catalog or wiki)"
+        )
+        save_quick_link_button = QPushButton("Save Quick Link")
+        save_quick_link_button.clicked.connect(self._on_save_quick_link)
+
+        quick_link_form = QFormLayout()
+        quick_link_form.addRow("Console", self._quick_link_console_selector)
+        quick_link_form.addRow("URL", self._quick_link_url_input)
+
+        self._quick_links_list = QListWidget()
+        quick_links_delegate = RemovableListDelegate(self._quick_links_list)
+        quick_links_delegate.remove_requested.connect(self._remove_quick_link)
+        self._quick_links_list.setItemDelegate(quick_links_delegate)
+        remove_quick_link_button = QPushButton("Remove Selected")
+        remove_quick_link_button.clicked.connect(self._on_remove_quick_link)
+
+        self._blocked_games_list = QListWidget()
+        blocked_games_delegate = RemovableListDelegate(self._blocked_games_list)
+        blocked_games_delegate.remove_requested.connect(self._unblock_game)
+        self._blocked_games_list.setItemDelegate(blocked_games_delegate)
+        unblock_button = QPushButton("Unblock Selected")
+        unblock_button.clicked.connect(self._on_unblock_game)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.addWidget(QLabel("Accounts"))
         layout.addLayout(account_form)
         layout.addWidget(add_account_button)
@@ -121,7 +165,22 @@ class SettingsPage(Page):
         layout.addWidget(save_destination_button)
         layout.addWidget(self._destinations_list)
         layout.addWidget(remove_destination_button)
+        layout.addWidget(QLabel("Quick Links (reference URL per console, opened from Library)"))
+        layout.addLayout(quick_link_form)
+        layout.addWidget(save_quick_link_button)
+        layout.addWidget(self._quick_links_list)
+        layout.addWidget(remove_quick_link_button)
+        layout.addWidget(QLabel("Blocked Games"))
+        layout.addWidget(self._blocked_games_list)
+        layout.addWidget(unblock_button)
         layout.addStretch(1)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(content)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll_area)
 
     def refresh(self) -> None:
         self._accounts_list.clear()
@@ -177,6 +236,35 @@ class SettingsPage(Page):
             item.setData(Qt.ItemDataRole.UserRole, destination.console_id)
             self._destinations_list.addItem(item)
 
+        previous_quick_link_console = self._quick_link_console_selector.currentData()
+        self._quick_link_console_selector.blockSignals(True)
+        self._quick_link_console_selector.clear()
+        for console in consoles:
+            self._quick_link_console_selector.addItem(console.name, console.id)
+        if previous_quick_link_console is not None:
+            index = self._quick_link_console_selector.findData(previous_quick_link_console)
+            if index >= 0:
+                self._quick_link_console_selector.setCurrentIndex(index)
+        self._quick_link_console_selector.blockSignals(False)
+
+        self._quick_links_list.clear()
+        for quick_link in library_service.list_quick_links():
+            console_name = console_names.get(
+                quick_link.console_id, f"Console #{quick_link.console_id}"
+            )
+            item = QListWidgetItem(f"{console_name}: {quick_link.url}")
+            item.setData(Qt.ItemDataRole.UserRole, quick_link.console_id)
+            self._quick_links_list.addItem(item)
+
+        self._blocked_games_list.clear()
+        account = self.app_context.active_account
+        if account is not None:
+            for game in lists_service.get_games_in_list(account.id, ListType.BLOCKED):
+                console_name = console_names.get(game.console_id, f"Console #{game.console_id}")
+                item = QListWidgetItem(f"{game.title} ({console_name})")
+                item.setData(Qt.ItemDataRole.UserRole, game.id)
+                self._blocked_games_list.addItem(item)
+
     def _on_add_account(self) -> None:
         username = self._username_input.text().strip()
         api_key = self._api_key_input.text().strip()
@@ -215,7 +303,10 @@ class SettingsPage(Page):
         item = self._rom_folders_list.currentItem()
         if item is None:
             return
-        library_service.remove_rom_folder(item.data(Qt.ItemDataRole.UserRole))
+        self._remove_rom_folder(item.data(Qt.ItemDataRole.UserRole))
+
+    def _remove_rom_folder(self, folder_id: int) -> None:
+        library_service.remove_rom_folder(folder_id)
         self.refresh()
 
     def _on_browse_emulator(self) -> None:
@@ -241,7 +332,10 @@ class SettingsPage(Page):
         item = self._emulators_list.currentItem()
         if item is None:
             return
-        library_service.remove_emulator_config(item.data(Qt.ItemDataRole.UserRole))
+        self._remove_emulator(item.data(Qt.ItemDataRole.UserRole))
+
+    def _remove_emulator(self, console_id: int) -> None:
+        library_service.remove_emulator_config(console_id)
         self.refresh()
 
     def _on_browse_destination(self) -> None:
@@ -263,5 +357,61 @@ class SettingsPage(Page):
         item = self._destinations_list.currentItem()
         if item is None:
             return
-        library_service.remove_rom_destination(item.data(Qt.ItemDataRole.UserRole))
+        self._remove_destination(item.data(Qt.ItemDataRole.UserRole))
+
+    def _remove_destination(self, console_id: int) -> None:
+        library_service.remove_rom_destination(console_id)
+        self.refresh()
+
+    def _on_quick_link_console_changed(self) -> None:
+        # Always recomputed for the newly selected console, never left
+        # over from whichever console was selected before: the already
+        # saved link if one exists, else the curated suggestion, else
+        # empty. Anything the user hasn't saved yet for the previous
+        # console is intentionally abandoned on selection change — the
+        # field always reflects the current selection's own state.
+        console_id = self._quick_link_console_selector.currentData()
+        if console_id is None:
+            self._quick_link_url_input.clear()
+            return
+
+        existing = library_service.get_quick_link(console_id)
+        if existing is not None:
+            self._quick_link_url_input.setText(existing.url)
+            return
+
+        console_name = self._quick_link_console_selector.currentText()
+        self._quick_link_url_input.setText(QUICK_LINK_SUGGESTIONS.get(console_name, ""))
+
+    def _on_save_quick_link(self) -> None:
+        console_id = self._quick_link_console_selector.currentData()
+        url = self._quick_link_url_input.text().strip()
+        if console_id is None or not url:
+            QMessageBox.warning(self, "Missing info", "Pick a console and a URL.")
+            return
+        library_service.set_quick_link(console_id, url)
+        self._quick_link_url_input.clear()
+        self.refresh()
+
+    def _on_remove_quick_link(self) -> None:
+        item = self._quick_links_list.currentItem()
+        if item is None:
+            return
+        self._remove_quick_link(item.data(Qt.ItemDataRole.UserRole))
+
+    def _remove_quick_link(self, console_id: int) -> None:
+        library_service.remove_quick_link(console_id)
+        self.refresh()
+
+    def _on_unblock_game(self) -> None:
+        item = self._blocked_games_list.currentItem()
+        if item is None:
+            return
+        self._unblock_game(item.data(Qt.ItemDataRole.UserRole))
+
+    def _unblock_game(self, game_id: int) -> None:
+        account = self.app_context.active_account
+        if account is None:
+            return
+        lists_service.remove_from_list(account.id, game_id, ListType.BLOCKED)
         self.refresh()

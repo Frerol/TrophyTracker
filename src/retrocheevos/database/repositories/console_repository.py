@@ -27,6 +27,12 @@ class ConsoleRepository:
         ).fetchone()
         return self._row_to_console(row) if row else None
 
+    def get_by_name(self, name: str) -> Optional[Console]:
+        row = self._connection.execute(
+            "SELECT * FROM consoles WHERE name = ?", (name,)
+        ).fetchone()
+        return self._row_to_console(row) if row else None
+
     def list_all(self) -> list[Console]:
         rows = self._connection.execute("SELECT * FROM consoles ORDER BY name").fetchall()
         return [self._row_to_console(row) for row in rows]

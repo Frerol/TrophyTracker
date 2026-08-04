@@ -17,6 +17,7 @@ class ListType(str, Enum):
     COMPLETED = "completed"
     ABANDONED = "abandoned"
     FOLLOWING = "following"
+    BLOCKED = "blocked"
 
 
 class NotificationType(str, Enum):

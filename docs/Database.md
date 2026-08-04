@@ -165,7 +165,7 @@ Abandoned, Following) rather than "favorites".
 | id | INTEGER PK | |
 | account_id | INTEGER FK → accounts.id | |
 | game_id | INTEGER FK → games.id | |
-| list_type | TEXT | enum: `want_to_play`, `playing`, `completed`, `abandoned`, `following` |
+| list_type | TEXT | enum: `want_to_play`, `playing`, `completed`, `abandoned`, `following`, `blocked` |
 | added_at | DATETIME | |
 
 Rules enforced at Core layer (not DB constraints):
@@ -173,6 +173,13 @@ Rules enforced at Core layer (not DB constraints):
 - `abandoned` and `completed` entries are excluded from default Explorer
   results.
 - `following` is valid even for games with `has_achievements = false`.
+- `blocked` entries are excluded everywhere — Explorer (no opt-in reveal
+  filter, unlike `abandoned`/`completed`), Dashboard's Continue Playing,
+  and every other list's view (a blocked game disappears from lists it was
+  already in too). The only way to see or reverse a block is Settings'
+  dedicated Blocked Games list (`remove_from_list`, same as any other list
+  membership — blocking isn't a distinct mechanism, just another
+  `list_type`).
 
 ## 5. Notifications
 

@@ -1,9 +1,16 @@
 """User profile stats, completion progress, and awards (API.md §3).
 
-`get_user_points` and `get_user_awards` field names follow the
-RetroAchievements Web API's long-stable shape from memory, not a
-live-verified response — treat them as a first pass to confirm during
-Services/GUI integration testing with a real API key.
+`get_user_points` still follows the RetroAchievements Web API's shape from
+memory, not a live-verified response — treat it as a first pass to confirm
+during Services/GUI integration testing with a real API key.
+
+`get_user_awards` (`API_GetUserAwards.php`) is now confirmed via a live
+call: `VisibleUserAwards` items include `Title`, `ImageIcon`, `AwardedAt`,
+`AwardType` (e.g. `"Game Beaten"`, `"Mastery/Completion"` — observed
+values; RA's own top-level `EventAwardsCount`/`SiteAwardsCount` counters
+imply further values this account had none of to observe directly), and
+`ConsoleID`. See `core/mapping.py::map_badge` for how `AwardType`/
+`ConsoleID` decide `Badge.is_event`.
 
 `get_user_completion_progress` (`API_GetUserCompletionProgress.php`) is
 confirmed: it returns `HighestAwardKind`, `NumAwarded`, and `MaxPossible` per
@@ -54,6 +61,14 @@ class RawAward:
     title: str
     image_path: Optional[str]
     awarded_at: Optional[datetime]
+    # Confirmed via a live call this session (the two fields above were
+    # previously the only ones read from this response): `AwardType` is
+    # RA's per-award category ("Game Beaten", "Mastery/Completion", and
+    # presumably "Event"/site-award variants — this account had none of
+    # those to observe directly). `ConsoleID` is included as a
+    # cross-check against the Events console (Database.md — `core/mapping.py`).
+    award_type: Optional[str]
+    console_id: Optional[int]
 
 
 class ProfileClient:
@@ -101,6 +116,8 @@ class ProfileClient:
                     title=item.get("Title", ""),
                     image_path=item.get("ImageIcon"),
                     awarded_at=parse_ra_datetime(item.get("AwardedAt")),
+                    award_type=item.get("AwardType"),
+                    console_id=item.get("ConsoleID"),
                 )
             )
         return awards

@@ -19,6 +19,13 @@ from retrocheevos.models.profile import Badge
 
 RETROACHIEVEMENTS_GAME_URL_TEMPLATE = "https://retroachievements.org/game/{game_id}"
 
+# `API_GetUserAwards.php`'s `AwardType` values confirmed live this session
+# for a normal (non-event) account. RA's own top-level `EventAwardsCount`/
+# `SiteAwardsCount` counters imply further values this account had none of
+# to observe directly — rather than guess an exact "Event" string, treat
+# anything outside this known set as an event badge (see `map_badge`).
+KNOWN_NON_EVENT_AWARD_TYPES = {"Game Beaten", "Mastery/Completion"}
+
 
 def map_console(raw_console: RawConsole) -> Console:
     return Console(id=raw_console.id, name=raw_console.name)
@@ -67,11 +74,25 @@ def map_user_achievement(account_id: int, raw: RawUnlockedAchievement) -> UserAc
     )
 
 
-def map_badge(account_id: int, raw: RawAward) -> Badge:
+def map_badge(account_id: int, raw: RawAward, *, events_console_id: Optional[int] = None) -> Badge:
+    """`events_console_id` is looked up once by the caller (`sync_service`),
+    not here — keeps this a pure function, consistent with `map_game`/
+    `map_achievement` above.
+
+    An award counts as an event badge if its `AwardType` isn't one of the
+    known non-event values, OR (reinforcement, per the confirmed
+    cross-check) its game's console is the Events console — the second
+    check catches an event award that happens to reuse a known `AwardType`
+    string, which the first check alone would miss.
+    """
+    is_event = raw.award_type not in KNOWN_NON_EVENT_AWARD_TYPES or (
+        events_console_id is not None and raw.console_id == events_console_id
+    )
     return Badge(
         account_id=account_id,
         name=raw.title,
         image_path=raw.image_path,
         owned=True,
         progress=None,
+        is_event=is_event,
     )

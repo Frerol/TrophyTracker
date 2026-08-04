@@ -172,9 +172,14 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
                 continue
             completion_repository.upsert(completion)
 
+        events_console = ConsoleRepository(connection).get_by_name("Events")
+        events_console_id = events_console.id if events_console else None
+
         profile_repository = ProfileRepository(connection)
         for raw_award in awards:
-            profile_repository.upsert_badge(map_badge(account.id, raw_award))
+            profile_repository.upsert_badge(
+                map_badge(account.id, raw_award, events_console_id=events_console_id)
+            )
 
         AccountRepository(connection).update_last_synced(account.id, now)
 

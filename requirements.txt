@@ -1,4 +1,4 @@
-PySide6>=6.7
+PySide6==6.10.1  # TEMP pinned down from 6.11.1 to test a suspected Qt6Widgets.dll crash (see DevelopmentRoadmap.md Current Status) — revert to >=6.7 if this doesn't help
 requests>=2.31
 beautifulsoup4>=4.12
 Pillow>=10.3

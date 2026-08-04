@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from retrocheevos.core.lists import get_games_in_list as _get_games_in_list
 from retrocheevos.database.connection import get_connection
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.list_repository import ListRepository
@@ -35,11 +36,9 @@ def get_list_types_for_game(account_id: int, game_id: int) -> list[ListType]:
 def get_games_in_list(account_id: int, list_type: ListType) -> list[Game]:
     """Full `Game` rows for a list screen (UI.md 3.6 — reuses the Game Card)."""
     with get_connection() as connection:
-        list_repository = ListRepository(connection)
-        game_repository = GameRepository(connection)
-        game_ids = list_repository.get_game_ids_in_list(account_id, list_type)
-        return [
-            game
-            for game_id in game_ids
-            if (game := game_repository.get_by_id(game_id)) is not None
-        ]
+        return _get_games_in_list(
+            account_id,
+            list_type,
+            list_repository=ListRepository(connection),
+            game_repository=GameRepository(connection),
+        )

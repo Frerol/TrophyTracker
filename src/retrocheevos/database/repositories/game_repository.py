@@ -53,6 +53,10 @@ class GameRepository:
         row = self._connection.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
         return self._row_to_game(row) if row else None
 
+    def count_all(self) -> int:
+        """Total synced games, unfiltered — powers the Explorer "X of Y games" counter."""
+        return self._connection.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+
     def search(
         self,
         text: Optional[str] = None,

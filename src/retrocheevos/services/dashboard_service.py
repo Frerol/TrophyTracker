@@ -10,6 +10,7 @@ from retrocheevos.database.repositories.game_completion_repository import (
     GameCompletionRepository,
 )
 from retrocheevos.database.repositories.game_repository import GameRepository
+from retrocheevos.database.repositories.list_repository import ListRepository
 from retrocheevos.models.achievement import UserAchievement
 from retrocheevos.models.game import Game
 
@@ -20,6 +21,7 @@ def get_continue_playing_games(account_id: int) -> list[Game]:
             account_id,
             game_completion_repository=GameCompletionRepository(connection),
             game_repository=GameRepository(connection),
+            list_repository=ListRepository(connection),
         )
 
 

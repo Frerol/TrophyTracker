@@ -12,8 +12,10 @@ from retrocheevos.database.repositories.game_completion_repository import (
     GameCompletionRepository,
 )
 from retrocheevos.database.repositories.game_repository import GameRepository
+from retrocheevos.database.repositories.list_repository import ListRepository
 from retrocheevos.models.achievement import UserAchievement
 from retrocheevos.models.game import Game
+from retrocheevos.utils.enums import ListType
 
 MIN_CONTINUE_PLAYING_PERCENT = 0.0
 MAX_CONTINUE_PLAYING_PERCENT = 100.0
@@ -24,13 +26,16 @@ def get_continue_playing(
     *,
     game_completion_repository: GameCompletionRepository,
     game_repository: GameRepository,
+    list_repository: ListRepository,
 ) -> list[Game]:
     """Games with partial progress: started (>0%) but not finished (<100%)."""
     completion_by_game_id = game_completion_repository.get_all_for_account(account_id)
+    blocked_ids = list_repository.get_game_ids_in_list(account_id, ListType.BLOCKED)
     game_ids = [
         game_id
         for game_id, percent in completion_by_game_id.items()
         if MIN_CONTINUE_PLAYING_PERCENT < percent < MAX_CONTINUE_PLAYING_PERCENT
+        and game_id not in blocked_ids
     ]
     games = (game_repository.get_by_id(game_id) for game_id in game_ids)
     return [game for game in games if game is not None]

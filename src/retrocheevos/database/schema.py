@@ -191,3 +191,24 @@ CREATE_TABLES_V5 = [
     )
     """,
 ]
+
+# Not in the original Database.md schema — one user-chosen reference URL
+# per console (e.g. a homebrew catalog or wiki), opened externally via
+# QDesktopServices from the Library page. Same one-row-per-console shape as
+# `emulator_configs`/`rom_destinations`; the app never fetches or scrapes
+# this URL itself, only hands it to the system browser.
+CREATE_TABLES_V6 = [
+    """
+    CREATE TABLE IF NOT EXISTS console_quick_links (
+        console_id INTEGER PRIMARY KEY REFERENCES consoles(id),
+        url TEXT NOT NULL
+    )
+    """,
+]
+
+# Not in the original Database.md schema — separates community-event badges
+# from regular ones on the Profile page's Event Badges tab. Decided once at
+# sync time by `core/mapping.py::map_badge`, not recomputed by the GUI.
+ALTER_TABLES_V7 = [
+    "ALTER TABLE badges ADD COLUMN is_event BOOLEAN NOT NULL DEFAULT 0",
+]

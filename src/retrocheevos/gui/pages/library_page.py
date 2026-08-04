@@ -5,11 +5,13 @@ and organizes it — Settings > ROM folders manages the folder list itself).
 
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QUrl, Qt
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -35,6 +37,11 @@ class LibraryPage(Page):
 
         self._console_selector = QComboBox()
         self._console_selector.currentIndexChanged.connect(self._on_console_changed)
+        quick_link_button = QPushButton("Quick Link")
+        quick_link_button.clicked.connect(self._on_open_quick_link)
+        console_row = QHBoxLayout()
+        console_row.addWidget(self._console_selector, stretch=1)
+        console_row.addWidget(quick_link_button)
 
         self._installed_list = QListWidget()
         scan_button = QPushButton("Scan ROM File...")
@@ -48,7 +55,7 @@ class LibraryPage(Page):
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Console"))
-        layout.addWidget(self._console_selector)
+        layout.addLayout(console_row)
         layout.addWidget(QLabel("Installed ROMs"))
         layout.addWidget(self._installed_list)
         layout.addWidget(scan_button)
@@ -95,6 +102,25 @@ class LibraryPage(Page):
 
     def _on_console_changed(self) -> None:
         self._refresh_installed_list()
+
+    def _on_open_quick_link(self) -> None:
+        console_id = self._console_selector.currentData()
+        if console_id is None:
+            QMessageBox.information(
+                self, "Quick Link", "Pick a specific console above (not \"All consoles\") first."
+            )
+            return
+
+        quick_link = library_service.get_quick_link(console_id)
+        if quick_link is None:
+            QMessageBox.information(
+                self,
+                "No Quick Link set",
+                "This console has no reference URL yet — add one in Settings > Quick Links.",
+            )
+            return
+
+        QDesktopServices.openUrl(QUrl(quick_link.url))
 
     def _on_scan_file(self) -> None:
         console_id = self._console_selector.currentData()

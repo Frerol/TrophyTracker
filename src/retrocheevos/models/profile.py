@@ -23,4 +23,8 @@ class Badge:
     owned: bool
     image_path: Optional[str] = None
     progress: Optional[float] = None
+    # True for community-event badges, decided at sync time by
+    # `core/mapping.py::map_badge` — separates the Profile page's Event
+    # Badges tab from regular badges (Database.md §6.2).
+    is_event: bool = False
     id: Optional[int] = None

@@ -4,6 +4,7 @@ from retrocheevos.core.explorer import (
     ExplorerFilters,
     GameWithCompletion,
     search_games_with_completion,
+    total_game_count,
 )
 from retrocheevos.database.connection import get_connection
 from retrocheevos.database.repositories.achievement_repository import AchievementRepository
@@ -26,3 +27,8 @@ def get_games(account_id: int, filters: ExplorerFilters) -> list[GameWithComplet
             achievement_repository=AchievementRepository(connection),
             game_completion_repository=GameCompletionRepository(connection),
         )
+
+
+def get_total_game_count() -> int:
+    with get_connection() as connection:
+        return total_game_count(game_repository=GameRepository(connection))
