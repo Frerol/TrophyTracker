@@ -1,0 +1,37 @@
+# Virtual Environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/settings.json
+
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+
+# Database (contains the RetroAchievements API key in accounts.api_key)
+database/
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Exports
+exports/
+
+# OS
+.DS_Store
+Thumbs.db

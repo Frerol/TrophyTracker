@@ -1,0 +1,54 @@
+"""Dashboard rules (UI.md 3.1) — MVP scope only.
+
+Reduced by design: Recommendations is a v1.1 feature
+(DevelopmentRoadmap.md), left as an empty placeholder. Events and
+"Recently added achievements" need data this project doesn't have yet
+(no achievement-added timestamp in the schema, no Events endpoint modeled)
+and have been moved to v1.1 in DevelopmentRoadmap.md rather than faked here.
+"""
+
+from retrocheevos.database.repositories.achievement_repository import AchievementRepository
+from retrocheevos.database.repositories.game_completion_repository import (
+    GameCompletionRepository,
+)
+from retrocheevos.database.repositories.game_repository import GameRepository
+from retrocheevos.models.achievement import UserAchievement
+from retrocheevos.models.game import Game
+
+MIN_CONTINUE_PLAYING_PERCENT = 0.0
+MAX_CONTINUE_PLAYING_PERCENT = 100.0
+
+
+def get_continue_playing(
+    account_id: int,
+    *,
+    game_completion_repository: GameCompletionRepository,
+    game_repository: GameRepository,
+) -> list[Game]:
+    """Games with partial progress: started (>0%) but not finished (<100%)."""
+    completion_by_game_id = game_completion_repository.get_all_for_account(account_id)
+    game_ids = [
+        game_id
+        for game_id, percent in completion_by_game_id.items()
+        if MIN_CONTINUE_PLAYING_PERCENT < percent < MAX_CONTINUE_PLAYING_PERCENT
+    ]
+    games = (game_repository.get_by_id(game_id) for game_id in game_ids)
+    return [game for game in games if game is not None]
+
+
+def get_recent_activity(
+    account_id: int,
+    *,
+    achievement_repository: AchievementRepository,
+    limit: int = 20,
+) -> list[UserAchievement]:
+    """Most recent unlocks, newest first. Enriching with achievement/game titles
+    for display is left to the caller (Services/GUI), via the existing
+    Achievement/Game lookups — not baked in here.
+    """
+    return achievement_repository.get_recent_unlocks(account_id, limit)
+
+
+def get_recommendations(account_id: int) -> list[Game]:
+    """Placeholder — the real recommendation engine is v1.1 (DevelopmentRoadmap.md)."""
+    return []
