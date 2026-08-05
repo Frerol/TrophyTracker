@@ -16,7 +16,7 @@ no need to derive Beaten/Mastered from a completion percentage.
   only the ones with an award.
 """
 
-from retrocheevos.api.profile import RawAwardKind, RawGameProgress, RawUserPoints
+from retrocheevos.api.profile import RawAwardKind, RawGameProgress, RawUserProfile
 from retrocheevos.core.game_completion import compute_percent_complete
 from retrocheevos.models.profile import ProfileStats
 
@@ -25,7 +25,7 @@ BEATEN_AWARD_KINDS = {RawAwardKind.BEATEN_HARDCORE, RawAwardKind.BEATEN_SOFTCORE
 
 def build_profile_stats(
     account_id: int,
-    points: RawUserPoints,
+    profile: RawUserProfile,
     completion_progress: list[RawGameProgress],
 ) -> ProfileStats:
     games_beaten = sum(
@@ -42,9 +42,11 @@ def build_profile_stats(
 
     return ProfileStats(
         account_id=account_id,
-        points=points.points,
-        hardcore_points=points.hardcore_points,
+        points=profile.points,
+        hardcore_points=profile.hardcore_points,
         games_beaten=games_beaten,
         games_mastered=games_mastered,
         completion_percentage=completion_percentage,
+        true_points=profile.true_points,
+        user_pic_path=profile.user_pic_path,
     )

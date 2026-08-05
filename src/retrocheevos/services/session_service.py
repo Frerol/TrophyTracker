@@ -43,5 +43,12 @@ def switch_account(account_id: int) -> None:
         AccountRepository(connection).set_active(account_id)
 
 
+def logout() -> None:
+    """Clears the active account without removing it — still listed in
+    Settings, reachable again via "Switch to Selected"."""
+    with get_connection() as connection:
+        AccountRepository(connection).deactivate_all()
+
+
 def build_api_client(account: Account) -> RetroAchievementsClient:
     return RetroAchievementsClient(username=account.username, api_key=account.api_key)

@@ -4,16 +4,25 @@ import faulthandler
 import logging
 import sys
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.main_window import MainWindow
+from retrocheevos.gui.pages.home_page import ICON_PATH
 from retrocheevos.gui.styles import SCROLLBAR_STYLESHEET
 from retrocheevos.utils.logging_setup import LOG_DIR, configure_logging
 
 logger = logging.getLogger(__name__)
 
 CRASH_LOG_FILE = LOG_DIR / "crash.log"
+# Windows groups taskbar icons/entries by "Application User Model ID" —
+# without setting one explicitly, a python.exe-hosted app is grouped under
+# python.exe itself and can show *its* icon in the taskbar, no matter what
+# `setWindowIcon` is called with (`QIcon(LOGO_PATH)` was confirmed to load
+# correctly — not the icon file/path at fault). Must be set before the
+# first window is shown.
+APP_USER_MODEL_ID = "RetroCheevos.App"
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_tb) -> None:
@@ -29,6 +38,11 @@ def main() -> int:
     configure_logging()
     sys.excepthook = _log_uncaught_exception
     logger.info("Starting RetroCheevos")
+
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
     # `sys.excepthook` only ever sees Python exceptions — a genuine native
     # crash (e.g. a Qt/GUI object touched off the main thread) never reaches
@@ -46,6 +60,10 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setStyleSheet(SCROLLBAR_STYLESHEET)
+    # Belt-and-suspenders with `MainWindow.setWindowIcon`: the app-level
+    # icon is what some Windows UI (Alt-Tab, taskbar) reads directly,
+    # rather than falling back to the per-window one.
+    app.setWindowIcon(QIcon(str(ICON_PATH)))
     window = MainWindow()
     window.show()
     return app.exec()

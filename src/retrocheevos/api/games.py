@@ -43,6 +43,16 @@ class RawGameProgression:
     times_used_in_hardcore_beat_median: Optional[int]
 
 
+@dataclass
+class RawUserGameProgress:
+    game_id: int
+    title: str
+    console_name: Optional[str]
+    achievements_unlocked: int
+    achievements_total: int
+    playtime_seconds: Optional[int]
+
+
 class GamesClient:
     def __init__(self, client: RetroAchievementsClient) -> None:
         self._client = client
@@ -112,4 +122,21 @@ class GamesClient:
             game_id=game_id,
             median_time_to_beat_hardcore_seconds=payload.get("MedianTimeToBeatHardcore"),
             times_used_in_hardcore_beat_median=payload.get("TimesUsedInHardcoreBeatMedian"),
+        )
+
+    def get_user_game_progress(self, username: str, game_id: int) -> RawUserGameProgress:
+        """Confirmed live (Recent Activity redesign, DevelopmentRoadmap.md):
+        works for `u=<any username>`, not just the authenticated account.
+        `UserTotalPlaytime` is in seconds.
+        """
+        payload = self._client.get(
+            "API_GetGameInfoAndUserProgress.php", {"u": username, "g": game_id}
+        )
+        return RawUserGameProgress(
+            game_id=game_id,
+            title=payload.get("Title", ""),
+            console_name=payload.get("ConsoleName"),
+            achievements_unlocked=payload.get("NumAwardedToUser", 0),
+            achievements_total=payload.get("NumAchievements", 0),
+            playtime_seconds=payload.get("UserTotalPlaytime"),
         )

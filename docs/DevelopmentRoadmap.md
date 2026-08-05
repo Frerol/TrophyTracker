@@ -70,8 +70,137 @@
   "event" string against. `gui/pages/profile_page.py` now splits badges
   into two tabs (Badges / Event Badges) on that flag. No dates, no
   notifications — matches what the API can actually support.
-- **Next up:** consider restoring PySide6 to latest (currently pinned to
-  6.10.1) now that the crash is confirmed fixed independent of version.
+- **Unified Home screen** (`gui/pages/home_page.py`), RA-site-inspired,
+  built in phases (thin skeleton first, matching how the Explorer redesign
+  started). Phases 1-4 are done and verified on real hardware:
+  - **Phase 1 — skeleton**: logo (`assets/logo.png`, background-stripped
+    from the user's source JPEG) + app name top-left, top bar, 3-section
+    sidebar, added as a new nav entry, no cutover of existing pages.
+  - **Phase 2 — real data**: Continue Playing, points, and Event Badges
+    wired in, reusing `dashboard_service`/`profile_service` as-is, zero
+    new backend.
+  - **Phase 3 — navigation/menu**: user menu (Profile/Library/Lists/
+    Settings/Logout), plus Recent Activity absorbed from the now-deleted
+    `DashboardPage`. `main_window.py`'s nav converged onto one
+    `QStackedWidget` via two paths — the primary `_nav_list`
+    (Home/Explorer/Leaderboards) and the user menu
+    (`HomePage.navigate_requested`/`logout_requested` signals,
+    `_menu_pages` dict). New `session_service.logout()` /
+    `AccountRepository.deactivate_all()`.
+  - **Phase 4 — Recent Activity redesign + header polish**: Recent
+    Activity rebuilt to match RA's own "Following" page — avatar,
+    last-activity time, current game, an aggregate achievements/playtime
+    line, and a colored rich-presence status line, for the account itself
+    plus every followed user in one sorted list (no Message/Unfollow/
+    Block buttons). Confirmed live that RA's API supports this:
+    `API_GetUsersIFollow.php`, and `API_GetUserProfile.php`/
+    `API_GetUserRecentAchievements.php`/`API_GetGameInfoAndUserProgress.php`
+    all work for `u=<any username>`, not just the authenticated account.
+    `services/activity_feed_service.py` is a deliberate departure from
+    every other `services/` module — a **live read with no DB write**,
+    since rich presence is ephemeral and caching it would just show stale
+    status. Entries stream in via `ServiceWorker`'s `stream_results`/
+    `partial_result` (a second generic capability alongside the existing
+    `report_progress`/`progress`) instead of waiting for the whole
+    several-second fetch, and a real `.failed` handler now shows an error
+    label instead of leaving "Loading…" stuck forever.
+    **Known, disclosed fidelity gap vs. RA's site**: no true "last seen"
+    timestamp (only `MemberSince`) and no per-category achievement
+    breakdown — approximated with last-unlock-time and an aggregate
+    `{unlocked}/{total} achievements | Played {Hh MMm}` line.
+    Header redesign: user menu button is now a photo-only
+    `_HoverMenuButton` (no name) — click is a shortcut to Profile, hover
+    (after a short delay, auto-closing when the cursor leaves both the
+    button and the menu) opens the full destinations menu. Points are
+    stacked vertically (blue/white, no parentheses, vertically centered
+    against the avatar via `top_bar.setAlignment(points_column,
+    AlignVCenter)`). `main_window.py` gained always-visible browser-style
+    back/forward buttons above `_nav_list` (`_history`/`_history_index`,
+    `_show_page` as the single funnel every navigation path goes
+    through — nav and menu pages alike). Window/taskbar icon set from a
+    dedicated square `assets/icon.png` (Pillow-generated from the non-
+    square `logo.png`, which stays Home-header-only) via `setWindowIcon`,
+    plus `ctypes.SetCurrentProcessExplicitAppUserModelID` in `main.py` so
+    Windows doesn't show python.exe's icon in the taskbar.
+    **Two real bugs found and fixed during this phase**, both instructive
+    for future GUI work in this app: (1) a *native access-violation
+    crash* — `main_window.py` was calling `HomePage.refresh()` twice in
+    immediate succession on several paths (redundant explicit calls,
+    and `itemClicked` + `currentRowChanged` both firing for one click);
+    harmless while every worker was fast, but once Recent Activity's
+    live fetch made `_activity_worker` slow, the second `refresh()` call
+    reliably destroyed a still-running `QThread` — undefined behavior in
+    Qt. Fixed by making every navigation path call `refresh()` exactly
+    once (`itemClicked` connection removed, `_on_logout` uses the
+    `blockSignals` dance `_on_menu_navigate` already used), plus a
+    defense-in-depth "skip if already running" guard on both workers.
+    (2) `QLayout.setSpacing()` does **not** support negative values —
+    confirmed via direct `.geometry()` measurement that any negative
+    spacing (tested -1 through -20) is silently discarded and replaced
+    with the platform style's own default (~6px), identical regardless of
+    how negative the argument was; `0` is the true floor. Several rounds
+    of "make the arrows/points closer together" produced zero visible
+    change for exactly this reason until this was found and both
+    `HISTORY_BUTTON_SPACING`/`POINTS_SPACING` were corrected to `0` (plus
+    a missing `points_column.setAlignment(AlignTop)`, without which a
+    taller sibling widget in the same row caused Qt to distribute unused
+    height *between* the two point labels even at zero spacing).
+- **Phase 5 — Explorer embedded in Home's expand-on-click search bar**:
+  done and verified. Chosen mechanism: **in-layout expand**, not an
+  overlay (manual `move()`/`resize()` geometry is itself the class of
+  code implicated in Explorer's earlier native crash) and not a
+  `QStackedWidget` page switch (would be a pseudo-navigation with no real
+  page backing it). `HomePage`'s center column's old disabled placeholder
+  became `_search_launcher_button` — a plain trigger, not a real search
+  field. Clicking it hides the launcher + Continue Playing + Recent
+  Activity and shows a **second, independent `ExplorerPage` instance**
+  (`self._explorer_page`) with `stretch=1`; a "‹ Back to Home" button
+  reverses it. `HomePage.refresh()` always collapses back to the default
+  state — the embedded page's own state isn't remembered across Home
+  visits.
+  **Component reuse**: `ExplorerPage`/`ExplorerFilterBar`/
+  `ExplorerTableModel`/the three delegates are **completely unmodified**
+  — `ExplorerPage` was already a fully self-contained `QWidget` needing
+  only an `AppContext`, so it's constructed a second time directly in
+  `HomePage.__init__` and just added to a different layout. Deliberate
+  tradeoff: two independent `ExplorerPage` instances (the standalone nav
+  one in `MainWindow`, this new embedded one) means separate table/filter
+  state — an action in one isn't reflected in the other until each
+  re-fetches. Reparenting a single shared instance between containers
+  was considered and rejected: that's exactly the kind of geometry/
+  parent-change operation this phase was trying to avoid touching.
+  No animation on expand/collapse either, same reasoning — instant
+  `setVisible()` only.
+  **Testing**: headless — expand/collapse toggles visibility correctly,
+  `ExplorerPage.refresh()` fires exactly once per expand (re-runs every
+  expand, not just the first, since it's cache-only/cheap per its own
+  docstring), 25 expand/collapse cycles with no exception,
+  `HomePage.refresh()` collapses even if left expanded, sorting/filtering/
+  `ActionsDelegate` hit-testing all work correctly against the real
+  synced database (1778 rows) while embedded. One incidental finding
+  investigated and ruled out: an abrupt test-script exit while
+  `ImageLoader`'s background `QThreadPool.globalInstance()` thumbnail
+  loads were still in flight logged `RuntimeError: Signal source has been
+  deleted` — confirmed via a controlled rerun (`waitForDone()` before
+  exit) that this is a pre-existing test-harness artifact of the global
+  thread pool outliving a short-lived script, not something
+  expand/collapse causes (collapsing only hides the page, never destroys
+  it or its `ImageLoader`).
+  **The actual historical crash trigger, reproduced directly**: a
+  real-platform (non-offscreen) driven script expanded the embedded
+  Explorer, entered/exited fullscreen twice (`showFullScreen()`/
+  `showNormal()` — the literal action that caused the original
+  `setIndexWidget()` crash), resized the window four times while
+  expanded, and round-tripped through standalone-Explorer-nav and back —
+  `logs/crash.log` line count unchanged throughout. Also confirmed with
+  the standard real 20s app launch used all session.
+- **Next up**: Phase 6/7 (Games Beaten + Friends leaderboards — needs a
+  research spike, this pulls forward Version 1.2 work with zero backend
+  built), Phase 8 (notification bell — own feasibility check, same
+  data-gap pattern as "recently added achievements"). Separately, also
+  still pending: restoring PySide6 to latest (pinned to 6.10.1 since the
+  Explorer crash, confirmed fixed independent of version, never actually
+  re-tested against latest).
 
 ## MVP
 

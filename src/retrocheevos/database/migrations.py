@@ -7,6 +7,7 @@ from pathlib import Path
 from retrocheevos.database.connection import DEFAULT_DATABASE_PATH, create_connection
 from retrocheevos.database.schema import (
     ALTER_TABLES_V7,
+    ALTER_TABLES_V8,
     CREATE_INDICES,
     CREATE_TABLES,
     CREATE_TABLES_V3,
@@ -43,6 +44,7 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     (5, CREATE_TABLES_V5),
     (6, CREATE_TABLES_V6),
     (7, ALTER_TABLES_V7),
+    (8, ALTER_TABLES_V8),
 ]
 
 

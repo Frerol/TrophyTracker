@@ -16,15 +16,18 @@ class ProfileRepository:
             """
             INSERT INTO profile_stats (
                 account_id, points, hardcore_points, games_beaten,
-                games_mastered, completion_percentage, last_synced_at
+                games_mastered, completion_percentage, true_points,
+                user_pic_path, last_synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id) DO UPDATE SET
                 points = excluded.points,
                 hardcore_points = excluded.hardcore_points,
                 games_beaten = excluded.games_beaten,
                 games_mastered = excluded.games_mastered,
                 completion_percentage = excluded.completion_percentage,
+                true_points = excluded.true_points,
+                user_pic_path = excluded.user_pic_path,
                 last_synced_at = excluded.last_synced_at
             """,
             (
@@ -34,6 +37,8 @@ class ProfileRepository:
                 stats.games_beaten,
                 stats.games_mastered,
                 stats.completion_percentage,
+                stats.true_points,
+                stats.user_pic_path,
                 datetime_to_sql(stats.last_synced_at),
             ),
         )
@@ -88,6 +93,8 @@ class ProfileRepository:
             games_beaten=row["games_beaten"],
             games_mastered=row["games_mastered"],
             completion_percentage=row["completion_percentage"],
+            true_points=row["true_points"],
+            user_pic_path=row["user_pic_path"],
             last_synced_at=datetime_from_sql(row["last_synced_at"]),
         )
 

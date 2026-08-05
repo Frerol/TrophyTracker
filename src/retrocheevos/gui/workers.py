@@ -16,12 +16,21 @@ class ServiceWorker(QThread):
     finished_ok = Signal(object)
     failed = Signal(str)
     progress = Signal(int, int)
+    # For calls that produce results incrementally (e.g. one item fetched
+    # at a time from several API calls) rather than all at once — lets the
+    # GUI render items as they arrive instead of showing nothing until the
+    # whole batch finishes. Same cross-thread-signal safety as `finished_ok`
+    # (this class's `run()` executes on the worker thread; Qt's
+    # AutoConnection queues delivery to whatever thread the receiver lives
+    # on, same as every other signal here).
+    partial_result = Signal(object)
 
     def __init__(
         self,
         func: Callable[..., Any],
         *args: Any,
         report_progress: bool = False,
+        stream_results: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -30,9 +39,14 @@ class ServiceWorker(QThread):
         self._kwargs = kwargs
         if report_progress:
             self._kwargs["progress_callback"] = self._emit_progress
+        if stream_results:
+            self._kwargs["result_callback"] = self._emit_partial_result
 
     def _emit_progress(self, current: int, total: int) -> None:
         self.progress.emit(current, total)
+
+    def _emit_partial_result(self, item: Any) -> None:
+        self.partial_result.emit(item)
 
     def run(self) -> None:
         try:

@@ -13,6 +13,12 @@ class ProfileStats:
     games_beaten: int
     games_mastered: int
     completion_percentage: float
+    # RetroRatio-weighted total, shown alongside `points` on RA's own site
+    # (`API_GetUserProfile.php`'s `TotalTruePoints`, confirmed live).
+    true_points: int = 0
+    # Path fragment (e.g. `/UserPic/{username}.png`), same base URL as game
+    # images — `library/user_pics.py` turns this into a cached local file.
+    user_pic_path: Optional[str] = None
     last_synced_at: Optional[datetime] = None
 
 

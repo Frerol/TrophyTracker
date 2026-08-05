@@ -64,6 +64,12 @@ class AccountRepository:
         self._connection.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
         logger.info("Switched active account to id=%d", account_id)
 
+    def deactivate_all(self) -> None:
+        """Logout: no account stays active. Accounts themselves are untouched
+        (still listed in Settings) — distinct from `remove`, which deletes one."""
+        self._connection.execute("UPDATE accounts SET is_active = 0")
+        logger.info("Deactivated all accounts (logout)")
+
     def update_last_synced(self, account_id: int, synced_at: datetime) -> None:
         self._connection.execute(
             "UPDATE accounts SET last_synced_at = ? WHERE id = ?",

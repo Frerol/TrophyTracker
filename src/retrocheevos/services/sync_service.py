@@ -149,12 +149,12 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
     re-run `sync_profile` after) to pick up completion % for those games too.
     """
     profile_client = ProfileClient(client)
-    points = profile_client.get_user_points(account.username)
+    profile = profile_client.get_user_profile(account.username)
     completion_progress = profile_client.get_user_completion_progress(account.username)
     awards = profile_client.get_user_awards(account.username)
     now = datetime.now()
 
-    stats = build_profile_stats(account.id, points, completion_progress)
+    stats = build_profile_stats(account.id, profile, completion_progress)
     stats.last_synced_at = now
     completions = build_game_completions(account.id, completion_progress)
     for completion in completions:

@@ -7,13 +7,11 @@ Reduced by design: Recommendations is a v1.1 feature
 and have been moved to v1.1 in DevelopmentRoadmap.md rather than faked here.
 """
 
-from retrocheevos.database.repositories.achievement_repository import AchievementRepository
 from retrocheevos.database.repositories.game_completion_repository import (
     GameCompletionRepository,
 )
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.list_repository import ListRepository
-from retrocheevos.models.achievement import UserAchievement
 from retrocheevos.models.game import Game
 from retrocheevos.utils.enums import ListType
 
@@ -39,19 +37,6 @@ def get_continue_playing(
     ]
     games = (game_repository.get_by_id(game_id) for game_id in game_ids)
     return [game for game in games if game is not None]
-
-
-def get_recent_activity(
-    account_id: int,
-    *,
-    achievement_repository: AchievementRepository,
-    limit: int = 20,
-) -> list[UserAchievement]:
-    """Most recent unlocks, newest first. Enriching with achievement/game titles
-    for display is left to the caller (Services/GUI), via the existing
-    Achievement/Game lookups — not baked in here.
-    """
-    return achievement_repository.get_recent_unlocks(account_id, limit)
 
 
 def get_recommendations(account_id: int) -> list[Game]:

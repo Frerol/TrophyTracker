@@ -212,3 +212,11 @@ CREATE_TABLES_V6 = [
 ALTER_TABLES_V7 = [
     "ALTER TABLE badges ADD COLUMN is_event BOOLEAN NOT NULL DEFAULT 0",
 ]
+
+# `API_GetUserProfile.php`'s `TotalTruePoints` (RetroRatio-weighted total,
+# shown alongside points on RA's own site) and `UserPic` (path fragment for
+# the profile photo, `library/user_pics.py`) — both confirmed live.
+ALTER_TABLES_V8 = [
+    "ALTER TABLE profile_stats ADD COLUMN true_points INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE profile_stats ADD COLUMN user_pic_path TEXT",
+]

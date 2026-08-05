@@ -1,8 +1,13 @@
 """User profile stats, completion progress, and awards (API.md §3).
 
-`get_user_points` still follows the RetroAchievements Web API's shape from
-memory, not a live-verified response — treat it as a first pass to confirm
-during Services/GUI integration testing with a real API key.
+`get_user_profile` (`API_GetUserProfile.php`) is confirmed via a live call:
+returns `UserPic` (a path fragment, e.g. `/UserPic/{username}.png` — same
+base URL as game images, `library/game_images.py`'s
+`https://i.retroachievements.org`, also confirmed live), `TotalPoints`
+(identical value to the older `API_GetUserPoints.php`'s `Points`, which
+this replaces — one call now covers points, true points, and the photo
+instead of two), and `TotalTruePoints` (RetroRatio-weighted total, shown
+alongside points on RA's own site).
 
 `get_user_awards` (`API_GetUserAwards.php`) is now confirmed via a live
 call: `VisibleUserAwards` items include `Title`, `ImageIcon`, `AwardedAt`,
@@ -21,6 +26,13 @@ Deriving `games_beaten` / `games_mastered` / `completion_percentage` (from
 `HighestAwardKind`) and per-game `percent_complete` (from
 `NumAwarded`/`MaxPossible`) is a `core/` decision (Architecture.md — "what
 counts as Completed"), not done here.
+
+`get_users_i_follow` (`API_GetUsersIFollow.php`) and `get_recent_achievements`
+(`API_GetUserRecentAchievements.php`) are both confirmed live for the Recent
+Activity redesign (DevelopmentRoadmap.md): `API_GetUserProfile.php` and
+`API_GetUserRecentAchievements.php` both also work with `u=<any username>`,
+not just the authenticated account — confirmed by calling them against a
+followed user, not just self.
 """
 
 from dataclasses import dataclass
@@ -33,9 +45,13 @@ from retrocheevos.api.serialization import parse_ra_datetime
 
 
 @dataclass
-class RawUserPoints:
+class RawUserProfile:
     points: int
     hardcore_points: int
+    true_points: int
+    user_pic_path: Optional[str]
+    rich_presence_msg: Optional[str] = None
+    last_game_id: Optional[int] = None
 
 
 class RawAwardKind(str, Enum):
@@ -71,20 +87,44 @@ class RawAward:
     console_id: Optional[int]
 
 
+@dataclass
+class RawFollowedUser:
+    username: str
+    ulid: str
+    points: int
+    softcore_points: int
+    is_following_me: bool
+
+
+@dataclass
+class RawRecentAchievement:
+    unlocked_at: Optional[datetime]
+    game_id: int
+    game_title: str
+    game_icon_path: Optional[str]
+    console_name: Optional[str]
+    points: int
+    true_ratio: int
+
+
 class ProfileClient:
     def __init__(self, client: RetroAchievementsClient) -> None:
         self._client = client
 
-    def get_user_points(self, username: str) -> RawUserPoints:
-        # NOTE: RA's "Points" field is already hardcore-only (softcore unlocks
-        # accrue into a separate "SoftcorePoints" total on the real site) — but
-        # this hasn't been confirmed against a live response, so `points` and
-        # `hardcore_points` are both set from "Points" as a placeholder pending
-        # verification, rather than guessing a distinct source for `points`.
-        payload = self._client.get("API_GetUserPoints.php", {"u": username})
-        return RawUserPoints(
-            points=payload.get("Points", 0),
-            hardcore_points=payload.get("Points", 0),
+    def get_user_profile(self, username: str) -> RawUserProfile:
+        # NOTE: RA's "TotalPoints" is already hardcore-only (softcore
+        # unlocks accrue into the separate "TotalSoftcorePoints", confirmed
+        # live as 0 for the account this was tested against — real but
+        # unexercised) — `points`/`hardcore_points` both set from
+        # "TotalPoints" as before, that part of the original guess held up.
+        payload = self._client.get("API_GetUserProfile.php", {"u": username})
+        return RawUserProfile(
+            points=payload.get("TotalPoints", 0),
+            hardcore_points=payload.get("TotalPoints", 0),
+            true_points=payload.get("TotalTruePoints", 0),
+            user_pic_path=payload.get("UserPic"),
+            rich_presence_msg=payload.get("RichPresenceMsg"),
+            last_game_id=payload.get("LastGameID"),
         )
 
     def get_user_completion_progress(self, username: str) -> list[RawGameProgress]:
@@ -121,3 +161,39 @@ class ProfileClient:
                 )
             )
         return awards
+
+    def get_users_i_follow(self, limit: int = 30) -> list[RawFollowedUser]:
+        payload = self._client.get("API_GetUsersIFollow.php", {"c": limit, "o": 0})
+        followed = []
+        for item in payload.get("Results", []):
+            followed.append(
+                RawFollowedUser(
+                    username=item["User"],
+                    ulid=item.get("ULID", ""),
+                    points=item.get("Points", 0),
+                    softcore_points=item.get("PointsSoftcore", 0),
+                    is_following_me=bool(item.get("IsFollowingMe", False)),
+                )
+            )
+        return followed
+
+    def get_recent_achievements(
+        self, username: str, minutes: int
+    ) -> list[RawRecentAchievement]:
+        payload = self._client.get(
+            "API_GetUserRecentAchievements.php", {"u": username, "m": minutes}
+        )
+        achievements = []
+        for item in payload:
+            achievements.append(
+                RawRecentAchievement(
+                    unlocked_at=parse_ra_datetime(item.get("Date")),
+                    game_id=item["GameID"],
+                    game_title=item.get("GameTitle", ""),
+                    game_icon_path=item.get("GameIcon"),
+                    console_name=item.get("ConsoleName"),
+                    points=item.get("Points", 0),
+                    true_ratio=item.get("TrueRatio", 0),
+                )
+            )
+        return achievements
