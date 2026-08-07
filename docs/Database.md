@@ -42,7 +42,11 @@ Reference table of supported consoles (from RetroAchievements).
 
 ### 2.3 `games`
 
-Cached game metadata.
+Cached game metadata. Games without an achievement set are never synced or
+stored here at all — `services/sync_service.py` filters them out server-side
+at sync time, and `database/repositories/game_repository.py` unconditionally
+excludes `has_achievements = 0` as a defensive floor. Every row in this
+table always has `has_achievements = true`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -52,7 +56,7 @@ Cached game metadata.
 | image_path | TEXT | cached locally |
 | genre | TEXT | nullable, future use |
 | game_type | TEXT | Retail / Homebrew / Hack / Demo / Prototype |
-| has_achievements | BOOLEAN | |
+| has_achievements | BOOLEAN | always `true` (see above) |
 | median_time_to_beat_hardcore_seconds | INTEGER | nullable, hardcore-only median time to beat (RA's own field is a median, never call it "average") |
 | times_used_in_hardcore_beat_median | INTEGER | nullable, sample size behind the median |
 | retroachievements_url | TEXT | e.g. `https://retroachievements.org/game/4909` |
@@ -153,26 +157,25 @@ that console should be moved to).
 | console_id | INTEGER PK, FK → consoles.id | one destination per console |
 | path | TEXT | folder chosen by the user in Settings > ROM Destinations |
 
-## 4. Lists & Following
+## 4. Lists
 
 ### 4.1 `user_lists`
 
 Single table for all list types (Want to Play, Playing, Completed,
-Abandoned, Following) rather than "favorites".
+Abandoned) rather than "favorites".
 
 | Column | Type | Notes |
 |---|---|---|
 | id | INTEGER PK | |
 | account_id | INTEGER FK → accounts.id | |
 | game_id | INTEGER FK → games.id | |
-| list_type | TEXT | enum: `want_to_play`, `playing`, `completed`, `abandoned`, `following`, `blocked` |
+| list_type | TEXT | enum: `want_to_play`, `playing`, `completed`, `abandoned`, `blocked` |
 | added_at | DATETIME | |
 
 Rules enforced at Core layer (not DB constraints):
 
 - `abandoned` and `completed` entries are excluded from default Explorer
   results.
-- `following` is valid even for games with `has_achievements = false`.
 - `blocked` entries are excluded everywhere — Explorer (no opt-in reveal
   filter, unlike `abandoned`/`completed`), Dashboard's Continue Playing,
   and every other list's view (a blocked game disappears from lists it was
@@ -248,12 +251,18 @@ Snapshot cache of RetroAchievements profile data per account.
 Added post-MVP-planning (migration v3) — per-account, per-game completion
 percentage, powering the Explorer Game Card's individual progress bar.
 Sourced from `NumAwarded`/`MaxPossible` via `API_GetUserCompletionProgress.php`.
+`highest_award_kind` (migration v11) is that same endpoint's per-game award
+classification (`HighestAwardKind`) — powers Explorer's unconditional
+already-beaten exclusion (`database/repositories/
+game_completion_repository.py::get_beaten_game_ids`), mirroring how
+`achievements`/`user_achievements` already power already-mastered exclusion.
 
 | Column | Type | Notes |
 |---|---|---|
 | account_id | INTEGER FK → accounts.id | part of composite PK |
 | game_id | INTEGER FK → games.id | part of composite PK |
 | percent_complete | REAL | `100 * NumAwarded / MaxPossible`, `0` if `MaxPossible` is 0/unknown |
+| highest_award_kind | TEXT | nullable — RA's `HighestAwardKind` (e.g. `beaten-hardcore`, `mastered`), `NULL` if no award yet |
 | last_synced_at | DATETIME | |
 
 ## 7. Cache Invalidation Rules (Core-layer, not DB-enforced)

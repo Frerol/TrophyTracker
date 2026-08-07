@@ -16,13 +16,16 @@
 Primary navigation (left sidebar or top nav — implementation detail for
 `gui/`), fixed set of destinations:
 
-1. Dashboard
-2. Explorer
-3. Library
-4. Profile
-5. Leaderboards
-6. Lists
-7. Settings
+1. Home
+2. Library
+3. Leaderboards
+4. Lists
+5. Settings
+
+Explorer isn't a destination of its own — it's embedded in Home, behind the
+search field and filter pills. There is no Profile screen either: its
+content now lives on Home (points, Beaten/Mastered/Completion, Badges and
+Event Badges) and in Settings (the manual "Sync Profile" action).
 
 ## 3. Screens
 
@@ -55,25 +58,26 @@ The heart of the app. Contains:
 
 - Console (multi-select)
 - Genre (future)
-- Achievements (has/none)
 - Median Time to Beat (togglable on/off)
 - Installed
 - Completed
-- Mastered
 - Want to Play
 - Playing
 - Abandoned
-- Following
 - Retail
 - Homebrew
 - Hack
 - Demo
 - Prototype
-- Search with achievements
-- Search without achievements
-- Search all
 
-Default state: Completed and Mastered games are **hidden** unless the user
+Games without an achievement set are never synced or shown anywhere in the
+app (Database.md §2.3) — there is no achievements-based filter here because
+every game already has one, unconditionally. Already-mastered and
+already-beaten games are excluded the same way, unconditionally — there is
+no filter to reveal them (unlike Completed/Abandoned, which are hidden by
+default but toggleable).
+
+Default state: Completed and Abandoned games are **hidden** unless the user
 enables them via filters.
 
 ### 3.3 Library
@@ -86,13 +90,13 @@ enables them via filters.
 - Play an installed game directly in its configured emulator (Settings §3.7
   "Emulators"), launched as an independent background process.
 
-### 3.4 Profile
+### 3.4 Profile (removed — content absorbed elsewhere)
 
-- RetroAchievements profile summary.
-- Player statistics: points, hardcore points, completion percentage, games
-  beaten, games mastered.
-- Badges (owned/missing) and Event Awards.
-- Recent activity feed.
+There is no Profile screen. What it used to hold now lives on Home: points
+and true points in the header, Beaten/Mastered/Completion beneath them,
+Badges and Event Badges in the sidebar, and the recent activity feed in its
+own section. The manual "Sync Profile" action moved to Settings (§3.7) —
+Home also syncs the profile opportunistically on its own.
 
 ### 3.5 Leaderboards
 
@@ -107,7 +111,6 @@ enables them via filters.
 - Playing
 - Completed
 - Abandoned
-- Following
 
 Each list is a filtered view over `user_lists`, reusing the Game Card
 component from Explorer.
@@ -151,7 +154,6 @@ Displays:
 - Want to Play
 - Playing
 - Abandoned
-- Following
 - Open on RetroAchievements (opens `retroachievements_url` externally)
 
 ## 5. Interaction Principles

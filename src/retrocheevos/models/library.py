@@ -20,45 +20,30 @@ class InstalledRom:
     console_id: int
     game_id: Optional[int] = None
     detected_at: Optional[datetime] = None
+    # When this ROM was last successfully launched through the app (any
+    # entry point — Home, Library, Explorer all converge on the same
+    # launch helper). None if never launched. Powers Continue Playing's
+    # recency ordering (`core/dashboard.py`).
+    last_played_at: Optional[datetime] = None
     id: Optional[int] = None
 
 
 @dataclass
-class WatchFolderMatch:
-    """A file with a known destination console — either auto-detected with
-    confidence, or picked by the user for a file that was ambiguous.
+class RomFolderScanResult:
+    """What `library_service.scan_rom_folder` found and recorded.
 
-    `inner_member` is set when `file_path` is a single-file `.zip` and this
-    match is for the file *inside* it (`console_detection._detect_single_file_zip`)
-    — `apply_watch_folder_scan` extracts and hashes that member instead of
-    the zip itself, then archives the original zip rather than deleting it.
-    """
-
-    file_path: str
-    console_id: int
-    inner_member: Optional[str] = None
-
-
-@dataclass
-class WatchFolderAmbiguity:
-    """A file whose extension maps to more than one console and couldn't be
-    narrowed down further — the user must pick one of `candidate_console_ids`.
-    See `WatchFolderMatch.inner_member` for what this means for zips.
-    """
-
-    file_path: str
-    candidate_console_ids: tuple[int, ...]
-    inner_member: Optional[str] = None
-
-
-@dataclass
-class WatchFolderScanPreview:
-    """Result of scanning a `RomFolder` without moving or recording anything
-    yet (`library_service.preview_watch_folder_scan`). `unrecognized_paths`
-    are files whose extension has no known console mapping at all.
+    The scan never moves, renames, or deletes anything — the ROM Location
+    page points at folders the user has already organized themselves, so the
+    only job is working out what is in them. Files that can't be pinned to a
+    single console are reported rather than guessed at: filing a ROM under
+    the wrong console is worse than leaving it out.
     """
 
     rom_folder_id: int
-    confident: list[WatchFolderMatch]
-    ambiguous: list[WatchFolderAmbiguity]
+    recorded: list["InstalledRom"]
+    already_known_count: int
+    # Extension maps to more than one console and nothing narrowed it down.
+    ambiguous_paths: list[str]
+    # Extension maps to no known console at all — saves, patches, box art,
+    # readme files, and everything else that lives alongside real ROMs.
     unrecognized_paths: list[str]

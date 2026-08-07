@@ -19,6 +19,10 @@ class ProfileStats:
     # Path fragment (e.g. `/UserPic/{username}.png`), same base URL as game
     # images — `library/user_pics.py` turns this into a cached local file.
     user_pic_path: Optional[str] = None
+    # Which version of the stats formula produced these numbers — see
+    # `sync_service.PROFILE_STATS_REVISION`. Lets a changed calculation
+    # invalidate the cache, which `last_synced_at` alone cannot.
+    stats_revision: int = 0
     last_synced_at: Optional[datetime] = None
 
 

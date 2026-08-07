@@ -1,8 +1,23 @@
-"""Settings page (UI.md 3.7) — MVP scope: Accounts, ROM folders, Emulators,
-ROM Destinations (Watch Folder organizing target per console).
+"""Settings page (UI.md 3.7) — MVP scope: Accounts, Emulators, Profile sync.
+
+ROM Folders left too: folders are per-console now and live under the Lists
+page's Library view, next to the grid they fill and the scan that reads
+them. Adding a folder here meant leaving the page to do anything with it.
+
+ROM Destinations and Quick Links were removed in Bloco 11: destinations only
+existed to tell the Watch Folder organizer where to move files, and nothing
+moves files any more; the Quick Link button they fed lived on the page that
+became ROM Location.
+
+Blocked Games left in Bloco 12. Blocked is a list like any other now, so it
+lives on the Lists page with the rest of them and unblocking is the "−"
+button on its cards — managing it from two places would have meant two
+implementations of the same thing.
 
 Theme/Language/Cache management are deferred to the deepening pass.
 """
+
+from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -24,14 +39,19 @@ from PySide6.QtWidgets import (
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
 from retrocheevos.gui.pages.base_page import Page
-from retrocheevos.library.quick_link_suggestions import QUICK_LINK_SUGGESTIONS
-from retrocheevos.services import console_service, library_service, lists_service, session_service
-from retrocheevos.utils.enums import ListType
+from retrocheevos.gui.workers import ServiceWorker
+from retrocheevos.services import (
+    console_service,
+    library_service,
+    session_service,
+    sync_service,
+)
 
 
 class SettingsPage(Page):
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
+        self._sync_profile_worker: Optional[ServiceWorker] = None
 
         self._username_input = QLineEdit()
         self._api_key_input = QLineEdit()
@@ -52,18 +72,6 @@ class SettingsPage(Page):
         account_buttons.addWidget(switch_button)
         account_buttons.addWidget(remove_account_button)
 
-        self._rom_folders_list = QListWidget()
-        rom_folders_delegate = RemovableListDelegate(self._rom_folders_list)
-        rom_folders_delegate.remove_requested.connect(self._remove_rom_folder)
-        self._rom_folders_list.setItemDelegate(rom_folders_delegate)
-        add_folder_button = QPushButton("Add ROM Folder...")
-        add_folder_button.clicked.connect(self._on_add_rom_folder)
-        remove_folder_button = QPushButton("Remove Selected Folder")
-        remove_folder_button.clicked.connect(self._on_remove_rom_folder)
-        folder_buttons = QHBoxLayout()
-        folder_buttons.addWidget(add_folder_button)
-        folder_buttons.addWidget(remove_folder_button)
-
         self._emulator_console_selector = QComboBox()
         self._emulator_path_input = QLineEdit()
         self._emulator_path_input.setPlaceholderText("Path to emulator executable")
@@ -81,9 +89,24 @@ class SettingsPage(Page):
         save_emulator_button = QPushButton("Save Emulator")
         save_emulator_button.clicked.connect(self._on_save_emulator)
 
+        # RetroArch and other libretro frontends are one executable plus a
+        # core `.dll` per system, so "the emulator for this console" needs
+        # two paths. Optional: emulators with a real per-console binary
+        # leave it empty and nothing changes for them.
+        self._emulator_core_input = QLineEdit()
+        self._emulator_core_input.setPlaceholderText(
+            "Optional libretro core, e.g. cores/snes9x_libretro.dll (RetroArch)"
+        )
+        browse_core_button = QPushButton("Browse...")
+        browse_core_button.clicked.connect(self._on_browse_core)
+        emulator_core_row = QHBoxLayout()
+        emulator_core_row.addWidget(self._emulator_core_input)
+        emulator_core_row.addWidget(browse_core_button)
+
         emulator_form = QFormLayout()
         emulator_form.addRow("Console", self._emulator_console_selector)
         emulator_form.addRow("Executable", emulator_path_row)
+        emulator_form.addRow("Core", emulator_core_row)
         emulator_form.addRow("Arguments", self._emulator_args_input)
 
         self._emulators_list = QListWidget()
@@ -93,57 +116,13 @@ class SettingsPage(Page):
         remove_emulator_button = QPushButton("Remove Selected")
         remove_emulator_button.clicked.connect(self._on_remove_emulator)
 
-        self._destination_console_selector = QComboBox()
-        self._destination_path_input = QLineEdit()
-        self._destination_path_input.setPlaceholderText("Folder where this console's ROMs live")
-        browse_destination_button = QPushButton("Browse...")
-        browse_destination_button.clicked.connect(self._on_browse_destination)
-        destination_path_row = QHBoxLayout()
-        destination_path_row.addWidget(self._destination_path_input)
-        destination_path_row.addWidget(browse_destination_button)
-
-        save_destination_button = QPushButton("Save Destination")
-        save_destination_button.clicked.connect(self._on_save_destination)
-
-        destination_form = QFormLayout()
-        destination_form.addRow("Console", self._destination_console_selector)
-        destination_form.addRow("Folder", destination_path_row)
-
-        self._destinations_list = QListWidget()
-        destinations_delegate = RemovableListDelegate(self._destinations_list)
-        destinations_delegate.remove_requested.connect(self._remove_destination)
-        self._destinations_list.setItemDelegate(destinations_delegate)
-        remove_destination_button = QPushButton("Remove Selected")
-        remove_destination_button.clicked.connect(self._on_remove_destination)
-
-        self._quick_link_console_selector = QComboBox()
-        self._quick_link_console_selector.currentIndexChanged.connect(
-            self._on_quick_link_console_changed
-        )
-        self._quick_link_url_input = QLineEdit()
-        self._quick_link_url_input.setPlaceholderText(
-            "Reference URL for this console (e.g. a homebrew catalog or wiki)"
-        )
-        save_quick_link_button = QPushButton("Save Quick Link")
-        save_quick_link_button.clicked.connect(self._on_save_quick_link)
-
-        quick_link_form = QFormLayout()
-        quick_link_form.addRow("Console", self._quick_link_console_selector)
-        quick_link_form.addRow("URL", self._quick_link_url_input)
-
-        self._quick_links_list = QListWidget()
-        quick_links_delegate = RemovableListDelegate(self._quick_links_list)
-        quick_links_delegate.remove_requested.connect(self._remove_quick_link)
-        self._quick_links_list.setItemDelegate(quick_links_delegate)
-        remove_quick_link_button = QPushButton("Remove Selected")
-        remove_quick_link_button.clicked.connect(self._on_remove_quick_link)
-
-        self._blocked_games_list = QListWidget()
-        blocked_games_delegate = RemovableListDelegate(self._blocked_games_list)
-        blocked_games_delegate.remove_requested.connect(self._unblock_game)
-        self._blocked_games_list.setItemDelegate(blocked_games_delegate)
-        unblock_button = QPushButton("Unblock Selected")
-        unblock_button.clicked.connect(self._on_unblock_game)
+        # Absorbed from the retired Profile page. Home syncs the profile on
+        # its own, but only opportunistically and at most every
+        # `sync_service.PROFILE_SYNC_STALE_AFTER` — this is the explicit
+        # override for "refresh my points/badges right now", and the only
+        # place a sync failure is surfaced rather than just logged.
+        self._sync_profile_button = QPushButton("Sync Profile")
+        self._sync_profile_button.clicked.connect(self._on_sync_profile)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -152,27 +131,13 @@ class SettingsPage(Page):
         layout.addWidget(add_account_button)
         layout.addWidget(self._accounts_list)
         layout.addLayout(account_buttons)
-        layout.addWidget(QLabel("ROM Folders"))
-        layout.addWidget(self._rom_folders_list)
-        layout.addLayout(folder_buttons)
         layout.addWidget(QLabel("Emulators"))
         layout.addLayout(emulator_form)
         layout.addWidget(save_emulator_button)
         layout.addWidget(self._emulators_list)
         layout.addWidget(remove_emulator_button)
-        layout.addWidget(QLabel("ROM Destinations (Watch Folder organizing target per console)"))
-        layout.addLayout(destination_form)
-        layout.addWidget(save_destination_button)
-        layout.addWidget(self._destinations_list)
-        layout.addWidget(remove_destination_button)
-        layout.addWidget(QLabel("Quick Links (reference URL per console, opened from Library)"))
-        layout.addLayout(quick_link_form)
-        layout.addWidget(save_quick_link_button)
-        layout.addWidget(self._quick_links_list)
-        layout.addWidget(remove_quick_link_button)
-        layout.addWidget(QLabel("Blocked Games"))
-        layout.addWidget(self._blocked_games_list)
-        layout.addWidget(unblock_button)
+        layout.addWidget(QLabel("Profile"))
+        layout.addWidget(self._sync_profile_button)
         layout.addStretch(1)
 
         scroll_area = QScrollArea()
@@ -190,12 +155,6 @@ class SettingsPage(Page):
             item.setData(Qt.ItemDataRole.UserRole, account.id)
             self._accounts_list.addItem(item)
 
-        self._rom_folders_list.clear()
-        for folder in library_service.list_rom_folders():
-            item = QListWidgetItem(folder.path)
-            item.setData(Qt.ItemDataRole.UserRole, folder.id)
-            self._rom_folders_list.addItem(item)
-
         consoles = console_service.list_consoles()
         console_names = {console.id: console.name for console in consoles}
         previous_console = self._emulator_console_selector.currentData()
@@ -212,58 +171,15 @@ class SettingsPage(Page):
         self._emulators_list.clear()
         for config in library_service.list_emulator_configs():
             console_name = console_names.get(config.console_id, f"Console #{config.console_id}")
-            item = QListWidgetItem(f"{console_name}: {config.executable_path}")
+            # The core is shown because it changes how the game is launched —
+            # a config that looks identical but launches differently is worse
+            # than a longer line.
+            summary = f"{console_name}: {config.executable_path}"
+            if config.core_path:
+                summary += f"  -L {config.core_path}"
+            item = QListWidgetItem(summary)
             item.setData(Qt.ItemDataRole.UserRole, config.console_id)
             self._emulators_list.addItem(item)
-
-        previous_destination_console = self._destination_console_selector.currentData()
-        self._destination_console_selector.blockSignals(True)
-        self._destination_console_selector.clear()
-        for console in consoles:
-            self._destination_console_selector.addItem(console.name, console.id)
-        if previous_destination_console is not None:
-            index = self._destination_console_selector.findData(previous_destination_console)
-            if index >= 0:
-                self._destination_console_selector.setCurrentIndex(index)
-        self._destination_console_selector.blockSignals(False)
-
-        self._destinations_list.clear()
-        for destination in library_service.list_rom_destinations():
-            console_name = console_names.get(
-                destination.console_id, f"Console #{destination.console_id}"
-            )
-            item = QListWidgetItem(f"{console_name}: {destination.path}")
-            item.setData(Qt.ItemDataRole.UserRole, destination.console_id)
-            self._destinations_list.addItem(item)
-
-        previous_quick_link_console = self._quick_link_console_selector.currentData()
-        self._quick_link_console_selector.blockSignals(True)
-        self._quick_link_console_selector.clear()
-        for console in consoles:
-            self._quick_link_console_selector.addItem(console.name, console.id)
-        if previous_quick_link_console is not None:
-            index = self._quick_link_console_selector.findData(previous_quick_link_console)
-            if index >= 0:
-                self._quick_link_console_selector.setCurrentIndex(index)
-        self._quick_link_console_selector.blockSignals(False)
-
-        self._quick_links_list.clear()
-        for quick_link in library_service.list_quick_links():
-            console_name = console_names.get(
-                quick_link.console_id, f"Console #{quick_link.console_id}"
-            )
-            item = QListWidgetItem(f"{console_name}: {quick_link.url}")
-            item.setData(Qt.ItemDataRole.UserRole, quick_link.console_id)
-            self._quick_links_list.addItem(item)
-
-        self._blocked_games_list.clear()
-        account = self.app_context.active_account
-        if account is not None:
-            for game in lists_service.get_games_in_list(account.id, ListType.BLOCKED):
-                console_name = console_names.get(game.console_id, f"Console #{game.console_id}")
-                item = QListWidgetItem(f"{game.title} ({console_name})")
-                item.setData(Qt.ItemDataRole.UserRole, game.id)
-                self._blocked_games_list.addItem(item)
 
     def _on_add_account(self) -> None:
         username = self._username_input.text().strip()
@@ -293,26 +209,17 @@ class SettingsPage(Page):
         self.app_context.refresh_active_account()
         self.refresh()
 
-    def _on_add_rom_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select ROM Folder")
-        if folder:
-            library_service.add_rom_folder(folder)
-            self.refresh()
-
-    def _on_remove_rom_folder(self) -> None:
-        item = self._rom_folders_list.currentItem()
-        if item is None:
-            return
-        self._remove_rom_folder(item.data(Qt.ItemDataRole.UserRole))
-
-    def _remove_rom_folder(self, folder_id: int) -> None:
-        library_service.remove_rom_folder(folder_id)
-        self.refresh()
-
     def _on_browse_emulator(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Emulator Executable")
         if file_path:
             self._emulator_path_input.setText(file_path)
+
+    def _on_browse_core(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select libretro Core", filter="libretro cores (*.dll *.so *.dylib)"
+        )
+        if file_path:
+            self._emulator_core_input.setText(file_path)
 
     def _on_save_emulator(self) -> None:
         console_id = self._emulator_console_selector.currentData()
@@ -323,9 +230,13 @@ class SettingsPage(Page):
             )
             return
         arguments_template = self._emulator_args_input.text().strip() or None
-        library_service.set_emulator_config(console_id, executable_path, arguments_template)
+        core_path = self._emulator_core_input.text().strip() or None
+        library_service.set_emulator_config(
+            console_id, executable_path, arguments_template, core_path
+        )
         self._emulator_path_input.clear()
         self._emulator_args_input.clear()
+        self._emulator_core_input.clear()
         self.refresh()
 
     def _on_remove_emulator(self) -> None:
@@ -338,80 +249,28 @@ class SettingsPage(Page):
         library_service.remove_emulator_config(console_id)
         self.refresh()
 
-    def _on_browse_destination(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select ROM Destination Folder")
-        if folder:
-            self._destination_path_input.setText(folder)
-
-    def _on_save_destination(self) -> None:
-        console_id = self._destination_console_selector.currentData()
-        path = self._destination_path_input.text().strip()
-        if console_id is None or not path:
-            QMessageBox.warning(self, "Missing info", "Pick a console and a destination folder.")
-            return
-        library_service.set_rom_destination(console_id, path)
-        self._destination_path_input.clear()
-        self.refresh()
-
-    def _on_remove_destination(self) -> None:
-        item = self._destinations_list.currentItem()
-        if item is None:
-            return
-        self._remove_destination(item.data(Qt.ItemDataRole.UserRole))
-
-    def _remove_destination(self, console_id: int) -> None:
-        library_service.remove_rom_destination(console_id)
-        self.refresh()
-
-    def _on_quick_link_console_changed(self) -> None:
-        # Always recomputed for the newly selected console, never left
-        # over from whichever console was selected before: the already
-        # saved link if one exists, else the curated suggestion, else
-        # empty. Anything the user hasn't saved yet for the previous
-        # console is intentionally abandoned on selection change — the
-        # field always reflects the current selection's own state.
-        console_id = self._quick_link_console_selector.currentData()
-        if console_id is None:
-            self._quick_link_url_input.clear()
-            return
-
-        existing = library_service.get_quick_link(console_id)
-        if existing is not None:
-            self._quick_link_url_input.setText(existing.url)
-            return
-
-        console_name = self._quick_link_console_selector.currentText()
-        self._quick_link_url_input.setText(QUICK_LINK_SUGGESTIONS.get(console_name, ""))
-
-    def _on_save_quick_link(self) -> None:
-        console_id = self._quick_link_console_selector.currentData()
-        url = self._quick_link_url_input.text().strip()
-        if console_id is None or not url:
-            QMessageBox.warning(self, "Missing info", "Pick a console and a URL.")
-            return
-        library_service.set_quick_link(console_id, url)
-        self._quick_link_url_input.clear()
-        self.refresh()
-
-    def _on_remove_quick_link(self) -> None:
-        item = self._quick_links_list.currentItem()
-        if item is None:
-            return
-        self._remove_quick_link(item.data(Qt.ItemDataRole.UserRole))
-
-    def _remove_quick_link(self, console_id: int) -> None:
-        library_service.remove_quick_link(console_id)
-        self.refresh()
-
-    def _on_unblock_game(self) -> None:
-        item = self._blocked_games_list.currentItem()
-        if item is None:
-            return
-        self._unblock_game(item.data(Qt.ItemDataRole.UserRole))
-
-    def _unblock_game(self, game_id: int) -> None:
+    def _on_sync_profile(self) -> None:
         account = self.app_context.active_account
         if account is None:
+            QMessageBox.warning(self, "No account", "Add or select an account first.")
             return
-        lists_service.remove_from_list(account.id, game_id, ListType.BLOCKED)
-        self.refresh()
+
+        client = session_service.build_api_client(account)
+        self._sync_profile_button.setEnabled(False)
+        self._sync_profile_button.setText("Syncing...")
+
+        self._sync_profile_worker = ServiceWorker(sync_service.sync_profile, client, account)
+        self._sync_profile_worker.finished_ok.connect(self._on_sync_profile_done)
+        self._sync_profile_worker.failed.connect(self._on_sync_profile_failed)
+        self._sync_profile_worker.start()
+
+    def _reset_sync_profile_button(self) -> None:
+        self._sync_profile_button.setText("Sync Profile")
+        self._sync_profile_button.setEnabled(True)
+
+    def _on_sync_profile_done(self, _result: object) -> None:
+        self._reset_sync_profile_button()
+
+    def _on_sync_profile_failed(self, message: str) -> None:
+        self._reset_sync_profile_button()
+        QMessageBox.warning(self, "Sync failed", message)

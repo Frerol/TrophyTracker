@@ -1,42 +1,90 @@
-"""ROM folder management, manual ROM matching, Watch Folder scanning, and
+﻿"""ROM folder management, manual ROM matching, ROM Location scanning, and
 emulator launching (UI.md 3.3).
+
+The scanning here **reads only** — it detects what is already installed in
+folders the user organized themselves. It does not move, rename, extract in
+place, or delete anything. The previous design (Watch Folder + ROM
+Destinations) organized files for the user; that was removed in Bloco 11
+along with `library/organizer.py`, so nothing in this module writes to disk
+any more.
 """
 
+import logging
+import sqlite3
 import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from retrocheevos.database.connection import create_connection, get_connection
 from retrocheevos.database.repositories.emulator_config_repository import (
     EmulatorConfigRepository,
 )
+from retrocheevos.core.lists import get_installed_games as _get_installed_games
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.library_repository import LibraryRepository
-from retrocheevos.database.repositories.quick_link_repository import QuickLinkRepository
-from retrocheevos.database.repositories.rom_destination_repository import (
-    RomDestinationRepository,
-)
+from retrocheevos.database.repositories.list_repository import ListRepository
 from retrocheevos.library.console_detection import detect_console
 from retrocheevos.library.hashing import compute_rom_hash
 from retrocheevos.library.launcher import launch_emulator
-from retrocheevos.library.organizer import move_rom, resolve_destination
+from retrocheevos.library.rom_title import (
+    COVER_MATCH_CUTOFF,
+    derive_title_from_filename,
+    find_best_title_match,
+)
 from retrocheevos.library.zip_extraction import extract_member
 from retrocheevos.models.emulator_config import EmulatorConfig
-from retrocheevos.models.library import (
-    InstalledRom,
-    RomFolder,
-    WatchFolderAmbiguity,
-    WatchFolderMatch,
-    WatchFolderScanPreview,
-)
-from retrocheevos.models.quick_link import QuickLink
-from retrocheevos.models.rom_destination import RomDestination
+from retrocheevos.models.game import Game
+from retrocheevos.models.library import InstalledRom, RomFolder, RomFolderScanResult
+from retrocheevos.services import session_service
 
-# Where `apply_watch_folder_scan` archives an original zip after extracting
-# its single ROM member — never deleted automatically (see `apply_watch_folder_scan`).
-ALREADY_EXTRACTED_DIRNAME = "already-extracted"
+
+logger = logging.getLogger(__name__)
+
+
+def _active_account_id() -> Optional[int]:
+    account = session_service.get_active_account()
+    return account.id if account is not None else None
+
+
+def _library_repo(connection) -> LibraryRepository:
+    """Repository bound to whoever is signed in (schema v21).
+
+    Every call site goes through here rather than constructing the
+    repository directly, so scoping can't be forgotten in one place and
+    leak another account's ROMs.
+    """
+    return LibraryRepository(connection, _active_account_id())
+
+# Skipped before console detection even runs. These sit in ROM folders and
+# some of them *do* map to a console extension (`.bin` is the worst
+# offender — a save, a BIOS and a disc track all share it), so detection
+# alone happily recorded them and they piled up in "Unmatched ROMs" where
+# there is nothing the user can do about them.
+NON_ROM_EXTENSIONS = frozenset(
+    {
+        # Saves and emulator state
+        "sav", "srm", "st0", "st1", "st2", "st3", "st4", "st5", "st6", "st7",
+        "st8", "st9", "state", "ss0", "ss1", "mcr", "mcd", "vmp", "vms", "gci",
+        "dsv", "sa1", "rtc", "brk", "cht", "sram", "eep", "fla",
+        # Patches and metadata
+        "ips", "bps", "ups", "xdelta", "dat", "xml", "nfo", "sfv", "md5",
+        "sha1", "txt", "log", "ini", "cfg", "json", "db", "url",
+        # Art and documents
+        "png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf", "html", "htm",
+        # Archives that aren't the single-ROM zips `console_detection` peeks
+        # into, plus general junk
+        "rar", "7z", "tar", "gz", "exe", "dll", "lnk", "bat", "ini",
+    }
+)
+# Whole directories that never hold ROMs, matched case-insensitively on any
+# path segment.
+SKIPPED_DIR_NAMES = frozenset(
+    {"saves", "savestates", "states", "screenshots", "media", "images",
+     "covers", "artwork", "cheats", "patches", "system", "bios",
+     "already-extracted", "__macosx"}
+)
 
 
 class GameNotInstalledError(Exception):
@@ -55,16 +103,16 @@ class RomFolderNotFoundError(Exception):
     """No `rom_folders` row with this ID (it may have been removed since scanning)."""
 
 
-class RomDestinationNotConfiguredError(Exception):
-    """No destination folder is configured for this console (Settings > ROM Destinations)."""
+class InstalledRomNotFoundError(Exception):
+    """No `installed_roms` row with this ID (it may have been removed since scanning)."""
 
 
 def _normalize_path_for_comparison(path: str) -> str:
-    """Watch Folder scanning discovers files via `Path.rglob`, which yields
+    """Folder scanning discovers files via `Path.rglob`, which yields
     OS-native separators; `installed_roms.file_path` may hold whatever
     separator style the manual Scan file dialog produced. Comparing raw
     strings would let already-scanned files slip through as "new" and get
-    reorganized again — normalize both sides before comparing.
+    re-hashed on every scan — normalize both sides before comparing.
     """
     return str(Path(path).resolve()).casefold()
 
@@ -73,24 +121,39 @@ def add_rom_folder(
     path: str, console_id: Optional[int] = None, watch_enabled: bool = False
 ) -> RomFolder:
     with get_connection() as connection:
-        return LibraryRepository(connection).add_rom_folder(
+        return _library_repo(connection).add_rom_folder(
             RomFolder(path=path, console_id=console_id, watch_enabled=watch_enabled)
         )
 
 
 def remove_rom_folder(rom_folder_id: int) -> None:
     with get_connection() as connection:
-        LibraryRepository(connection).remove_rom_folder(rom_folder_id)
+        _library_repo(connection).remove_rom_folder(rom_folder_id)
 
 
 def list_rom_folders() -> list[RomFolder]:
     with get_connection() as connection:
-        return LibraryRepository(connection).list_rom_folders()
+        return _library_repo(connection).list_rom_folders()
 
 
 def list_installed_roms(console_id: Optional[int] = None) -> list[InstalledRom]:
     with get_connection() as connection:
-        return LibraryRepository(connection).list_installed_roms(console_id)
+        return _library_repo(connection).list_installed_roms(console_id)
+
+
+def get_installed_games() -> list[Game]:
+    """Full `Game` rows for the Library page's grid — blocked games excluded
+    (`core/lists.py::get_installed_games`)."""
+    account = session_service.get_active_account()
+    if account is None:
+        return []
+    with get_connection() as connection:
+        return _get_installed_games(
+            account.id,
+            list_repository=ListRepository(connection),
+            game_repository=GameRepository(connection),
+            library_repository=_library_repo(connection),
+        )
 
 
 def get_installed_game_ids() -> set[int]:
@@ -99,7 +162,60 @@ def get_installed_game_ids() -> set[int]:
     `core/explorer.py` already applies internally).
     """
     with get_connection() as connection:
-        return LibraryRepository(connection).get_installed_game_ids()
+        return _library_repo(connection).get_installed_game_ids()
+
+
+def remove_installed_rom(installed_rom_id: int) -> None:
+    """Forget a recorded ROM. Removes the `installed_roms` row only — the
+    file on disk is never touched, in keeping with the rest of this module
+    (nothing here writes to disk since Bloco 11).
+
+    A later scan of the same folder will pick the file up again; the filters
+    in `_is_not_a_rom` are what stop junk coming back, this is the manual
+    escape hatch for whatever slips through them.
+    """
+    with get_connection() as connection:
+        _library_repo(connection).remove_installed_rom(installed_rom_id)
+
+
+def remove_installed_roms_for_game(game_id: int) -> int:
+    """Forget every local copy of one game — what "remove from Library" means
+    for a matched card, since the grid is keyed by game and a game can have
+    more than one ROM recorded against it. Files on disk are untouched.
+    """
+    removed = 0
+    with get_connection() as connection:
+        repository = _library_repo(connection)
+        for installed_rom in repository.list_installed_roms():
+            if installed_rom.game_id == game_id:
+                repository.remove_installed_rom(installed_rom.id)
+                removed += 1
+    return removed
+
+
+def get_installed_rom(installed_rom_id: int) -> Optional[InstalledRom]:
+    with get_connection() as connection:
+        return _library_repo(connection).get_by_id(installed_rom_id)
+
+
+def match_installed_rom_to_game(installed_rom_id: int, game_id: int) -> None:
+    """Manual match (UI.md 3.3): the user picked which game a ROM that
+    hashing couldn't resolve actually is. Also usable to correct a wrong
+    match — no check that the ROM was previously unmatched.
+    """
+    with get_connection() as connection:
+        _library_repo(connection).set_game_id(installed_rom_id, game_id)
+
+
+def list_games_for_matching(console_id: int) -> list[Game]:
+    """Every locally-synced game with achievements for one console, for the
+    "Match to Game..." picker. Deliberately bypasses `core/explorer.py`'s
+    account-scoped mastered/beaten/list exclusions — this is "which game is
+    this file", not the Explorer's discovery view, so already-mastered or
+    already-beaten games must still be pickable.
+    """
+    with get_connection() as connection:
+        return GameRepository(connection).search(console_ids=[console_id])
 
 
 def record_installed_rom(file_path: str, console_id: int, rom_hash: str) -> InstalledRom:
@@ -109,7 +225,7 @@ def record_installed_rom(file_path: str, console_id: int, rom_hash: str) -> Inst
     """
     with get_connection() as connection:
         game_id = GameRepository(connection).find_game_id_by_hash(rom_hash)
-        return LibraryRepository(connection).add_installed_rom(
+        return _library_repo(connection).add_installed_rom(
             InstalledRom(
                 file_path=file_path,
                 hash=rom_hash,
@@ -131,13 +247,17 @@ def scan_and_record_rom(file_path: str, console_id: int) -> InstalledRom:
 
 
 def set_emulator_config(
-    console_id: int, executable_path: str, arguments_template: Optional[str] = None
+    console_id: int,
+    executable_path: str,
+    arguments_template: Optional[str] = None,
+    core_path: Optional[str] = None,
 ) -> EmulatorConfig:
     with get_connection() as connection:
         config = EmulatorConfig(
             console_id=console_id,
             executable_path=executable_path,
             arguments_template=arguments_template or None,
+            core_path=core_path or None,
         )
         EmulatorConfigRepository(connection).upsert(config)
         return config
@@ -153,43 +273,41 @@ def list_emulator_configs() -> list[EmulatorConfig]:
         return EmulatorConfigRepository(connection).list_all()
 
 
-def set_rom_destination(console_id: int, path: str) -> RomDestination:
-    with get_connection() as connection:
-        destination = RomDestination(console_id=console_id, path=path)
-        RomDestinationRepository(connection).upsert(destination)
-        return destination
+def _launch_installed_rom(
+    installed_rom: InstalledRom, connection: sqlite3.Connection
+) -> subprocess.Popen:
+    """Shared by `launch_game`/`launch_installed_rom` once each has already
+    resolved its `InstalledRom` — validates the file still exists and an
+    emulator is configured, then launches. Raises `RomFileMissingError` or
+    `EmulatorNotConfiguredError`; caller's connection is still open here and
+    closed by the caller, not this helper.
 
+    Also stamps `last_played_at` (Continue Playing's recency ordering,
+    `core/dashboard.py`) once validation passes and a launch is actually
+    about to happen — this is the one intentional write on an otherwise
+    read-only connection (see `launch_game`'s docstring), so it's committed
+    explicitly here rather than relying on `get_connection`'s auto-commit.
+    """
+    rom_path = Path(installed_rom.file_path)
+    if not rom_path.exists():
+        raise RomFileMissingError(f"ROM file no longer exists: {installed_rom.file_path}")
 
-def remove_rom_destination(console_id: int) -> None:
-    with get_connection() as connection:
-        RomDestinationRepository(connection).remove(console_id)
+    emulator_config = EmulatorConfigRepository(connection).get(installed_rom.console_id)
+    if emulator_config is None:
+        raise EmulatorNotConfiguredError(
+            f"No emulator configured for console {installed_rom.console_id}. "
+            "Set one in Settings > Emulators."
+        )
 
+    _library_repo(connection).set_last_played(installed_rom.id, datetime.now())
+    connection.commit()
 
-def list_rom_destinations() -> list[RomDestination]:
-    with get_connection() as connection:
-        return RomDestinationRepository(connection).list_all()
-
-
-def set_quick_link(console_id: int, url: str) -> QuickLink:
-    with get_connection() as connection:
-        quick_link = QuickLink(console_id=console_id, url=url)
-        QuickLinkRepository(connection).upsert(quick_link)
-        return quick_link
-
-
-def remove_quick_link(console_id: int) -> None:
-    with get_connection() as connection:
-        QuickLinkRepository(connection).remove(console_id)
-
-
-def list_quick_links() -> list[QuickLink]:
-    with get_connection() as connection:
-        return QuickLinkRepository(connection).list_all()
-
-
-def get_quick_link(console_id: int) -> Optional[QuickLink]:
-    with get_connection() as connection:
-        return QuickLinkRepository(connection).get(console_id)
+    return launch_emulator(
+        Path(emulator_config.executable_path),
+        rom_path,
+        emulator_config.arguments_template,
+        core_path=Path(emulator_config.core_path) if emulator_config.core_path else None,
+    )
 
 
 def launch_game(game_id: int) -> subprocess.Popen:
@@ -201,157 +319,296 @@ def launch_game(game_id: int) -> subprocess.Popen:
     `EmulatorNotConfiguredError` for the GUI to surface to the user.
 
     Uses `create_connection` directly rather than `get_connection`: this is
-    read-only (no writes to commit/roll back), and the three error cases
-    above are expected control flow, not database failures — `get_connection`
-    would log them as "Database operation failed, rolled back", which isn't
-    true and would be misleading in `logs/`.
+    read-only (no writes to commit/roll back), and the error cases above are
+    expected control flow, not database failures — `get_connection` would
+    log them as "Database operation failed, rolled back", which isn't true
+    and would be misleading in `logs/`.
     """
     connection = create_connection()
     try:
-        installed_rom = LibraryRepository(connection).find_by_game_id(game_id)
+        installed_rom = _library_repo(connection).find_by_game_id(game_id)
         if installed_rom is None:
             raise GameNotInstalledError(f"Game {game_id} has no local ROM matched to it.")
-
-        rom_path = Path(installed_rom.file_path)
-        if not rom_path.exists():
-            raise RomFileMissingError(f"ROM file no longer exists: {installed_rom.file_path}")
-
-        emulator_config = EmulatorConfigRepository(connection).get(installed_rom.console_id)
-        if emulator_config is None:
-            raise EmulatorNotConfiguredError(
-                f"No emulator configured for console {installed_rom.console_id}. "
-                "Set one in Settings > Emulators."
-            )
+        return _launch_installed_rom(installed_rom, connection)
     finally:
         connection.close()
 
-    return launch_emulator(
-        Path(emulator_config.executable_path), rom_path, emulator_config.arguments_template
-    )
+
+def launch_installed_rom(installed_rom_id: int) -> subprocess.Popen:
+    """Same as `launch_game`, but for a ROM Home's Continue Playing shows via
+    `get_unmatched_installed_roms` — no `game_id` to look up by, so this
+    starts from the `installed_roms` row's own id instead. Raises
+    `InstalledRomNotFoundError`, `RomFileMissingError`, or
+    `EmulatorNotConfiguredError`.
+    """
+    connection = create_connection()
+    try:
+        installed_rom = _library_repo(connection).get_by_id(installed_rom_id)
+        if installed_rom is None:
+            raise InstalledRomNotFoundError(f"Installed ROM {installed_rom_id} not found.")
+        return _launch_installed_rom(installed_rom, connection)
+    finally:
+        connection.close()
 
 
-def preview_watch_folder_scan(rom_folder_id: int) -> WatchFolderScanPreview:
-    """Read-only Watch Folder scan (UI.md 3.3 "Manual 'Scan now' action"):
-    walks the folder, detects each not-yet-installed file's console, and
-    reports what *would* happen — nothing is moved or recorded yet, so the
-    GUI can show the user a plan before touching any files. Already-installed
-    files are left untouched entirely (Database.md 7: `installed_roms` only
-    refreshes on a scan event, not silently reorganized on every scan).
+def scan_rom_folder(
+    rom_folder_id: int,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> RomFolderScanResult:
+    """Walk a ROM folder and record what's installed, **without moving anything**.
+
+    This is the whole point of the ROM Location page: the user has already
+    organized their ROMs and just wants the app to know what's there. Every
+    file stays exactly where it is.
+
+    Files already in `installed_roms` are skipped outright — hashing is the
+    expensive part of this loop, and re-hashing a folder that hasn't changed
+    would make a rescan cost as much as the first scan. Only files whose
+    console is *confidently* detected get recorded; ambiguous and
+    unrecognized ones come back in the result for the page to show. Guessing
+    a console would silently mis-hash the file and match it to the wrong
+    game, which is harder to notice and undo than a file simply not being
+    picked up.
+
+    `progress_callback(scanned_count, current_path)` is called before each
+    file is hashed — a folder of disc images takes minutes, so the caller
+    needs something to show. It runs on this thread, so it must not touch
+    widgets directly (`gui/workers.py` marshals it).
 
     Runs file I/O — call from a background thread, not the UI thread
-    (CodingStandards' threading model).
+    (CodingStandards' threading model). Raises `RomFolderNotFoundError` if
+    the folder row is gone.
     """
     with get_connection() as connection:
-        rom_folder = LibraryRepository(connection).get_rom_folder(rom_folder_id)
+        rom_folder = _library_repo(connection).get_rom_folder(rom_folder_id)
         if rom_folder is None:
             raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
         already_installed = {
             _normalize_path_for_comparison(path)
-            for path in LibraryRepository(connection).get_installed_file_paths()
+            for path in _library_repo(connection).get_installed_file_paths()
         }
 
-    already_extracted_folder = Path(rom_folder.path) / ALREADY_EXTRACTED_DIRNAME
-    confident: list[WatchFolderMatch] = []
-    ambiguous: list[WatchFolderAmbiguity] = []
+    recorded: list[InstalledRom] = []
+    ambiguous_paths: list[str] = []
     unrecognized_paths: list[str] = []
+    already_known_count = 0
+    scanned = 0
 
-    for file_path in Path(rom_folder.path).rglob("*"):
+    for file_path in sorted(Path(rom_folder.path).rglob("*")):
         if not file_path.is_file():
             continue
-        if file_path.is_relative_to(already_extracted_folder):
-            continue  # archived originals — already handled, never re-processed
+        if _is_not_a_rom(file_path):
+            continue
         if _normalize_path_for_comparison(str(file_path)) in already_installed:
+            already_known_count += 1
             continue
 
-        result = detect_console(file_path)
-        if result.is_confident:
-            confident.append(
-                WatchFolderMatch(
-                    file_path=str(file_path),
-                    console_id=result.console_id,
-                    inner_member=result.inner_member,
-                )
-            )
-        elif result.candidate_console_ids:
-            ambiguous.append(
-                WatchFolderAmbiguity(
-                    file_path=str(file_path),
-                    candidate_console_ids=result.candidate_console_ids,
-                    inner_member=result.inner_member,
-                )
-            )
-        else:
-            unrecognized_paths.append(str(file_path))
+        detection = detect_console(file_path)
+        if not detection.is_confident:
+            if detection.candidate_console_ids:
+                ambiguous_paths.append(str(file_path))
+            else:
+                unrecognized_paths.append(str(file_path))
+            continue
 
-    return WatchFolderScanPreview(
+        scanned += 1
+        if progress_callback is not None:
+            progress_callback(scanned, str(file_path))
+
+        rom_hash = _hash_in_place(file_path, detection.console_id, detection.inner_member)
+        recorded.append(
+            record_installed_rom(str(file_path), detection.console_id, rom_hash)
+        )
+
+    return RomFolderScanResult(
         rom_folder_id=rom_folder_id,
-        confident=confident,
-        ambiguous=ambiguous,
+        recorded=recorded,
+        already_known_count=already_known_count,
+        ambiguous_paths=ambiguous_paths,
         unrecognized_paths=unrecognized_paths,
     )
 
 
-def apply_watch_folder_scan(
-    rom_folder_id: int, decisions: list[WatchFolderMatch]
-) -> list[InstalledRom]:
-    """Moves each decided file into its console's configured destination
-    folder (Settings > ROM Destinations) and records it (UI.md 3.3).
-    `decisions` combines the preview's auto-detected matches with the user's
-    manual picks for its ambiguous ones — nothing here guesses a console on
-    its own, and nothing moves without a destination already configured for
-    that console (`RomDestinationNotConfiguredError` otherwise — the review
-    dialog is expected to only offer consoles that already have one, so
-    hitting this means something changed between preview and apply).
+def purge_non_rom_entries() -> int:
+    """Delete `installed_roms` rows for files that are not ROMs, returning how
+    many went.
 
-    For a decision with `inner_member` set (a single-file zip), the member is
-    extracted and *that* file is moved/hashed/recorded — never the zip
-    itself. Only once that has fully succeeded is the original zip moved to
-    `<rom folder>/already-extracted/` (never deleted automatically: kept
-    around to build confidence in extraction before enabling that). If
-    extraction or recording fails partway, the original zip is left
-    untouched in place so a retry starts clean rather than from an
-    already-archived-but-unrecorded state.
+    `_is_not_a_rom` only stops *new* scans recording junk — everything
+    recorded before that filter existed is still in the table, which is why
+    saves and box art kept showing up under "Unmatched ROMs" after the filter
+    landed. This clears them out.
 
-    `rom_folder_id` only confirms the watched folder still exists; unlike the
-    previous design, it no longer determines where files end up — the
-    destination is per-console, not nested under the watched folder.
-
-    Runs file I/O — call from a background thread, not the UI thread
-    (CodingStandards' threading model).
+    Only ever removes rows whose path fails the same structural test a fresh
+    scan would apply, and never touches the files themselves. A matched ROM
+    is left alone regardless: if hashing tied it to a real game, the
+    extension heuristic is the thing more likely to be wrong.
     """
+    removed = 0
     with get_connection() as connection:
-        rom_folder = LibraryRepository(connection).get_rom_folder(rom_folder_id)
-        if rom_folder is None:
-            raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
-        destinations = {
-            destination.console_id: destination.path
-            for destination in RomDestinationRepository(connection).list_all()
-        }
+        repository = _library_repo(connection)
+        for installed_rom in repository.list_installed_roms():
+            if installed_rom.game_id is not None:
+                continue
+            if _is_not_a_rom(Path(installed_rom.file_path)):
+                repository.remove_installed_rom(installed_rom.id)
+                removed += 1
+    if removed:
+        logger.info("Purged %d non-ROM entries from installed_roms", removed)
+    return removed
 
-    already_extracted_folder = Path(rom_folder.path) / ALREADY_EXTRACTED_DIRNAME
-    results: list[InstalledRom] = []
-    for decision in decisions:
-        destination_path = destinations.get(decision.console_id)
-        if destination_path is None:
-            raise RomDestinationNotConfiguredError(
-                f"No ROM destination configured for console {decision.console_id}. "
-                "Set one in Settings > ROM Destinations."
+
+def guess_games_for_unmatched_roms() -> dict[int, Game]:
+    """Best-guess catalog game per unmatched ROM, keyed by `installed_roms.id`.
+
+    Purely for **cover art**: an unmatched ROM has no `game_id`, so it had no
+    picture at all, while the game it obviously is sits in the local catalog
+    with artwork already synced. Matching on the title derived from the
+    filename plus the ROM's console is enough to borrow that image.
+
+    Nothing is written and no match is recorded — a guess good enough to show
+    a picture is not good enough to claim the ROM *is* that game, which is
+    what "Match to Game…" is for and what the achievement hashes decide. If
+    the guess is wrong the user sees a wrong cover, not a wrong game.
+
+    One catalog query per console present, not per ROM: a folder of 500 PSP
+    ROMs would otherwise be 500 identical searches.
+    """
+    guesses: dict[int, Game] = {}
+    with get_connection() as connection:
+        game_repository = GameRepository(connection)
+        unmatched = [
+            rom
+            for rom in _library_repo(connection).list_installed_roms()
+            if rom.game_id is None
+        ]
+        by_console: dict[int, list[Game]] = {}
+        for rom in unmatched:
+            if rom.console_id not in by_console:
+                by_console[rom.console_id] = game_repository.search(
+                    console_ids=[rom.console_id]
+                )
+            candidates = by_console[rom.console_id]
+            if not candidates:
+                continue
+            titles = {game.title: game for game in candidates}
+            match = find_best_title_match(
+                derive_title_from_filename(rom.file_path),
+                list(titles),
+                cutoff=COVER_MATCH_CUTOFF,
             )
+            if match is not None:
+                guesses[rom.id] = titles[match]
+    return guesses
 
-        source_path = Path(decision.file_path)
 
-        if decision.inner_member:
-            with tempfile.TemporaryDirectory() as scratch_dir:
-                extracted_path = extract_member(source_path, decision.inner_member, Path(scratch_dir))
-                destination = resolve_destination(Path(destination_path), extracted_path)
-                moved_path = move_rom(extracted_path, destination)
-                results.append(scan_and_record_rom(str(moved_path), decision.console_id))
+def purge_missing_roms() -> int:
+    """Forget ROMs whose file is no longer on disk, returning how many went.
 
-            archive_destination = resolve_destination(already_extracted_folder, source_path)
-            move_rom(source_path, archive_destination)
-        else:
-            destination = resolve_destination(Path(destination_path), source_path)
-            moved_path = move_rom(source_path, destination)
-            results.append(scan_and_record_rom(str(moved_path), decision.console_id))
+    Nothing was watching for this: `installed_roms` is only ever written by a
+    scan, so deleting a file left its row behind and the game kept showing in
+    the Library forever.
 
-    return results
+    **Guarded on the containing ROM folder still being reachable.** An
+    unplugged external drive or a disconnected network share makes every path
+    under it "missing", and without this check one launch with the drive off
+    would wipe that whole console's library — indistinguishable, from the
+    row's point of view, from the user deleting the files. If the folder
+    can't be seen, its ROMs are left alone; if the folder is there and the
+    file isn't, the file really is gone.
+
+    Rows outside every configured folder (added via "Scan ROM File…") are
+    checked directly, since there is no folder to vouch for them.
+    """
+    reachable_folders = [
+        Path(folder.path) for folder in list_rom_folders() if Path(folder.path).is_dir()
+    ]
+    all_folders = [Path(folder.path) for folder in list_rom_folders()]
+
+    removed = 0
+    with get_connection() as connection:
+        repository = _library_repo(connection)
+        for installed_rom in repository.list_installed_roms():
+            path = Path(installed_rom.file_path)
+            if path.exists():
+                continue
+            parent_folder = next(
+                (folder for folder in all_folders if path.is_relative_to(folder)), None
+            )
+            if parent_folder is not None and parent_folder not in reachable_folders:
+                continue  # drive/share is offline — not the user deleting things
+            repository.remove_installed_rom(installed_rom.id)
+            removed += 1
+    if removed:
+        logger.info("Purged %d installed ROMs whose files are gone", removed)
+    return removed
+
+
+def _is_not_a_rom(file_path: Path) -> bool:
+    """Cheap structural rejection, before any hashing or console detection.
+
+    Not reported as "unrecognized" either — these aren't files the user needs
+    told about, they're the ordinary contents of a ROM folder. Only things
+    that *might* be a ROM and couldn't be placed are worth surfacing.
+    """
+    if file_path.name.startswith("."):
+        return True
+    if file_path.suffix.lstrip(".").casefold() in NON_ROM_EXTENSIONS:
+        return True
+    return any(part.casefold() in SKIPPED_DIR_NAMES for part in file_path.parts)
+
+
+def scan_all_rom_folders(
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> RomFolderScanResult:
+    """Scan every configured ROM folder and return one combined result.
+
+    Sequential, not parallel: the expensive part is hashing, which is disk
+    bound — running folders concurrently would have them competing for the
+    same drive rather than going faster. A folder that fails is logged and
+    skipped so one bad path doesn't abandon the rest.
+
+    `rom_folder_id` on the result is `-1`: the aggregate doesn't belong to
+    any single folder, and inventing one of theirs would be a lie the caller
+    might act on.
+
+    Runs file I/O — call from a background thread (CodingStandards).
+    """
+    combined = RomFolderScanResult(
+        rom_folder_id=-1,
+        recorded=[],
+        already_known_count=0,
+        ambiguous_paths=[],
+        unrecognized_paths=[],
+    )
+    for rom_folder in list_rom_folders():
+        try:
+            result = scan_rom_folder(rom_folder.id, progress_callback=progress_callback)
+        except Exception:
+            logger.exception("Scan failed for ROM folder %s", rom_folder.path)
+            continue
+        combined.recorded.extend(result.recorded)
+        combined.already_known_count += result.already_known_count
+        combined.ambiguous_paths.extend(result.ambiguous_paths)
+        combined.unrecognized_paths.extend(result.unrecognized_paths)
+    return combined
+
+
+def _hash_in_place(
+    file_path: Path, console_id: int, inner_member: Optional[str]
+) -> str:
+    """Hash for a file that is staying put.
+
+    A single-file zip is the awkward case: RA hashes the ROM *inside* the
+    archive, so hashing the zip's own bytes would never match anything. The
+    member is extracted to a scratch directory, hashed there, and the scratch
+    copy is discarded — the recorded `file_path` is still the zip, which is
+    what the user has on disk and what the emulator gets handed. The old
+    Watch Folder code solved this by permanently extracting and moving the
+    file; this does not, by design.
+    """
+    if inner_member is None:
+        return compute_rom_hash(file_path, console_id)
+
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        extracted_path = extract_member(file_path, inner_member, Path(scratch_dir))
+        return compute_rom_hash(extracted_path, console_id)

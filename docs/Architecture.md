@@ -88,8 +88,9 @@ RetroCheevos/
   compatibility rules, recommendation engine, notification rules.
 - `database/` — SQLite connection management, schema/migrations, DAOs/
   repositories, cache invalidation.
-- `gui/` — PySide6 windows, pages (Dashboard, Explorer, Library, Profile,
-  Leaderboards, Lists, Settings) and their view logic only.
+- `gui/` — PySide6 windows, pages (Home, Library, Leaderboards, Lists,
+  Settings, plus the Explorer embedded inside Home) and their view logic
+  only.
 - `library/` — ROM scanner, hasher, Watch Folder daemon, console-folder
   organizer, emulator process launching.
 - `models/` — Shared data classes/DTOs used across layers (Game, Account,

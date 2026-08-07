@@ -1,4 +1,4 @@
-"""Versioned schema migrations, tracked via SQLite's `PRAGMA user_version`."""
+﻿"""Versioned schema migrations, tracked via SQLite's `PRAGMA user_version`."""
 
 import logging
 import sqlite3
@@ -8,12 +8,25 @@ from retrocheevos.database.connection import DEFAULT_DATABASE_PATH, create_conne
 from retrocheevos.database.schema import (
     ALTER_TABLES_V7,
     ALTER_TABLES_V8,
+    ALTER_TABLES_V11,
+    ALTER_TABLES_V12,
+    ALTER_TABLES_V13,
+    ALTER_TABLES_V14,
     CREATE_INDICES,
     CREATE_TABLES,
     CREATE_TABLES_V3,
     CREATE_TABLES_V4,
     CREATE_TABLES_V5,
     CREATE_TABLES_V6,
+    CREATE_TABLES_V15,
+    DELETE_DEFAULT_LISTS_V16,
+    DROP_LEGACY_LIST_TYPE_INDEX_V17,
+    CREATE_TABLES_V18,
+    ALTER_TABLES_V19,
+    DROP_ORPHAN_TABLES_V20,
+    ADD_ACCOUNT_SCOPE_V21,
+    PURGE_FOLLOWING_LIST_ENTRIES_V10,
+    PURGE_GAMES_WITHOUT_ACHIEVEMENTS_V9,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +58,19 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     (6, CREATE_TABLES_V6),
     (7, ALTER_TABLES_V7),
     (8, ALTER_TABLES_V8),
+    (9, PURGE_GAMES_WITHOUT_ACHIEVEMENTS_V9),
+    (10, PURGE_FOLLOWING_LIST_ENTRIES_V10),
+    (11, ALTER_TABLES_V11),
+    (12, ALTER_TABLES_V12),
+    (13, ALTER_TABLES_V13),
+    (14, ALTER_TABLES_V14),
+    (15, CREATE_TABLES_V15),
+    (16, DELETE_DEFAULT_LISTS_V16),
+    (17, DROP_LEGACY_LIST_TYPE_INDEX_V17),
+    (18, CREATE_TABLES_V18),
+    (19, ALTER_TABLES_V19),
+    (20, DROP_ORPHAN_TABLES_V20),
+    (21, ADD_ACCOUNT_SCOPE_V21),
 ]
 
 

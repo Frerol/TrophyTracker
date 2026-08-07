@@ -12,12 +12,23 @@ class GameType(str, Enum):
 
 
 class ListType(str, Enum):
+    """The *predefined* lists — the ones code reasons about by identity.
+
+    Since Bloco 12 a list is a row in `user_list_definitions`, not a value
+    here, and the user can create lists with any name they like. Those carry
+    no `ListType` at all (`slug IS NULL`): nothing branches on them. A member
+    exists here only when some rule depends on it — `BLOCKED` hides games
+    from Explorer, `LIBRARY` is resolved live from installed ROMs instead of
+    stored rows. The rest are predefined purely so a fresh account starts
+    with something useful.
+    """
+
     WANT_TO_PLAY = "want_to_play"
     PLAYING = "playing"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
-    FOLLOWING = "following"
     BLOCKED = "blocked"
+    LIBRARY = "library"
 
 
 class NotificationType(str, Enum):

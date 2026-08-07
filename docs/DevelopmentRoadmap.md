@@ -10,8 +10,8 @@
   `gui/delegates/explorer_delegates.py`), replacing the side filter panel
   and virtualized Game Card grid. Added a real cover-art download/cache
   pipeline (`library/game_images.py`, `services/image_service.py`,
-  `gui/image_loader.py`) and a Follow button.
-- Explorer actions column (Play/Follow/+) rewritten from real per-row
+  `gui/image_loader.py`).
+- Explorer actions column (Play/+) rewritten from real per-row
   widgets (`QTableView.setIndexWidget()`) to a hand-painted
   `ActionsDelegate` (`gui/delegates/explorer_delegates.py`), after
   `setIndexWidget()` was implicated in a native crash
@@ -109,7 +109,7 @@
     breakdown — approximated with last-unlock-time and an aggregate
     `{unlocked}/{total} achievements | Played {Hh MMm}` line.
     Header redesign: user menu button is now a photo-only
-    `_HoverMenuButton` (no name) — click is a shortcut to Profile, hover
+    `_HoverMenuButton` (no name) — click opened Profile back then, hover
     (after a short delay, auto-closing when the cursor leaves both the
     button and the menu) opens the full destinations menu. Points are
     stacked vertically (blue/white, no parentheses, vertically centered
@@ -210,9 +210,10 @@
   beat — per `API.md`)
 - Settings (API Key, Username, Accounts, ROM folders)
 - Explorer (search + filters, Game Cards, Installed status)
-- Profile (stats, badges, event awards, recent activity)
+- Profile content (stats, badges, event awards, recent activity) — on Home;
+  the standalone Profile page was later removed
 - Library (manual ROM matching/organization, no auto-scan yet)
-- Lists (Want to Play, Playing, Completed, Abandoned, Following)
+- Lists (Want to Play, Playing, Completed, Abandoned)
 - Dashboard (Continue Playing, Recent activity; Recommendations shown as an
   empty placeholder until the v1.1 engine lands — see Version 1.1)
 - Search
@@ -223,7 +224,7 @@
 - Recommendations engine (history, genres, completion, console preference,
   median time to beat)
 - Notifications (achievements released, new supported games, badges,
-  events, followed games — opt-in, no spam)
+  events — opt-in, no spam)
 - Watch Folder (automatic scanning on folder change)
 - ROM Scanner (automatic hashing + matching, automatic organization)
 - Recent activity summary (Dashboard) — covers the Events and Recently added

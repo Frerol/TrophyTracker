@@ -1,5 +1,10 @@
-"""Console auto-detection for Watch Folder scanning (Architecture.md —
-Library layer, "console-folder organizer").
+"""Console auto-detection for ROM folder scanning (Architecture.md — Library
+layer).
+
+Used by `library_service.scan_rom_folder` to work out which console a file
+belongs to. Since Bloco 11 nothing acts on that answer by moving the file —
+a confident result gets the ROM hashed and recorded where it lies, and
+anything less gets reported instead.
 
 Extension lookups come from `console_catalog.py` (ported from RA's own
 hasher). Unambiguous extensions are trusted outright. For ambiguous ones,

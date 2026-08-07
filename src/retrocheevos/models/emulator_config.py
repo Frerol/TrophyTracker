@@ -13,3 +13,8 @@ class EmulatorConfig:
     console_id: int
     executable_path: str
     arguments_template: Optional[str] = None
+    # libretro core (`.dll`/`.so`) for frontends like RetroArch, which have
+    # one binary and a core per emulated system rather than an executable
+    # per console. Set ⇒ launch as `retroarch.exe -L <core> <rom>` and
+    # `arguments_template` is ignored (migration v19).
+    core_path: Optional[str] = None

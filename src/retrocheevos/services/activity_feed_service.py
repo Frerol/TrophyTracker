@@ -13,10 +13,17 @@ Every call here does real network I/O — run from a background thread,
 never the UI thread (CodingStandards' threading model), same as
 `sync_service.py`.
 
+Each entry is built around the user's **last played game**
+(`API_GetUserSummary.php`'s `LastGame`), not their last achievement unlock.
+Those aren't the same thing — someone can play for hours without unlocking
+anything — and the feed is about what people are doing. An earlier version
+sourced the game from `API_GetUserRecentAchievements.php`; dropping that
+call also took the per-user cost from 3 requests to 2.
+
 `API_CALL_DELAY_SECONDS`: confirmed live that RA's API has a short burst
 limiter, not just an hourly quota — 7-8 back-to-back requests with no
 delay reliably return HTTP 429, while the same requests spaced ~0.3s
-apart don't. This function makes up to 3 calls per user (self + up to
+apart don't. This function makes 2 calls per user (self + up to
 `FOLLOWED_USERS_LIMIT` followed), so it throttles itself rather than
 tripping that limiter.
 """
@@ -26,7 +33,7 @@ import time
 from typing import Callable, Optional
 
 from retrocheevos.api.games import GamesClient
-from retrocheevos.api.profile import ProfileClient, RawRecentAchievement
+from retrocheevos.api.profile import ProfileClient
 from retrocheevos.core.activity_feed import build_activity_feed
 from retrocheevos.models.account import Account
 from retrocheevos.models.activity_feed import ActivityEntry
@@ -35,7 +42,6 @@ from retrocheevos.services import image_service, session_service
 logger = logging.getLogger(__name__)
 
 FOLLOWED_USERS_LIMIT = 30
-RECENT_ACHIEVEMENTS_WINDOW_MINUTES = 7 * 24 * 60
 NO_ACTIVITY_STATUS_TEXT = "No recent activity"
 API_CALL_DELAY_SECONDS = 0.3
 
@@ -74,23 +80,17 @@ def get_recent_activity_feed(
 def _build_entry(
     profile_client: ProfileClient, games_client: GamesClient, username: str, is_self: bool
 ) -> ActivityEntry:
-    profile = profile_client.get_user_profile(username)
+    summary = profile_client.get_user_summary(username)
     time.sleep(API_CALL_DELAY_SECONDS)
-    avatar_path = image_service.ensure_user_pic_cached(username, profile.user_pic_path)
+    avatar_path = image_service.ensure_user_pic_cached(username, summary.user_pic_path)
 
-    recent_achievements = profile_client.get_recent_achievements(
-        username, RECENT_ACHIEVEMENTS_WINDOW_MINUTES
-    )
-    time.sleep(API_CALL_DELAY_SECONDS)
-    latest = recent_achievements[0] if recent_achievements else None
-
-    if latest is None:
+    if summary.last_game_id is None:
         return ActivityEntry(
             username=username,
             is_self=is_self,
             avatar_path=avatar_path,
-            status_text=profile.rich_presence_msg or NO_ACTIVITY_STATUS_TEXT,
-            last_achievement_at=None,
+            status_text=summary.rich_presence_msg or NO_ACTIVITY_STATUS_TEXT,
+            last_seen_at=summary.last_seen_at,
             game_title=None,
             game_console=None,
             game_icon_path=None,
@@ -100,18 +100,20 @@ def _build_entry(
         )
 
     game_icon_path = image_service.ensure_activity_icon_cached(
-        latest.game_id, latest.game_icon_path
+        summary.last_game_id, summary.last_game_icon_path
     )
-    unlocked, total, playtime_seconds = _get_game_progress(games_client, username, latest)
+    unlocked, total, playtime_seconds = _get_game_progress(
+        games_client, username, summary.last_game_id
+    )
 
     return ActivityEntry(
         username=username,
         is_self=is_self,
         avatar_path=avatar_path,
-        status_text=profile.rich_presence_msg or NO_ACTIVITY_STATUS_TEXT,
-        last_achievement_at=latest.unlocked_at,
-        game_title=latest.game_title,
-        game_console=latest.console_name,
+        status_text=summary.rich_presence_msg or NO_ACTIVITY_STATUS_TEXT,
+        last_seen_at=summary.last_seen_at,
+        game_title=summary.last_game_title,
+        game_console=summary.last_game_console,
         game_icon_path=game_icon_path,
         achievements_unlocked=unlocked,
         achievements_total=total,
@@ -120,13 +122,13 @@ def _build_entry(
 
 
 def _get_game_progress(
-    games_client: GamesClient, username: str, latest: RawRecentAchievement
+    games_client: GamesClient, username: str, game_id: int
 ) -> tuple[Optional[int], Optional[int], Optional[int]]:
     try:
-        progress = games_client.get_user_game_progress(username, latest.game_id)
+        progress = games_client.get_user_game_progress(username, game_id)
     except Exception:
         logger.warning(
-            "Could not fetch game progress for %s in game %d", username, latest.game_id
+            "Could not fetch game progress for %s in game %d", username, game_id
         )
         return None, None, None
     finally:

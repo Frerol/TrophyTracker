@@ -1,102 +1,63 @@
 """Main application window and navigation (UI.md §2).
 
-Two navigation paths land on the same `QStackedWidget`
-(`Page.refresh()` always called after switching, regardless of path):
-`_nav_list` (primary destinations — row index drives `_nav_pages`
-directly) and `HomePage`'s user menu (Profile/Library/Lists/Settings,
-`_menu_pages` keyed by the string each menu action emits). Dashboard was
-retired once Home (`gui/pages/home_page.py`) fully absorbed its content
-(Continue Playing, Recent Activity) — nothing else referenced it.
+Home is the root page; everything else is reached from `HomePage`'s user
+menu (`_menu_pages`, keyed by the string each menu action emits). Dashboard
+was retired once Home (`gui/pages/home_page.py`) fully absorbed its content
+(Continue Playing, Recent Activity), and the primary nav list went the same
+way once "Home" was its only remaining entry.
 
-Both paths funnel through `_show_page`, which also maintains a browser-style
-back/forward history (`_history`/`_history_index`, `_back_button`/
-`_forward_button`) covering every page — nav and menu alike — so "back"
-always returns to whatever was actually shown before, regardless of which
-path got you there.
+The back/forward arrows went too, along with the `_history`/`_history_index`
+bookkeeping that existed only to serve them: with four destinations, all of
+them one hover away on the user menu (which now includes Home), a browser
+history was more chrome than the navigation it described. `_show_page` is
+just a page switch again.
+
+The shared header (`HomePage.header_widget`) sits above the page stack, so
+it shows on every page rather than only on Home.
 """
 
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QListWidget,
-    QMainWindow,
-    QPushButton,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from retrocheevos.gui.app_context import AppContext
-from retrocheevos.gui.pages.explorer_page import ExplorerPage
-from retrocheevos.gui.pages.home_page import ICON_PATH, HomePage
-from retrocheevos.gui.pages.leaderboards_page import LeaderboardsPage
+from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.gui.pages.library_page import LibraryPage
 from retrocheevos.gui.pages.lists_page import ListsPage
-from retrocheevos.gui.pages.profile_page import ProfilePage
 from retrocheevos.gui.pages.settings_page import SettingsPage
-from retrocheevos.services import session_service
+from retrocheevos.services import preferences_service, session_service
 
-NAV_ITEMS = ["Home", "Explorer", "Leaderboards"]
-
-HISTORY_BUTTON_SIZE = 44
-# 0, not negative: confirmed via `QWidget.geometry()` measurements that
-# `QLayout.setSpacing()` does NOT support genuinely negative gaps — any
-# negative value (tested -1 through -20) is silently discarded and
-# replaced with the platform style's own default spacing (measured 6px
-# here), identical regardless of how negative the argument was. `0` is the
-# actual minimum — confirmed to produce a real, measured 0px gap between
-# the two buttons (they touch exactly).
-HISTORY_BUTTON_SPACING = 0
-# Simple/rounded/discreet, matching Claude's own nav arrows — no border, no
-# fill except a subtle hover/pressed highlight, muted gray text that dims
-# further when disabled rather than a bordered button look.
-HISTORY_BUTTON_STYLESHEET = """
-QPushButton {
-    border: none;
-    background: transparent;
-    border-radius: 8px;
-    color: #9a9a9a;
-    font-size: 24pt;
-}
-QPushButton:hover:enabled {
-    background: rgba(255, 255, 255, 0.08);
-    color: #e0e0e0;
-}
-QPushButton:pressed:enabled {
-    background: rgba(255, 255, 255, 0.14);
-}
-QPushButton:disabled {
-    color: #4a4a4a;
-}
-"""
+# Snug: the header already carries its own side margins, and the page below
+# has its own. Anything more here reads as dead space at the top of every
+# screen — which is exactly what the removed arrow row had become.
+WINDOW_MARGIN = 0
+HEADER_GAP = 4
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("RetroCheevos")
-        self.setWindowIcon(QIcon(str(ICON_PATH)))
-        self.resize(1200, 800)
+        self.setWindowTitle("Retrocheevos")
+        # No `setWindowIcon` here on purpose: `main.py::_build_app_icon`
+        # builds the multi-resolution icon and sets it on both the
+        # QApplication and this window. This used to set a single-pixmap
+        # `QIcon(ICON_PATH)` too, which won until main.py overwrote it — a
+        # race with no upside and a plausible cause of the icon showing
+        # inconsistently.
+        self.resize(
+            preferences_service.get_int(preferences_service.KEY_WINDOW_WIDTH, 1200),
+            preferences_service.get_int(preferences_service.KEY_WINDOW_HEIGHT, 800),
+        )
 
         self.app_context = AppContext()
 
-        # Every page ever shown, oldest first, plus a pointer into it —
-        # classic browser back/forward. `_show_page(..., record_history=False)`
-        # (used by `_on_back`/`_on_forward` themselves) moves the pointer
-        # without appending, so going back and then navigating normally
-        # again correctly discards the stale "forward" tail.
-        self._history: list[QWidget] = []
-        self._history_index: int = -1
-
         home_page = HomePage(self.app_context)
-        explorer_page = ExplorerPage(self.app_context)
-        leaderboards_page = LeaderboardsPage(self.app_context)
 
-        # Order matches NAV_ITEMS — `_on_nav_row_changed` indexes into this
-        # directly, same as the single QStackedWidget index this replaces.
-        self._nav_pages = [home_page, explorer_page, leaderboards_page]
+        # Home is the only root page; `_navigate_home` and logout use it.
+        self._nav_pages = [home_page]
+        # "ROM Location" became "Library": same two halves (the grid of
+        # what's installed, and folder management plus scanning), its own
+        # page again after a brief spell as an entry in the Lists dropdown.
         self._menu_pages = {
-            "profile": ProfilePage(self.app_context),
             "library": LibraryPage(self.app_context),
             "lists": ListsPage(self.app_context),
             "settings": SettingsPage(self.app_context),
@@ -104,133 +65,151 @@ class MainWindow(QMainWindow):
 
         home_page.navigate_requested.connect(self._on_menu_navigate)
         home_page.logout_requested.connect(self._on_logout)
+        home_page.login_requested.connect(self._on_login)
 
-        self._back_button = QPushButton("‹")
-        self._forward_button = QPushButton("›")
-        for button in (self._back_button, self._forward_button):
-            button.setFixedSize(HISTORY_BUTTON_SIZE, HISTORY_BUTTON_SIZE)
-            button.setStyleSheet(HISTORY_BUTTON_STYLESHEET)
-            button.setEnabled(False)
-        self._back_button.clicked.connect(self._on_back)
-        self._forward_button.clicked.connect(self._on_forward)
-        history_bar = QHBoxLayout()
-        history_bar.setSpacing(HISTORY_BUTTON_SPACING)
-        history_bar.addWidget(self._back_button)
-        history_bar.addWidget(self._forward_button)
-        history_bar.addStretch(1)
+        # Nothing was listening to this. `AppContext` emitted it on every
+        # login/logout/switch and only the page that *caused* the change
+        # refreshed itself — so signing in from Settings left Home, the
+        # header and every other page holding the previous session's state
+        # until the app was restarted. That was the "login only works after
+        # reopening" bug.
+        self.app_context.active_account_changed.connect(self._on_active_account_changed)
 
-        self._nav_list = QListWidget()
-        self._nav_list.addItems(NAV_ITEMS)
-        self._nav_list.setMaximumWidth(160)
-        # A previous pass connected `itemClicked` *alongside*
-        # `currentRowChanged` here, to work around a "clicking Home after a
-        # menu destination does nothing" report — but that report was never
-        # actually reproduced (headless tests always showed
-        # `currentRowChanged` firing correctly, including from row -1), and
-        # `currentRowChanged` demonstrably does fire on any real row change
-        # (going from -1 to 0 included — confirmed live). Keeping both
-        # connected meant a single click on a *different* row fired BOTH
-        # signals, each independently calling `_navigate_to_nav_page` — i.e.
-        # `HomePage.refresh()` twice per click, back to back. That went
-        # unnoticed while every worker it started was fast; once Recent
-        # Activity's ~6.5s live API fetch (`_activity_worker`,
-        # `services/activity_feed_service.py`) was added, the second
-        # `refresh()` call reliably overwrote `self._activity_worker` while
-        # the first one's `QThread` was still actually running — destroying
-        # a live `QThread` is undefined behavior in Qt and was the real
-        # cause of a native access-violation crash at startup (see
-        # DevelopmentRoadmap.md). `currentRowChanged` alone is sufficient.
-        self._nav_list.currentRowChanged.connect(self._on_nav_row_changed)
-
-        nav_column = QVBoxLayout()
-        nav_column.addLayout(history_bar)
-        nav_column.addWidget(self._nav_list)
+        # The header lives here, above the stack, so it shows on every page
+        # rather than only on Home. It is built and owned by `HomePage`
+        # (which already has the profile fetch, the avatar loader and the
+        # user menu wired up); mounting it here means one instance instead of
+        # a copy per page, each with its own duplicate of that plumbing.
+        self._header = home_page.header_widget
 
         self._pages = QStackedWidget()
         for page in [*self._nav_pages, *self._menu_pages.values()]:
             self._pages.addWidget(page)
 
         central = QWidget()
-        layout = QHBoxLayout(central)
-        layout.addLayout(nav_column, stretch=0)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(
+            WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN
+        )
+        layout.setSpacing(0)
+        layout.addWidget(self._header)
+        layout.addSpacing(HEADER_GAP)
         layout.addWidget(self._pages, stretch=1)
         self.setCentralWidget(central)
 
-        # `setCurrentRow(0)` on a freshly-populated list goes from -1 -> 0,
-        # a real change, so `currentRowChanged` fires and calls
-        # `_navigate_to_nav_page(0)` on its own — no separate explicit
-        # refresh() call needed here (see the crash note above for why an
-        # extra one used to exist and why it's gone).
-        self._nav_list.setCurrentRow(0)
+        self._show_page(home_page)
+        self._restore_window_state()
 
-    def _on_nav_row_changed(self, index: int) -> None:
-        if index < 0:
-            return
-        self._navigate_to_nav_page(index)
+    def _restore_window_state(self) -> None:
+        """Fullscreen wins over maximized, since a window can be flagged both
+        and only one of them is what the user last saw. The plain size set in
+        `__init__` is what a restored window falls back to."""
+        if preferences_service.get_bool(preferences_service.KEY_WINDOW_FULLSCREEN, False):
+            self.showFullScreen()
+        elif preferences_service.get_bool(preferences_service.KEY_WINDOW_MAXIMIZED, False):
+            self.showMaximized()
+        else:
+            # Explicit, so signing into an account that was last plain-windowed
+            # actually leaves fullscreen rather than inheriting the previous
+            # session's state.
+            self.showNormal()
+            self.resize(
+                preferences_service.get_int(preferences_service.KEY_WINDOW_WIDTH, 1200),
+                preferences_service.get_int(preferences_service.KEY_WINDOW_HEIGHT, 800),
+            )
 
-    def _navigate_to_nav_page(self, index: int) -> None:
-        self._show_page(self._nav_pages[index])
+    def changeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        """Persist window state the moment it changes, not only on close.
+
+        Saving at close alone lost everything if you logged out first: with
+        no active account `preferences_service` drops writes, so the whole
+        session's state went with it. Saving while signed in means logging
+        out never discards anything that was already true.
+        """
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._save_window_state()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        super().resizeEvent(event)
+        self._save_window_state()
+
+    def _save_window_state(self) -> None:
+        """`normalGeometry()`, not the current size: a maximized window
+        reports the screen's, so saving that would make "restore down"
+        produce a window the size of the display with no way back."""
+        preferences_service.set_bool(
+            preferences_service.KEY_WINDOW_FULLSCREEN, self.isFullScreen()
+        )
+        preferences_service.set_bool(
+            preferences_service.KEY_WINDOW_MAXIMIZED, self.isMaximized()
+        )
+        normal = self.normalGeometry()
+        if normal.width() > 0 and normal.height() > 0:
+            preferences_service.set_int(
+                preferences_service.KEY_WINDOW_WIDTH, normal.width()
+            )
+            preferences_service.set_int(
+                preferences_service.KEY_WINDOW_HEIGHT, normal.height()
+            )
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        """Saves window state on the way out.
+
+        A last write for the case where nothing changed since the previous
+        one — `changeEvent`/`resizeEvent` do the real work.
+        """
+        self._save_window_state()
+        super().closeEvent(event)
+
+    def _on_active_account_changed(self, _account) -> None:
+        """Re-read whoever is now signed in, without navigating.
+
+        Only the visible page is refreshed; the others refresh themselves on
+        their way in (`_show_page`). Refreshing all of them here would run
+        Home's several-second Recent Activity fetch every time someone opens
+        Settings and switches account.
+        """
+        # Deliberately does **not** touch the window. Restoring the stored
+        # state here meant logging out of a fullscreen session yanked the
+        # window back to a smaller size mid-use, and logging in did it again.
+        # The window is the user's current context, not account data: it is
+        # applied once, at startup, and after that only ever follows what the
+        # user does to it.
+        self._nav_pages[0].refresh_header()
+        current = self._pages.currentWidget()
+        if current is not None:
+            current.refresh()
+
+    def _navigate_home(self) -> None:
+        self._show_page(self._nav_pages[0])
 
     def _on_menu_navigate(self, key: str) -> None:
-        # Deselects the primary nav list (no row corresponds to a menu
-        # destination) without letting that itself trigger a switch — the
-        # `_show_page` call below is what actually does the navigating.
-        self._nav_list.blockSignals(True)
-        self._nav_list.setCurrentRow(-1)
-        self._nav_list.blockSignals(False)
+        # "home" is in the menu but not in `_menu_pages`: Home is the root
+        # page, and duplicating it into that dict would give the app two
+        # HomePage instances with two Recent Activity timers.
+        if key == "home":
+            self._navigate_home()
+            return
         self._show_page(self._menu_pages[key])
+
+    def _on_login(self, account_id: int) -> None:
+        """Sign back in from the user menu. `refresh_active_account` fires
+        `active_account_changed`, which repaints the header and the visible
+        page — no restart, no trip to Settings."""
+        session_service.switch_account(account_id)
+        self.app_context.refresh_active_account()
+        self._navigate_home()
 
     def _on_logout(self) -> None:
         session_service.logout()
         self.app_context.refresh_active_account()
-        # Same `blockSignals` dance as `_on_menu_navigate`: `setCurrentRow(0)`
-        # only fires `currentRowChanged` (and thus a refresh) if the nav
-        # list wasn't already on row 0 — blocking it and always calling
-        # `_navigate_to_nav_page(0)` explicitly guarantees exactly one
-        # refresh regardless of where navigation was before logout.
-        self._nav_list.blockSignals(True)
-        self._nav_list.setCurrentRow(0)
-        self._nav_list.blockSignals(False)
-        self._navigate_to_nav_page(0)
+        self._navigate_home()
 
-    def _show_page(self, page: QWidget, *, record_history: bool = True) -> None:
+    def _show_page(self, page: QWidget) -> None:
         self._pages.setCurrentWidget(page)
         page.refresh()
-        if record_history:
-            # Standard browser semantics: a fresh navigation discards
-            # whatever "forward" entries existed past the current point.
-            self._history = self._history[: self._history_index + 1]
-            self._history.append(page)
-            self._history_index = len(self._history) - 1
-        self._update_history_buttons()
-
-    def _sync_nav_selection(self, page: QWidget) -> None:
-        # Reflects `page` in the sidebar's selection without re-triggering
-        # `_on_nav_row_changed` (which would call `_show_page` again and
-        # push a duplicate history entry) — same blocked-signal idiom as
-        # `_on_menu_navigate`/`_on_logout`.
-        self._nav_list.blockSignals(True)
-        self._nav_list.setCurrentRow(
-            self._nav_pages.index(page) if page in self._nav_pages else -1
-        )
-        self._nav_list.blockSignals(False)
-
-    def _on_back(self) -> None:
-        if self._history_index <= 0:
-            return
-        self._history_index -= 1
-        page = self._history[self._history_index]
-        self._sync_nav_selection(page)
-        self._show_page(page, record_history=False)
-
-    def _on_forward(self) -> None:
-        if self._history_index >= len(self._history) - 1:
-            return
-        self._history_index += 1
-        page = self._history[self._history_index]
-        self._sync_nav_selection(page)
-        self._show_page(page, record_history=False)
-
-    def _update_history_buttons(self) -> None:
-        self._back_button.setEnabled(self._history_index > 0)
-        self._forward_button.setEnabled(self._history_index < len(self._history) - 1)
+        # Home's own `refresh()` already covers the header; anywhere else it
+        # would otherwise keep whatever numbers were last loaded.
+        if page is not self._nav_pages[0]:
+            self._nav_pages[0].refresh_header()

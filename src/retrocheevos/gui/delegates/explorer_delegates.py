@@ -1,6 +1,6 @@
 """Explorer table delegates (UI.md 3.2) — presentation-only (Architecture.md
 §3.1). Three custom `QStyledItemDelegate`s: Title (icon + text), Progress
-(a painted progress-bar look), and Actions (painted Play/+/Follow buttons)
+(a painted progress-bar look), and Actions (painted Play-or-Download/+ buttons)
 — none of them use a real embedded widget, consistent with why the table
 uses `QTableView` at all: no per-cell widgets to construct, so nothing to
 virtualize by hand. `ActionsDelegate` specifically replaces an earlier
@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from retrocheevos.utils.enums import ListType
 
 ICON_SIZE = 32
 ICON_MARGIN = 6
@@ -39,6 +38,10 @@ PLACEHOLDER_COLOR = Qt.GlobalColor.darkGray
 # reaching into the model's Python API directly — keeps the delegate a
 # pure presentation layer, like `TitleDelegate`/`ProgressDelegate`.
 GAME_ID_ROLE = Qt.ItemDataRole.UserRole + 2
+# Same row-scoped pattern as GAME_ID_ROLE — lets ActionsDelegate pick
+# Play vs Download per row from the already-fetched installed-ids set
+# (`ExplorerTableModel._installed_game_ids`) without a DB query per paint.
+INSTALLED_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
 class TitleDelegate(QStyledItemDelegate):
@@ -121,33 +124,45 @@ class ProgressDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-# Duplicated from the removed `widgets/explorer_row_actions.py` rather than
-# imported from a shared module — same small-duplication precedent as
-# `widgets/game_card.py`'s own copy of this mapping.
-LIST_ACTION_LABELS = {
-    ListType.WANT_TO_PLAY: "Want to Play",
-    ListType.PLAYING: "Playing",
-    ListType.ABANDONED: "Abandoned",
-    ListType.FOLLOWING: "Following",
-}
-
-# Kept separate from LIST_ACTION_LABELS (rendered after a separator in
-# _show_menu) — hiding a game everywhere is a different kind of action than
-# progress-tracking list membership, same reasoning as the separator
-# `widgets/game_card.py` already puts before "Open on RetroAchievements".
+# Rendered after a separator in `_show_menu` — hiding a game everywhere is a
+# different kind of action than progress-tracking list membership, same
+# reasoning as the separator `widgets/game_card.py` already puts before
+# "Open on RetroAchievements". It stays a named constant rather than just
+# another entry in the list options because the Blocked list is resolved by
+# slug, not by whatever the user may have renamed it to.
 BLOCK_ACTION_LABEL = "Block"
 
-_ACTION_BUTTON_SPECS = [("play", "Play"), ("follow", "Follow"), ("menu", "+")]
-_BUTTON_MARGIN = 4
-_BUTTON_SPACING = 4
+# Marks a list the game is already in. Entries that aren't ticked get
+# `_MARK_PAD` instead of nothing, so every label starts at the same column —
+# without it the ticked rows shift right and the menu looks ragged.
+# QMenu's own checkable-action indicator isn't used: these actions *do*
+# something when clicked (add to the list), and a checkbox reads as a toggle
+# that would remove the game again, which is not what happens.
+MEMBERSHIP_MARK = "✓"
+_MARK_PAD = " "  # figure space — same width as a digit, unlike a plain space
+
+_BUTTON_MARGIN = 8
+# The gap between "Play" and "+". At 4px the two read as one control; the
+# Actions column has width to spare, so this buys separation rather than
+# saving space that was never needed.
+_BUTTON_SPACING = 14
 
 
 class ActionsDelegate(QStyledItemDelegate):
-    """Paints Play/+/Follow as native-styled buttons (`QStyle.CE_PushButton`,
-    no real `QPushButton`) and detects clicks via `editorEvent` — the same
-    widget-less-interactivity mechanism Qt's own checkbox delegates use.
-    Replaces an earlier `QTableView.setIndexWidget()`-based implementation;
-    see this module's docstring for why.
+    """Paints Play-or-Download plus + as native-styled buttons
+    (`QStyle.CE_PushButton`, no real `QPushButton`) and detects clicks via
+    `editorEvent` — the same widget-less-interactivity mechanism Qt's own
+    checkbox delegates use. Replaces an earlier
+    `QTableView.setIndexWidget()`-based implementation; see this module's
+    docstring for why.
+
+    Only installed games get a "Play" button; the rest show just "+".
+    Uninstalled rows used to offer "Download", which opened a per-console
+    reference link — that whole feature is gone (fetching ROMs is out of
+    scope for this app), and a Play button on something not installed would
+    only ever raise `GameNotInstalledError`. Whether a row is installed is
+    read per-row from `INSTALLED_ROLE` (backed by `ExplorerTableModel`'s
+    already-fetched installed-ids set — no query per paint).
 
     v1 deliberately skips per-button hover highlighting: that needs the
     view to forward every `mouseMoveEvent` at sub-cell granularity, which
@@ -158,12 +173,22 @@ class ActionsDelegate(QStyledItemDelegate):
     """
 
     play_requested = Signal(int)  # game_id
-    list_action_requested = Signal(int, object)  # game_id, ListType
-    follow_requested = Signal(int)  # game_id
+    list_action_requested = Signal(int, object)  # game_id, list_id
+    # Separate from `list_action_requested` because Block is resolved by slug
+    # rather than by list id — the user can rename the Blocked list, and the
+    # menu entry has to keep working when they do.
+    block_requested = Signal(int)  # game_id
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._pressed: Optional[tuple[QPersistentModelIndex, str]] = None
+        self._list_options: list[tuple[int, str]] = []
+        self._membership_provider = None
+
+    def _button_specs_for(self, index: QModelIndex) -> list[tuple[str, str]]:
+        if index.data(INSTALLED_ROLE):
+            return [("play", "Play"), ("menu", "+")]
+        return [("menu", "+")]
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         painter.save()
@@ -172,7 +197,7 @@ class ActionsDelegate(QStyledItemDelegate):
 
         style = option.widget.style() if option.widget else QApplication.style()
         persistent_index = QPersistentModelIndex(index)
-        for key, label, rect in self._button_rects(option):
+        for key, label, rect in self._button_rects(option, index):
             button_option = QStyleOptionButton()
             button_option.rect = rect
             button_option.text = label
@@ -189,10 +214,11 @@ class ActionsDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        specs = self._button_specs_for(index)
         style = option.widget.style() if option.widget else QApplication.style()
-        total_width = 2 * _BUTTON_MARGIN + _BUTTON_SPACING * (len(_ACTION_BUTTON_SPECS) - 1)
+        total_width = 2 * _BUTTON_MARGIN + _BUTTON_SPACING * (len(specs) - 1)
         max_height = 0
-        for _key, label in _ACTION_BUTTON_SPECS:
+        for _key, label in specs:
             size = self._content_size(option, style, label)
             total_width += size.width()
             max_height = max(max_height, size.height())
@@ -206,7 +232,7 @@ class ActionsDelegate(QStyledItemDelegate):
 
         persistent_index = QPersistentModelIndex(index)
         pos = event.position().toPoint()
-        key = self._button_at(option, pos)
+        key = self._button_at(option, index, pos)
 
         if event.type() == QEvent.Type.MouseButtonPress:
             if key is None:
@@ -229,10 +255,8 @@ class ActionsDelegate(QStyledItemDelegate):
             return False
         if key == "play":
             self.play_requested.emit(game_id)
-        elif key == "follow":
-            self.follow_requested.emit(game_id)
         elif key == "menu":
-            self._show_menu(option, game_id)
+            self._show_menu(option, index, game_id)
         return True
 
     def _content_size(self, option: QStyleOptionViewItem, style: QStyle, label: str) -> QSize:
@@ -245,20 +269,42 @@ class ActionsDelegate(QStyledItemDelegate):
             QStyle.ContentsType.CT_PushButton, button_option, text_size, option.widget
         )
 
-    def _button_rects(self, option: QStyleOptionViewItem) -> list[tuple[str, str, QRect]]:
+    def _button_rects(
+        self, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> list[tuple[str, str, QRect]]:
+        """Buttons are *spread across* the cell, not packed against its left
+        edge.
+
+        Raising `_BUTTON_SPACING` alone didn't fix "Play and + are too close"
+        — and couldn't have. The buttons were laid out left-to-right from the
+        left margin, so whenever the Actions column was wider than
+        `sizeHint()` (it usually is), the surplus width piled up unused on the
+        right while the two buttons stayed shoulder to shoulder. The gap now
+        grows with the column instead of being a constant, with
+        `_BUTTON_SPACING` acting as the floor for a narrow column.
+        """
         style = option.widget.style() if option.widget else QApplication.style()
-        rects: list[tuple[str, str, QRect]] = []
-        x = option.rect.left() + _BUTTON_MARGIN
+        specs = self._button_specs_for(index)
+        sizes = [self._content_size(option, style, label) for _key, label in specs]
         center_y = option.rect.top() + option.rect.height() // 2
-        for key, label in _ACTION_BUTTON_SPECS:
-            size = self._content_size(option, style, label)
-            rect = QRect(x, center_y - size.height() // 2, size.width(), size.height())
-            rects.append((key, label, rect))
-            x += size.width() + _BUTTON_SPACING
+
+        left = option.rect.left() + _BUTTON_MARGIN
+        right = option.rect.right() - _BUTTON_MARGIN
+        buttons_width = sum(size.width() for size in sizes)
+        gaps = len(specs) - 1
+        gap = max(_BUTTON_SPACING, ((right - left) - buttons_width) // gaps if gaps else 0)
+
+        rects: list[tuple[str, str, QRect]] = []
+        x = left
+        for (key, label), size in zip(specs, sizes):
+            rects.append(
+                (key, label, QRect(x, center_y - size.height() // 2, size.width(), size.height()))
+            )
+            x += size.width() + gap
         return rects
 
-    def _button_at(self, option: QStyleOptionViewItem, pos) -> Optional[str]:
-        for key, _label, rect in self._button_rects(option):
+    def _button_at(self, option: QStyleOptionViewItem, index: QModelIndex, pos) -> Optional[str]:
+        for key, _label, rect in self._button_rects(option, index):
             if rect.contains(pos):
                 return key
         return None
@@ -267,18 +313,44 @@ class ActionsDelegate(QStyledItemDelegate):
         if option.widget:
             option.widget.update(option.rect)
 
-    def _show_menu(self, option: QStyleOptionViewItem, game_id: int) -> None:
-        menu_rect = next(rect for key, _label, rect in self._button_rects(option) if key == "menu")
+    def _show_menu(self, option: QStyleOptionViewItem, index: QModelIndex, game_id: int) -> None:
+        menu_rect = next(
+            rect for key, _label, rect in self._button_rects(option, index) if key == "menu"
+        )
         menu = QMenu(option.widget)
-        for list_type, label in LIST_ACTION_LABELS.items():
-            action = menu.addAction(label)
-            action.triggered.connect(self._make_list_action_handler(game_id, list_type))
+        # Looked up per menu-open, not cached: the answer changes as soon as
+        # the user picks something, and this menu is built lazily anyway.
+        already_in = self._membership_provider(game_id) if self._membership_provider else set()
+        for list_id, label in self._list_options:
+            action = menu.addAction(
+                f"{MEMBERSHIP_MARK} {label}" if list_id in already_in else f"{_MARK_PAD} {label}"
+            )
+            action.triggered.connect(self._make_list_action_handler(game_id, list_id))
         menu.addSeparator()
         block_action = menu.addAction(BLOCK_ACTION_LABEL)
-        block_action.triggered.connect(self._make_list_action_handler(game_id, ListType.BLOCKED))
+        block_action.triggered.connect(lambda: self.block_requested.emit(game_id))
         anchor = menu_rect.bottomLeft()
         global_pos = option.widget.mapToGlobal(anchor) if option.widget else anchor
         menu.exec(global_pos)
 
-    def _make_list_action_handler(self, game_id: int, list_type: ListType):
-        return lambda: self.list_action_requested.emit(game_id, list_type)
+    def _make_list_action_handler(self, game_id: int, list_id: int):
+        return lambda: self.list_action_requested.emit(game_id, list_id)
+
+    def set_list_options(self, list_options: list[tuple[int, str]]) -> None:
+        """`(list_id, name)` for the "+" menu. Pushed in by the page whenever
+        the set of lists changes — the delegate is presentation-only and has
+        no service access to look them up itself.
+        """
+        self._list_options = list_options
+
+    def set_membership_provider(self, provider) -> None:
+        """`provider(game_id) -> set[list_id]`, used to tick the lists a game
+        is already in.
+
+        A callback rather than a pushed-in dict: membership is per-game and
+        this table can hold thousands of rows, so precomputing it for all of
+        them to answer one menu-open would be wasted work. Supplied by the
+        page for the same reason as `set_list_options` — this class doesn't
+        touch `services/`.
+        """
+        self._membership_provider = provider

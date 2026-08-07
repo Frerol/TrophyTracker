@@ -11,6 +11,10 @@ from retrocheevos.utils.enums import ListType
 class ListEntry:
     account_id: int
     game_id: int
-    list_type: ListType
+    # Which list this row belongs to. `list_type` is only the predefined
+    # slug, and is None for a list the user created — `list_id` is what
+    # actually identifies the list (schema v15).
+    list_id: int
+    list_type: Optional[ListType] = None
     added_at: Optional[datetime] = None
     id: Optional[int] = None

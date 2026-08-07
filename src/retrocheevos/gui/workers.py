@@ -24,6 +24,11 @@ class ServiceWorker(QThread):
     # AutoConnection queues delivery to whatever thread the receiver lives
     # on, same as every other signal here).
     partial_result = Signal(object)
+    # A label for what the call is doing right now, for operations made of
+    # several distinct stages (see `sync_service.sync_everything`). Separate
+    # from `progress` because that one carries only two ints and is already
+    # consumed by several pages — this is additive, so those are untouched.
+    phase = Signal(str)
 
     def __init__(
         self,
@@ -31,6 +36,7 @@ class ServiceWorker(QThread):
         *args: Any,
         report_progress: bool = False,
         stream_results: bool = False,
+        report_phase: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -41,12 +47,17 @@ class ServiceWorker(QThread):
             self._kwargs["progress_callback"] = self._emit_progress
         if stream_results:
             self._kwargs["result_callback"] = self._emit_partial_result
+        if report_phase:
+            self._kwargs["phase_callback"] = self._emit_phase
 
     def _emit_progress(self, current: int, total: int) -> None:
         self.progress.emit(current, total)
 
     def _emit_partial_result(self, item: Any) -> None:
         self.partial_result.emit(item)
+
+    def _emit_phase(self, label: str) -> None:
+        self.phase.emit(label)
 
     def run(self) -> None:
         try:

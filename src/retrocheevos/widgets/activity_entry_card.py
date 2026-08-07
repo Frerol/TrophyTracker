@@ -12,6 +12,7 @@ already-proven Continue Playing pattern in `gui/pages/home_page.py`
 instead (real widgets in a plain container layout).
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
+from retrocheevos.gui import styles
 from retrocheevos.models.activity_feed import ActivityEntry
 
 AVATAR_SIZE = 48
@@ -26,9 +28,11 @@ GAME_ICON_SIZE = 24
 SECONDS_PER_HOUR = 3600
 SECONDS_PER_MINUTE = 60
 
-# Distinct from the card's other text, matching the differently-colored
-# status line on RA's own Following page.
-STATUS_TEXT_COLOR = "#8a63d2"
+# The rich-presence line, distinct from the card's other text — RA's own
+# Following page colours it with the accent. `styles.LINK` is that accent
+# (`--link-color`), so this follows the site instead of the invented purple
+# it used to be.
+STATUS_TEXT_COLOR = styles.LINK
 
 
 class ActivityEntryCard(QFrame):
@@ -48,10 +52,13 @@ class ActivityEntryCard(QFrame):
         text_column = QVBoxLayout()
         text_column.addWidget(username_label)
 
-        if entry.last_achievement_at is not None:
-            text_column.addWidget(
-                QLabel(f"Last activity: {entry.last_achievement_at:%Y-%m-%d %H:%M}")
-            )
+        # "Last seen", then the game that timestamp refers to directly
+        # beneath it — the same shape as RA's own Following page. A separate
+        # "Last unlock" line used to sit between them; it was a second,
+        # slower clock for a different event, and having both on screen was
+        # more confusing than useful.
+        if entry.last_seen_at is not None:
+            text_column.addWidget(QLabel(f"Last seen: {_format_timestamp(entry.last_seen_at)}"))
 
         if entry.game_title is not None:
             game_row = QHBoxLayout()
@@ -76,6 +83,19 @@ class ActivityEntryCard(QFrame):
         layout = QHBoxLayout(self)
         layout.addWidget(avatar_label)
         layout.addLayout(text_column, stretch=1)
+
+
+def _format_timestamp(moment: datetime) -> str:
+    """Printed exactly as RA sends it, with **no timezone conversion**.
+
+    These values are UTC (proven in `api/profile.py`), so on a machine east
+    of UTC they read behind the local clock — someone last seen a minute ago
+    shows an hour ago in UTC+1. That is intended: the app is meant to match
+    the numbers on the RA site, which also renders UTC, and matching the site
+    was chosen over matching the wall clock. Converting to local time here
+    reopens a mismatch that took three rounds to settle (docs/HANDOFF.md §2.2).
+    """
+    return f"{moment:%Y-%m-%d %H:%M}"
 
 
 def _set_pixmap(label: QLabel, path: Optional[Path], size: int) -> None:

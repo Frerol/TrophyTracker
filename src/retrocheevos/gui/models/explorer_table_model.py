@@ -1,8 +1,8 @@
-"""Explorer table model (UI.md 3.2) — `QAbstractTableModel` backing the
+﻿"""Explorer table model (UI.md 3.2) — `QAbstractTableModel` backing the
 Game list table, matching the RetroAchievements site layout. `QTableView`
 only ever paints visible rows via delegates, so this is what gives the
 table its virtualization for free — no per-row widget pool needed (unlike
-`GameCard`, this model has no interactive children to construct).
+a card widget, this model has no interactive children to construct).
 
 Owns the in-memory cover-art cache and drives `gui/image_loader.py`: a
 cache-miss on `Qt.ItemDataRole.DecorationRole` kicks off a background load,
@@ -15,7 +15,11 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
 
 from retrocheevos.core.explorer import GameWithCompletion
-from retrocheevos.gui.delegates.explorer_delegates import GAME_ID_ROLE, ICON_SIZE
+from retrocheevos.gui.delegates.explorer_delegates import (
+    GAME_ID_ROLE,
+    ICON_SIZE,
+    INSTALLED_ROLE,
+)
 from retrocheevos.gui.image_loader import ImageLoader
 from retrocheevos.models.game import Game
 
@@ -36,12 +40,22 @@ SECONDS_PER_HOUR = 3600
 _UNKNOWN_SORT_VALUE = -1
 
 
-def _format_median_time(seconds: Optional[int], sample: Optional[int]) -> str:
+def _format_median_time(seconds: Optional[int]) -> str:
+    """Human duration, matching `widgets/game_card.py`'s wording.
+
+    The sample size (`n=…`) this used to append is a statistical detail
+    about how RA derived the figure, not something to weigh up when picking
+    a game — and "1.5h (n=33)" read like raw data rather than an answer.
+    """
     if seconds is None:
         return "Unknown"
-    hours = seconds / SECONDS_PER_HOUR
-    sample_text = f" (n={sample})" if sample else ""
-    return f"{hours:.1f}h{sample_text}"
+    hours, remainder = divmod(int(seconds), SECONDS_PER_HOUR)
+    minutes = remainder // 60
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    return f"{minutes}m"
 
 
 class ExplorerTableModel(QAbstractTableModel):
@@ -93,6 +107,9 @@ class ExplorerTableModel(QAbstractTableModel):
         if role == GAME_ID_ROLE:
             return game.id
 
+        if role == INSTALLED_ROLE:
+            return game.id in self._installed_game_ids
+
         if column == COLUMN_TITLE:
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
                 return game.title
@@ -110,7 +127,7 @@ class ExplorerTableModel(QAbstractTableModel):
         elif column == COLUMN_MEDIAN_TIME:
             seconds = game.median_time_to_beat_hardcore_seconds
             if role == Qt.ItemDataRole.DisplayRole:
-                return _format_median_time(seconds, game.times_used_in_hardcore_beat_median)
+                return _format_median_time(seconds)
             if role == Qt.ItemDataRole.EditRole:
                 return seconds if seconds is not None else _UNKNOWN_SORT_VALUE
 

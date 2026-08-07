@@ -43,6 +43,10 @@ from typing import Optional
 from retrocheevos.api.client import RetroAchievementsClient
 from retrocheevos.api.serialization import parse_ra_datetime
 
+# `API_GetUserCompletionProgress.php` caps a response at 100 rows whatever
+# you ask for, so this is the page size the pagination loop steps by.
+COMPLETION_PROGRESS_PAGE_SIZE = 100
+
 
 @dataclass
 class RawUserProfile:
@@ -97,6 +101,21 @@ class RawFollowedUser:
 
 
 @dataclass
+class RawUserSummary:
+    user_pic_path: Optional[str]
+    rich_presence_msg: Optional[str]
+    last_seen_at: Optional[datetime]
+    # The game they were last playing — from `LastGame`, not from their most
+    # recent unlock. The two usually agree and don't have to: someone can
+    # play for hours without unlocking anything, and the activity feed is
+    # about what they're *doing*.
+    last_game_id: Optional[int]
+    last_game_title: Optional[str]
+    last_game_console: Optional[str]
+    last_game_icon_path: Optional[str]
+
+
+@dataclass
 class RawRecentAchievement:
     unlocked_at: Optional[datetime]
     game_id: int
@@ -127,11 +146,71 @@ class ProfileClient:
             last_game_id=payload.get("LastGameID"),
         )
 
+    def get_user_summary(self, username: str) -> RawUserSummary:
+        """Everything `get_user_profile` gives, plus **"Last seen"**.
+
+        `API_GetUserProfile.php` has no "when was this person last playing"
+        field at all, which is why the activity feed had been falling back to
+        the last *achievement unlock* and reading up to 16 hours behind the
+        site. This endpoint has it, confirmed live against a followed user
+        the site listed as "Last seen 06 Aug 2026, 17:21":
+
+            RichPresenceMsgDate      = 2026-08-06 17:31:50
+            RecentlyPlayed[0].LastPlayed = 2026-08-06 17:31:50
+            LastActivity.lastupdate  = None   <- do not use, always null
+
+        Both live fields agree; `RichPresenceMsgDate` is read here because it
+        is a flat field rather than the first element of a list that is empty
+        for a user who has never played. `LastActivity` looks like the
+        obvious candidate and is a dead end — every one of its keys came back
+        null.
+
+        `last_seen_at` is returned **naive, exactly as RA sends it** — that
+        is UTC, and it is displayed unconverted by deliberate choice so the
+        app reads the same as the site. See `widgets/activity_entry_card.py`.
+        """
+        payload = self._client.get(
+            "API_GetUserSummary.php", {"u": username, "g": 1, "a": 1}
+        )
+        last_game = payload.get("LastGame") or {}
+        return RawUserSummary(
+            user_pic_path=payload.get("UserPic"),
+            rich_presence_msg=payload.get("RichPresenceMsg"),
+            last_seen_at=parse_ra_datetime(payload.get("RichPresenceMsgDate")),
+            last_game_id=payload.get("LastGameID"),
+            last_game_title=last_game.get("Title"),
+            last_game_console=last_game.get("ConsoleName"),
+            last_game_icon_path=last_game.get("ImageIcon"),
+        )
+
     def get_user_completion_progress(self, username: str) -> list[RawGameProgress]:
-        payload = self._client.get("API_GetUserCompletionProgress.php", {"u": username})
-        # Defensive: paginated RA endpoints commonly wrap results in "Results",
-        # but a bare list is handled too in case this one doesn't.
-        items = payload.get("Results", []) if isinstance(payload, dict) else payload
+        """Every game this account has any progress on — all pages of them.
+
+        This endpoint caps a response at 100 games and reports the real
+        number in `Total`. Reading only the first page silently truncated
+        the data every profile statistic is derived from (confirmed live:
+        100 returned, `Total` 147), so points/beaten/mastered/completion
+        were all computed from roughly two thirds of the account.
+        """
+        items: list = []
+        offset = 0
+        while True:
+            payload = self._client.get(
+                "API_GetUserCompletionProgress.php",
+                {"u": username, "c": COMPLETION_PROGRESS_PAGE_SIZE, "o": offset},
+            )
+            # Defensive: a bare list is handled too, in case the shape ever
+            # changes back — in that case there's no pagination to follow.
+            if not isinstance(payload, dict):
+                items.extend(payload)
+                break
+
+            page = payload.get("Results", [])
+            items.extend(page)
+            total = payload.get("Total")
+            offset += len(page)
+            if not page or total is None or offset >= total:
+                break
 
         progress = []
         for item in items:
@@ -180,6 +259,21 @@ class ProfileClient:
     def get_recent_achievements(
         self, username: str, minutes: int
     ) -> list[RawRecentAchievement]:
+        """`unlocked_at` comes back naive, exactly as RA sends it.
+
+        That value is **UTC** — proven by cross-checking the same unlock
+        against `API_GetUserAwards.php`, which timestamps it explicitly:
+        award `2026-08-05T10:11:40+00:00` for game 757 is the same event
+        this endpoint reports as `2026-08-05 10:11:40`, no offset applied.
+        It is left naive and displayed unconverted by deliberate choice, so
+        the app shows the same wall-clock numbers as the RA site (which also
+        renders UTC). See `widgets/activity_entry_card.py`.
+
+        Ordering is *not* assumed — RA does return newest-first (confirmed
+        live: 84 rows, strictly descending), but that isn't documented, so
+        `activity_feed_service` picks the latest by timestamp instead of
+        by position.
+        """
         payload = self._client.get(
             "API_GetUserRecentAchievements.php", {"u": username, "m": minutes}
         )

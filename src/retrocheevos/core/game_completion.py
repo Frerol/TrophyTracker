@@ -1,7 +1,10 @@
-"""Per-game completion percentage, from `NumAwarded`/`MaxPossible`.
+"""Per-game completion percentage, from `NumAwarded`/`MaxPossible`, plus RA's
+own per-game award classification (`highest_award_kind`).
 
-Shared by `core/profile_stats.py` (average across all games) and the
+Shared by `core/profile_stats.py` (average/count across all games) and the
 Explorer Game Card (individual progress bar, via `GameCompletionRepository`).
+`highest_award_kind` also powers Explorer's already-beaten exclusion
+(`GameCompletionRepository.get_finished_game_ids`).
 """
 
 from typing import Optional
@@ -26,6 +29,7 @@ def build_game_completions(
             account_id=account_id,
             game_id=game.game_id,
             percent_complete=compute_percent_complete(game.num_awarded, game.max_possible),
+            highest_award_kind=game.highest_award_kind.value if game.highest_award_kind else None,
         )
         for game in completion_progress
     ]

@@ -2,10 +2,14 @@
 
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LOG_DIR = PROJECT_ROOT / "logs"
+from retrocheevos.database.connection import default_data_dir
+
+# Alongside the database, for the same reasons (`database/connection.py`):
+# a frozen build must not write next to the executable — that path is either
+# a temp extraction directory or a location the user can't write to — and
+# logs record what *this* person did, so they belong under their profile.
+LOG_DIR = default_data_dir() / "logs"
 LOG_FILE = LOG_DIR / "retrocheevos.log"
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"

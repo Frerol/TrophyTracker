@@ -16,7 +16,14 @@ class ActivityEntry:
     is_self: bool
     avatar_path: Optional[Path]
     status_text: str
-    last_achievement_at: Optional[datetime]
+    # When the user was last playing (RA's own "Last seen"). There used to be
+    # a `last_achievement_at` beside it, showing the last *unlock* — a
+    # different clock that runs behind this one, since a session can go hours
+    # without an unlock. Having both on screen invited exactly the confusion
+    # it caused; the card shows this one, and the game below is the game this
+    # timestamp refers to.
+    last_seen_at: Optional[datetime]
+    # The game they were last playing, and their progress in it.
     game_title: Optional[str]
     game_console: Optional[str]
     game_icon_path: Optional[Path]

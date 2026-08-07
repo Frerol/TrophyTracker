@@ -6,7 +6,7 @@ a collapsible side panel over a card grid. The table is a plain
 `QTableView` + `QSortFilterProxyModel` over `gui/models/explorer_table_model.py`
 — `QTableView` only ever paints *visible* rows via delegates
 (`gui/delegates/explorer_delegates.py`), including the actions column
-(Play/+/Follow), which is painted by `ActionsDelegate` rather than backed
+(Play/+), which is painted by `ActionsDelegate` rather than backed
 by real embedded widgets. An earlier `QTableView.setIndexWidget()`-based
 version of that column was removed after it was implicated in a native
 crash (`STATUS_FATAL_USER_CALLBACK_EXCEPTION` inside `Qt6Widgets.dll`,
@@ -21,21 +21,21 @@ NOT the full `refresh()` — `refresh()` also reloads the console checklist
 visible or after a Sync Consoles action, not on every keystroke/checkbox.
 """
 
-import random
 from typing import Optional
 
-from PySide6.QtCore import QSortFilterProxyModel, Qt
+from PySide6.QtCore import QSortFilterProxyModel, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QTableView,
     QVBoxLayout,
+    QWidget,
 )
 
 from retrocheevos.core.explorer import ExplorerFilters, GameWithCompletion
@@ -58,7 +58,6 @@ from retrocheevos.gui.models.explorer_table_model import (
 )
 from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.workers import ServiceWorker
-from retrocheevos.models.console import Console
 from retrocheevos.services import (
     console_service,
     explorer_service,
@@ -67,35 +66,67 @@ from retrocheevos.services import (
     session_service,
     sync_service,
 )
-from retrocheevos.utils.enums import ListType
 from retrocheevos.widgets.explorer_filter_bar import ExplorerFilterBar
 
 ROW_HEIGHT = 48
 
 
 class ExplorerPage(Page):
+    # Re-broadcast of the filter bar's own signal, for owning pages — see
+    # `_on_filters_changed`.
+    filters_changed = Signal()
+    # Emitted after "Sync Everything" completes, carrying the ids of events
+    # that appeared for the first time — Home turns those into notifications.
+    sync_finished = Signal(list)
+
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
-        self._worker: Optional[ServiceWorker] = None
+        # One worker attribute for both sync actions — they're mutually
+        # exclusive (each disables both buttons for its duration), so the
+        # two separate attributes this replaced only ever held one live
+        # thread anyway.
+        self._sync_worker: Optional[ServiceWorker] = None
         self._play_worker: Optional[ServiceWorker] = None
+        self._sync_phase = ""
         self._current_results: list[GameWithCompletion] = []
         self._console_names: dict[int, str] = {}
         self._image_loader = ImageLoader()
 
-        self._console_selector = QComboBox()
-        self._sync_consoles_button = QPushButton("Sync Consoles")
-        self._sync_consoles_button.clicked.connect(self._on_sync_consoles)
-        self._sync_games_button = QPushButton("Sync Games for Console")
-        self._sync_games_button.clicked.connect(self._on_sync_games)
+        # One button instead of the four this replaced (consoles, games for
+        # console, full catalog, and the profile sync that used to live in
+        # Settings): the first three were strictly nested — `sync_full_catalog`
+        # already refreshes consoles and loops every one of them — and doing
+        # them separately let the user run the profile sync before the
+        # catalog, which silently drops completion data. See
+        # `sync_service.sync_everything`.
+        self._sync_everything_button = QPushButton("Sync Everything")
+        self._sync_everything_button.clicked.connect(self._on_sync_everything)
+        # Kept separate because it costs one API call per game (~1h for the
+        # whole catalog vs ~3min for everything above), so it stays opt-in.
+        # Resumable, so a second run is nearly instant.
+        self._sync_median_times_button = QPushButton("Sync Median Times")
+        self._sync_median_times_button.clicked.connect(self._on_sync_median_times)
 
-        sync_bar = QHBoxLayout()
-        sync_bar.addWidget(self._console_selector)
-        sync_bar.addWidget(self._sync_consoles_button)
-        sync_bar.addWidget(self._sync_games_button)
+        self._catalog_sync_progress = QProgressBar()
+        self._catalog_sync_progress.setVisible(False)
+        self._catalog_sync_progress.setTextVisible(True)
+        # Fixed percentage scale — see `_show_progress_percent` for why the
+        # range isn't set per phase.
+        self._catalog_sync_progress.setRange(0, 100)
+
+        # Wrapped in a QWidget rather than added as a bare QHBoxLayout: a
+        # QLayout has no setVisible(), and `set_results_visible` needs to
+        # hide this whole strip as one unit when Home embeds this page.
+        self._sync_bar_widget = QWidget()
+        sync_bar = QHBoxLayout(self._sync_bar_widget)
+        sync_bar.setContentsMargins(0, 0, 0, 0)
+        sync_bar.addWidget(self._sync_everything_button)
+        sync_bar.addWidget(self._sync_median_times_button)
+        sync_bar.addWidget(self._catalog_sync_progress, stretch=1)
         sync_bar.addStretch(1)
 
         self._filter_bar = ExplorerFilterBar()
-        self._filter_bar.filters_changed.connect(self._refresh_results)
+        self._filter_bar.filters_changed.connect(self._on_filters_changed)
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search games...")
@@ -103,13 +134,12 @@ class ExplorerPage(Page):
 
         self._results_count_label = QLabel()
 
-        random_button = QPushButton("Surprise me")
-        random_button.clicked.connect(self._on_random)
-
-        search_row = QHBoxLayout()
+        # Same QWidget-wrapping reason as `_sync_bar_widget` above.
+        self._search_row_widget = QWidget()
+        search_row = QHBoxLayout(self._search_row_widget)
+        search_row.setContentsMargins(0, 0, 0, 0)
         search_row.addWidget(self._search_input, stretch=1)
         search_row.addWidget(self._results_count_label)
-        search_row.addWidget(random_button)
 
         self._table_model = ExplorerTableModel(self._image_loader)
         self._proxy_model = QSortFilterProxyModel()
@@ -120,11 +150,12 @@ class ExplorerPage(Page):
         self._table.setModel(self._proxy_model)
         self._table.setItemDelegateForColumn(COLUMN_TITLE, TitleDelegate(self._table))
         self._table.setItemDelegateForColumn(COLUMN_PROGRESS, ProgressDelegate(self._table))
-        actions_delegate = ActionsDelegate(self._table)
-        actions_delegate.play_requested.connect(self._on_play)
-        actions_delegate.list_action_requested.connect(self._on_list_action)
-        actions_delegate.follow_requested.connect(self._on_follow)
-        self._table.setItemDelegateForColumn(COLUMN_ACTIONS, actions_delegate)
+        self._actions_delegate = ActionsDelegate(self._table)
+        self._actions_delegate.play_requested.connect(self._on_play)
+        self._actions_delegate.list_action_requested.connect(self._on_list_action)
+        self._actions_delegate.block_requested.connect(self._on_block)
+        self._actions_delegate.set_membership_provider(self._list_ids_for_game)
+        self._table.setItemDelegateForColumn(COLUMN_ACTIONS, self._actions_delegate)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(COLUMN_TITLE, Qt.SortOrder.AscendingOrder)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -147,9 +178,9 @@ class ExplorerPage(Page):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(sync_bar)
+        layout.addWidget(self._sync_bar_widget)
         layout.addWidget(self._filter_bar)
-        layout.addLayout(search_row)
+        layout.addWidget(self._search_row_widget)
         layout.addWidget(self._table, stretch=1)
 
     def refresh(self) -> None:
@@ -158,11 +189,48 @@ class ExplorerPage(Page):
         lighter `_refresh_results()` instead (see module docstring).
         """
         self._load_consoles()
+        self._refresh_list_options()
         self._refresh_results()
+
+    def load_consoles(self) -> None:
+        """Public wrapper so an owning page can populate the Console filter
+        pill before any results are shown — Home keeps the filter bar
+        visible while the results stay hidden, and an unpopulated pill would
+        just read "All Consoles" with nothing to pick.
+        """
+        self._load_consoles()
+
+    def set_results_visible(self, visible: bool) -> None:
+        """Shows/hides the results area only.
+
+        Home embeds this page with the filter pills AND the sync bar always
+        on screen — syncing is a thing you go and do, not something that
+        should require searching for a game first — while the results table
+        and its search row appear once the user actually searches or filters.
+        """
+        self._search_row_widget.setVisible(visible)
+        self._table.setVisible(visible)
+
+    def set_search_text(self, text: str) -> None:
+        """Lets an owning page (`gui/pages/home_page.py`'s embedded instance)
+        drive this page's own search field and trigger results immediately —
+        bypasses the `returnPressed`-only trigger this field normally uses
+        when this page's own search box is typed into directly.
+        """
+        self._search_input.setText(text)
+        self._refresh_results()
+
+    def _on_filters_changed(self) -> None:
+        self._refresh_results()
+        # Re-emitted so an owning page can react (Home reveals the results
+        # area when a pill is touched) without reaching into `_filter_bar`.
+        self.filters_changed.emit()
 
     def _load_consoles(self) -> None:
         consoles = console_service.list_consoles()
-        self._console_names = self._populate_console_selector(consoles)
+        # Names for every console, including ones with no synced games — the
+        # results table still has to label whatever rows it's given.
+        self._console_names = {console.id: console.name for console in consoles}
         self._filter_bar.set_available_consoles(consoles)
 
     def _refresh_results(self) -> None:
@@ -185,91 +253,153 @@ class ExplorerPage(Page):
         self._table_model.set_data(self._current_results, self._console_names, installed_game_ids)
         self._results_count_label.setText(f"{len(self._current_results)} of {total_count} games")
 
-    def _populate_console_selector(self, consoles: list[Console]) -> dict[int, str]:
-        """Refills the sync-target console dropdown; returns an id -> name map for the table."""
-        previous = self._console_selector.currentData()
-        self._console_selector.blockSignals(True)
-        self._console_selector.clear()
-        for console in consoles:
-            self._console_selector.addItem(console.name, console.id)
-        if previous is not None:
-            index = self._console_selector.findData(previous)
-            if index >= 0:
-                self._console_selector.setCurrentIndex(index)
-        self._console_selector.blockSignals(False)
-
-        return {console.id: console.name for console in consoles}
-
-    def _on_random(self) -> None:
-        if not self._current_results:
-            QMessageBox.information(self, "Random", "No games match the current filters.")
-            return
-
-        chosen = random.choice(self._current_results)
-        self._select_game(chosen.game.id)
-
-    def _select_game(self, game_id: int) -> None:
-        for row, result in enumerate(self._current_results):
-            if result.game.id == game_id:
-                source_index = self._table_model.index(row, COLUMN_TITLE)
-                proxy_index = self._proxy_model.mapFromSource(source_index)
-                self._table.selectRow(proxy_index.row())
-                self._table.scrollTo(proxy_index)
-                return
-
-    def _on_list_action(self, game_id: int, list_type: ListType) -> None:
+    def _on_list_action(self, game_id: int, list_id: int) -> None:
         account = self.app_context.active_account
         if account is None:
             return
-        lists_service.add_to_list(account.id, game_id, list_type)
+        try:
+            lists_service.add_to_list(account.id, game_id, list_id)
+        except ValueError as error:
+            QMessageBox.warning(self, "Can't add to list", str(error))
+            return
         # Blocking (and, less visibly, the other list actions) can change
         # whether this game still belongs in the current filtered/sorted
         # result set — re-query immediately rather than waiting for the
         # next unrelated refresh (a sync, a filter change) to catch up.
         self._refresh_results()
 
-    def _on_follow(self, game_id: int) -> None:
+    def _list_ids_for_game(self, game_id: int) -> set[int]:
+        """Which lists this game is already in — ticks the "+" menu."""
+        account = self.app_context.active_account
+        if account is None:
+            return set()
+        return lists_service.get_list_ids_for_game(account.id, game_id)
+
+    def _on_block(self, game_id: int) -> None:
+        """Block resolves the list by slug, so it keeps working even if the
+        user renames their Blocked list."""
         account = self.app_context.active_account
         if account is None:
             return
-        lists_service.add_to_list(account.id, game_id, ListType.FOLLOWING)
+        blocked = next(
+            (d for d in lists_service.list_definitions(account.id) if d.is_blocked), None
+        )
+        if blocked is None:
+            return
+        lists_service.add_to_list(account.id, game_id, blocked.id)
         self._refresh_results()
 
-    def _on_sync_consoles(self) -> None:
+    def _refresh_list_options(self) -> None:
+        """Keeps the "+" menu in step with the lists that actually exist —
+        called from `refresh()`, so a list created on the Lists page shows up
+        here on the next visit without a restart.
+        """
         account = self.app_context.active_account
         if account is None:
             return
-        client = session_service.build_api_client(account)
-        self._sync_consoles_button.setEnabled(False)
-        self._worker = ServiceWorker(sync_service.sync_consoles, client)
-        self._worker.finished_ok.connect(self._on_sync_consoles_done)
-        self._worker.failed.connect(self._on_sync_failed)
-        self._worker.start()
+        options = [
+            (definition.id, definition.name)
+            for definition in lists_service.list_definitions(account.id)
+            if definition.accepts_manual_membership and not definition.is_blocked
+        ]
+        self._actions_delegate.set_list_options(options)
+        # Same set drives the filter bar's "Lists" pill — a list you can add
+        # a game to is a list you can filter by.
+        self._filter_bar.set_list_options(options)
 
-    def _on_sync_consoles_done(self, _result: object) -> None:
-        self._sync_consoles_button.setEnabled(True)
-        self._load_consoles()
-
-    def _on_sync_games(self) -> None:
-        account = self.app_context.active_account
-        console_id = self._console_selector.currentData()
-        if account is None or console_id is None:
-            return
-        client = session_service.build_api_client(account)
-        self._sync_games_button.setEnabled(False)
-        self._worker = ServiceWorker(sync_service.sync_games_for_console, client, console_id)
-        self._worker.finished_ok.connect(self._on_sync_games_done)
-        self._worker.failed.connect(self._on_sync_failed)
-        self._worker.start()
-
-    def _on_sync_games_done(self, _result: object) -> None:
-        self._sync_games_button.setEnabled(True)
-        self._refresh_results()
+    def _set_sync_buttons_enabled(self, enabled: bool) -> None:
+        # Both share this — they both write to `games`, and running them
+        # concurrently on separate threads would race each other's SQLite
+        # writes for no benefit. It's also what makes a single worker
+        # attribute safe (see `_sync_worker`).
+        self._sync_everything_button.setEnabled(enabled)
+        self._sync_median_times_button.setEnabled(enabled)
 
     def _on_sync_failed(self, message: str) -> None:
-        self._sync_consoles_button.setEnabled(True)
-        self._sync_games_button.setEnabled(True)
+        self._set_sync_buttons_enabled(True)
+        self._catalog_sync_progress.setVisible(False)
         QMessageBox.warning(self, "Sync failed", message)
+
+    def _on_sync_everything(self) -> None:
+        account = self.app_context.active_account
+        if account is None:
+            return
+        client = session_service.build_api_client(account)
+        self._set_sync_buttons_enabled(False)
+        self._sync_phase = ""
+        self._catalog_sync_progress.setRange(0, 0)  # indeterminate until the first phase reports
+        self._catalog_sync_progress.setFormat("Starting sync…")
+        self._catalog_sync_progress.setVisible(True)
+        self._sync_worker = ServiceWorker(
+            sync_service.sync_everything,
+            client,
+            account,
+            report_progress=True,
+            report_phase=True,
+        )
+        self._sync_worker.phase.connect(self._on_sync_phase)
+        self._sync_worker.progress.connect(self._on_sync_progress)
+        self._sync_worker.finished_ok.connect(self._on_sync_everything_done)
+        self._sync_worker.failed.connect(self._on_sync_failed)
+        self._sync_worker.start()
+
+    def _on_sync_phase(self, phase: str) -> None:
+        self._sync_phase = phase
+        self._catalog_sync_progress.setValue(0)
+        self._catalog_sync_progress.setFormat(f"{phase}…")
+
+    def _show_progress_percent(self, label: str, current: int, total: int) -> None:
+        """Drives the bar on a fixed 0-100 scale.
+
+        Deliberately not `setRange(0, total)`: `total` changes between phases
+        (consoles, then games), so a per-phase range made the bar jump
+        backwards and sit visually full at the end of each phase. A fixed
+        percentage scale fills once, left to right, whatever the phase.
+        """
+        percent = int(current / total * 100) if total else 100
+        self._catalog_sync_progress.setValue(percent)
+        self._catalog_sync_progress.setFormat(f"{label} {current}/{total} — {percent}%")
+
+    def _on_sync_progress(self, current: int, total: int) -> None:
+        self._show_progress_percent(self._sync_phase, current, total)
+
+    def _on_sync_everything_done(self, new_event_ids: object) -> None:
+        self._set_sync_buttons_enabled(True)
+        self._catalog_sync_progress.setVisible(False)
+        self._load_consoles()
+        self._refresh_results()
+        self.sync_finished.emit(list(new_event_ids or []))
+
+    def _on_sync_median_times(self) -> None:
+        account = self.app_context.active_account
+        if account is None:
+            return
+        client = session_service.build_api_client(account)
+        self._set_sync_buttons_enabled(False)
+        self._catalog_sync_progress.setValue(0)
+        self._catalog_sync_progress.setFormat("Starting median time sync…")
+        self._catalog_sync_progress.setVisible(True)
+        self._sync_worker = ServiceWorker(
+            sync_service.sync_median_times, client, report_progress=True
+        )
+        self._sync_worker.progress.connect(self._on_median_times_progress)
+        self._sync_worker.finished_ok.connect(self._on_median_times_done)
+        self._sync_worker.failed.connect(self._on_sync_failed)
+        self._sync_worker.start()
+
+    def _on_median_times_progress(self, current: int, total: int) -> None:
+        self._show_progress_percent("Median time", current, total)
+
+    def _on_median_times_done(self, filled: int) -> None:
+        self._set_sync_buttons_enabled(True)
+        self._catalog_sync_progress.setVisible(False)
+        self._refresh_results()
+        message = (
+            f"{filled} more game(s) now have a median time to beat."
+            if filled
+            else "Every game already had whatever median time RetroAchievements publishes."
+        )
+        QMessageBox.information(self, "Median times synced", message)
 
     def _on_play(self, game_id: int) -> None:
         self._play_worker = ServiceWorker(library_service.launch_game, game_id)
@@ -278,3 +408,4 @@ class ExplorerPage(Page):
 
     def _on_play_failed(self, message: str) -> None:
         QMessageBox.warning(self, "Couldn't launch game", message)
+

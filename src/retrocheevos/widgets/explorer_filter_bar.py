@@ -1,5 +1,5 @@
-"""Explorer filter bar (UI.md 3.2.1) — presentation-only (Architecture.md
-§3.1), like `GameCard`. Never calls `services/` or `database/` directly.
+﻿"""Explorer filter bar (UI.md 3.2.1) — presentation-only (Architecture.md
+§3.1), like every other widget here. Never calls `services/` or `database/` directly.
 
 Pill-button + popup design, matching the RetroAchievements site (screenshot
 reference) rather than the earlier always-visible side panel
@@ -9,25 +9,25 @@ reference) rather than the earlier always-visible side panel
 than plain `QAction`s, so clicking one checkbox doesn't close the whole
 popup — the reference lets you tick several boxes before dismissing it.
 
-UI.md §3.2.1 lists "Achievements (has/none)" and "Search with/without/all
-achievements" as separate bullets, but `ExplorerFilters` only has one field
-for this (`has_achievements: Optional[bool]`) — treated as the same concept
-described twice in the planning doc, per user confirmation (unchanged from
-the previous panel).
+Games without an achievement set are never synced/stored at all
+(`services/sync_service.py`, `database/repositories/game_repository.py`), so
+there is no "Achievements (has/none)" filter here — every game already has
+achievements, unconditionally.
 """
 
 from dataclasses import replace
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -35,15 +35,16 @@ from PySide6.QtWidgets import (
 
 from retrocheevos.core.explorer import ExplorerFilters
 from retrocheevos.models.console import Console
-from retrocheevos.utils.enums import GameType, ListType
+from retrocheevos.utils.enums import GameType
 
 _ALL_CONSOLES_LABEL = "All Consoles"
+_ALL_TYPES_LABEL = "All"
 
-_ACHIEVEMENTS_OPTIONS = [
-    ("All games", None),
-    ("With achievements", True),
-    ("Without achievements", False),
-]
+MIN_MEDIAN_TIME_MINUTES = 1
+# 10 hours — past this the filter stops being a "what fits in my evening"
+# question, which is the only thing it's for.
+MAX_MEDIAN_TIME_MINUTES = 600
+DEFAULT_MEDIAN_TIME_MINUTES = 30
 
 _GAME_TYPE_LABELS = {
     GameType.RETAIL: "Retail",
@@ -53,15 +54,16 @@ _GAME_TYPE_LABELS = {
     GameType.PROTOTYPE: "Prototype",
 }
 
-# Want to Play/Playing/Following narrow results to those lists. Completed/
-# Abandoned/Mastered are separate "hidden by default, reveal" toggles
-# (Database.md 4.1, UI.md 3.2.1's default-hidden note) — both groups share
-# one "Lists" pill so the bar doesn't need 3-4 extra pills for them.
-_INCLUDE_LIST_LABELS = {
-    ListType.WANT_TO_PLAY: "Want to Play",
-    ListType.PLAYING: "Playing",
-    ListType.FOLLOWING: "Following",
-}
+# The "Lists" pill's checkboxes are built at runtime from the lists the
+# account actually has (`set_list_options`), not from a fixed table here.
+# They used to be a hardcoded Want to Play/Playing pair plus
+# Completed/Abandoned reveal toggles; with user-created lists (Bloco 12)
+# there's no fixed set to hardcode, and the four predefined lists those
+# entries pointed at were deleted in migration v16.
+#
+# Mastered/Beaten still have no checkbox — `core/explorer.py::search_games`
+# excludes them unconditionally, no reveal option (per user decision).
+_NO_LISTS_TEXT = "No lists yet"
 
 
 class ExplorerFilterBar(QWidget):
@@ -77,6 +79,13 @@ class ExplorerFilterBar(QWidget):
         self._game_type_checkboxes: dict[GameType, QCheckBox] = {}
         type_container = QWidget()
         type_layout = QVBoxLayout(type_container)
+        # "All" mirrors the Console pill's "All Consoles" entry: with nothing
+        # ticked the filter is already inactive, but there was no way to say
+        # so — you had to remember to untick everything by hand.
+        self._all_types_checkbox = QCheckBox(_ALL_TYPES_LABEL)
+        self._all_types_checkbox.setChecked(True)
+        self._all_types_checkbox.stateChanged.connect(self._on_all_types_changed)
+        type_layout.addWidget(self._all_types_checkbox)
         for game_type, label in _GAME_TYPE_LABELS.items():
             checkbox = QCheckBox(label)
             checkbox.stateChanged.connect(self._on_type_changed)
@@ -84,48 +93,38 @@ class ExplorerFilterBar(QWidget):
             type_layout.addWidget(checkbox)
         self._type_pill = self._make_popup_pill("Type", type_container)
 
-        self._achievements_pill = QPushButton("Achievements")
-        self._achievements_pill.setProperty("baseLabel", "Achievements")
-        self._achievements_value: Optional[bool] = None
-        achievements_menu = QMenu(self._achievements_pill)
-        achievements_group = QActionGroup(achievements_menu)
-        achievements_group.setExclusive(True)
-        for label, value in _ACHIEVEMENTS_OPTIONS:
-            action = QAction(label, achievements_menu)
-            action.setCheckable(True)
-            action.setChecked(value is None)
-            action.triggered.connect(self._make_achievements_handler(value, label))
-            achievements_group.addAction(action)
-            achievements_menu.addAction(action)
-        self._achievements_pill.setMenu(achievements_menu)
-
-        self._median_time_pill = QPushButton("Median Time")
-        self._median_time_pill.setCheckable(True)
-        self._median_time_pill.toggled.connect(self._on_median_time_toggled)
+        # A duration entry, not a yes/no toggle: "what can I finish tonight"
+        # is the actual question, and an "any known median time" boolean
+        # never answered it. Inactive until the user applies a value.
+        self._max_median_time_minutes: Optional[int] = None
+        median_time_container = QWidget()
+        median_time_layout = QVBoxLayout(median_time_container)
+        median_time_layout.addWidget(QLabel("Beat in at most (minutes):"))
+        self._median_time_spinbox = QSpinBox()
+        self._median_time_spinbox.setRange(
+            MIN_MEDIAN_TIME_MINUTES, MAX_MEDIAN_TIME_MINUTES
+        )
+        self._median_time_spinbox.setValue(DEFAULT_MEDIAN_TIME_MINUTES)
+        median_time_layout.addWidget(self._median_time_spinbox)
+        median_time_buttons = QHBoxLayout()
+        apply_median_time_button = QPushButton("Apply")
+        apply_median_time_button.clicked.connect(self._on_median_time_applied)
+        clear_median_time_button = QPushButton("Clear")
+        clear_median_time_button.clicked.connect(self._on_median_time_cleared)
+        median_time_buttons.addWidget(apply_median_time_button)
+        median_time_buttons.addWidget(clear_median_time_button)
+        median_time_layout.addLayout(median_time_buttons)
+        self._median_time_pill = self._make_popup_pill("Median Time", median_time_container)
 
         self._installed_pill = QPushButton("Installed")
         self._installed_pill.setCheckable(True)
         self._installed_pill.toggled.connect(self._on_installed_toggled)
 
-        self._include_list_checkboxes: dict[ListType, QCheckBox] = {}
-        self._show_completed_checkbox = QCheckBox("Completed")
-        self._show_abandoned_checkbox = QCheckBox("Abandoned")
-        self._show_mastered_checkbox = QCheckBox("Mastered")
-        lists_container = QWidget()
-        lists_layout = QVBoxLayout(lists_container)
-        for list_type, label in _INCLUDE_LIST_LABELS.items():
-            checkbox = QCheckBox(label)
-            checkbox.stateChanged.connect(self._on_lists_changed)
-            self._include_list_checkboxes[list_type] = checkbox
-            lists_layout.addWidget(checkbox)
-        for checkbox in (
-            self._show_completed_checkbox,
-            self._show_abandoned_checkbox,
-            self._show_mastered_checkbox,
-        ):
-            checkbox.stateChanged.connect(self._on_lists_changed)
-            lists_layout.addWidget(checkbox)
-        self._lists_pill = self._make_popup_pill("Lists", lists_container)
+        self._include_list_checkboxes: dict[int, QCheckBox] = {}
+        self._lists_container = QWidget()
+        self._lists_layout = QVBoxLayout(self._lists_container)
+        self._lists_layout.addWidget(QLabel(_NO_LISTS_TEXT))
+        self._lists_pill = self._make_popup_pill("Lists", self._lists_container)
 
         reset_button = QPushButton("Reset ✕")
         reset_button.clicked.connect(self._on_reset_clicked)
@@ -135,7 +134,6 @@ class ExplorerFilterBar(QWidget):
         for widget in (
             self._console_pill,
             self._type_pill,
-            self._achievements_pill,
             self._median_time_pill,
             self._installed_pill,
             self._lists_pill,
@@ -234,8 +232,35 @@ class ExplorerFilterBar(QWidget):
     # --- Type ----------------------------------------------------------
 
     def _on_type_changed(self, _state: int) -> None:
+        # Ticking a specific type implicitly means "not all of them", and
+        # unticking the last one lands back on All — same mutual exclusion
+        # the Console pill's "All Consoles" item has.
+        self._all_types_checkbox.blockSignals(True)
+        self._all_types_checkbox.setChecked(not self._any_type_checked())
+        self._all_types_checkbox.blockSignals(False)
         self._update_type_pill_label()
         self.filters_changed.emit()
+
+    def _on_all_types_changed(self, _state: int) -> None:
+        if not self._all_types_checkbox.isChecked():
+            # Unticking All directly is meaningless — with no specific type
+            # picked the filter would be in the same state either way, so
+            # snap it back rather than allow a no-op "nothing selected".
+            if not self._any_type_checked():
+                self._all_types_checkbox.blockSignals(True)
+                self._all_types_checkbox.setChecked(True)
+                self._all_types_checkbox.blockSignals(False)
+            return
+
+        for checkbox in self._game_type_checkboxes.values():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+        self._update_type_pill_label()
+        self.filters_changed.emit()
+
+    def _any_type_checked(self) -> bool:
+        return any(checkbox.isChecked() for checkbox in self._game_type_checkboxes.values())
 
     def _update_type_pill_label(self) -> None:
         checked_labels = [
@@ -245,23 +270,27 @@ class ExplorerFilterBar(QWidget):
         ]
         self._set_pill_text(self._type_pill, self._summarize(checked_labels))
 
-    # --- Achievements ----------------------------------------------------
+    # --- Median Time (popup with a minutes entry) -----------------------
 
-    def _make_achievements_handler(self, value: Optional[bool], label: str):
-        def _handler(checked: bool) -> None:
-            if not checked:
-                return
-            self._achievements_value = value
-            self._set_pill_text(self._achievements_pill, None if value is None else label)
-            self.filters_changed.emit()
-
-        return _handler
-
-    # --- Median Time / Installed (plain toggle pills, no popup) --------
-
-    def _on_median_time_toggled(self, checked: bool) -> None:
-        self._median_time_pill.setText("Median Time: Known only" if checked else "Median Time")
+    def _on_median_time_applied(self) -> None:
+        self._max_median_time_minutes = self._median_time_spinbox.value()
+        self._update_median_time_pill_label()
         self.filters_changed.emit()
+
+    def _on_median_time_cleared(self) -> None:
+        self._max_median_time_minutes = None
+        self._update_median_time_pill_label()
+        self.filters_changed.emit()
+
+    def _update_median_time_pill_label(self) -> None:
+        self._set_pill_text(
+            self._median_time_pill,
+            None
+            if self._max_median_time_minutes is None
+            else f"≤{self._max_median_time_minutes}m",
+        )
+
+    # --- Installed (plain toggle pill, no popup) ------------------------
 
     def _on_installed_toggled(self, checked: bool) -> None:
         self._installed_pill.setText("Installed: Yes" if checked else "Installed")
@@ -273,15 +302,40 @@ class ExplorerFilterBar(QWidget):
         self._update_lists_pill_label()
         self.filters_changed.emit()
 
+    def set_list_options(self, list_options: list[tuple[int, str]]) -> None:
+        """Rebuild the Lists pill from `(list_id, name)`.
+
+        Ticked boxes are carried across by id so refreshing the page — which
+        happens on every visit — doesn't silently clear an active filter. A
+        list the user deleted simply doesn't come back.
+        """
+        previously_checked = {
+            list_id
+            for list_id, checkbox in self._include_list_checkboxes.items()
+            if checkbox.isChecked()
+        }
+        self._include_list_checkboxes.clear()
+        while self._lists_layout.count():
+            item = self._lists_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not list_options:
+            self._lists_layout.addWidget(QLabel(_NO_LISTS_TEXT))
+            self._update_lists_pill_label()
+            return
+
+        for list_id, name in list_options:
+            checkbox = QCheckBox(name)
+            checkbox.setChecked(list_id in previously_checked)
+            checkbox.stateChanged.connect(self._on_lists_changed)
+            self._include_list_checkboxes[list_id] = checkbox
+            self._lists_layout.addWidget(checkbox)
+        self._update_lists_pill_label()
+
     def _update_lists_pill_label(self) -> None:
         active = sum(
-            checkbox.isChecked()
-            for checkbox in (
-                *self._include_list_checkboxes.values(),
-                self._show_completed_checkbox,
-                self._show_abandoned_checkbox,
-                self._show_mastered_checkbox,
-            )
+            checkbox.isChecked() for checkbox in self._include_list_checkboxes.values()
         )
         self._set_pill_text(self._lists_pill, f"{active} active" if active else None)
 
@@ -311,9 +365,9 @@ class ExplorerFilterBar(QWidget):
             for game_type, checkbox in self._game_type_checkboxes.items()
             if checkbox.isChecked()
         ]
-        list_types = [
-            list_type
-            for list_type, checkbox in self._include_list_checkboxes.items()
+        list_ids = [
+            list_id
+            for list_id, checkbox in self._include_list_checkboxes.items()
             if checkbox.isChecked()
         ]
 
@@ -321,13 +375,9 @@ class ExplorerFilterBar(QWidget):
             base_filters,
             console_ids=list(console_ids) or None,
             game_types=game_types or None,
-            has_achievements=self._achievements_value,
-            require_known_median_time=self._median_time_pill.isChecked(),
+            max_median_time_minutes=self._max_median_time_minutes,
             installed_only=self._installed_pill.isChecked(),
-            list_types_any_of=list_types or None,
-            show_completed=self._show_completed_checkbox.isChecked(),
-            show_abandoned=self._show_abandoned_checkbox.isChecked(),
-            show_mastered=self._show_mastered_checkbox.isChecked(),
+            list_ids_any_of=list_ids or None,
         )
 
     def reset(self) -> None:
@@ -341,20 +391,19 @@ class ExplorerFilterBar(QWidget):
         self._update_console_pill_label()
 
         for checkbox in self._game_type_checkboxes.values():
+            checkbox.blockSignals(True)
             checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+        self._all_types_checkbox.blockSignals(True)
+        self._all_types_checkbox.setChecked(True)
+        self._all_types_checkbox.blockSignals(False)
         self._update_type_pill_label()
 
-        self._achievements_value = None
-        self._set_pill_text(self._achievements_pill, None)
-        for action in self._achievements_pill.menu().actions():
-            action.setChecked(action.text() == _ACHIEVEMENTS_OPTIONS[0][0])
-
-        self._median_time_pill.setChecked(False)
+        self._max_median_time_minutes = None
+        self._median_time_spinbox.setValue(DEFAULT_MEDIAN_TIME_MINUTES)
+        self._update_median_time_pill_label()
         self._installed_pill.setChecked(False)
 
         for checkbox in self._include_list_checkboxes.values():
             checkbox.setChecked(False)
-        self._show_completed_checkbox.setChecked(False)
-        self._show_abandoned_checkbox.setChecked(False)
-        self._show_mastered_checkbox.setChecked(False)
         self._update_lists_pill_label()

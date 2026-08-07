@@ -98,6 +98,16 @@ class AchievementRepository:
         "Mastered" is defined here, at the query level, rather than stored
         redundantly — same principle as `installed_roms` deriving install
         status (Database.md 3.2).
+
+        CURRENTLY ALWAYS EMPTY — do not use for filtering. It reads
+        `achievements`/`user_achievements`, which are only written by
+        `sync_service.sync_game_details`/`sync_account_progress`, and neither
+        of those is called anywhere in the app. Explorer used to filter
+        mastered games through here and silently excluded nothing as a
+        result; it now uses
+        `GameCompletionRepository.get_finished_game_ids`, which reads RA's
+        own per-game award classification. Kept for when per-achievement
+        syncing exists.
         """
         rows = self._connection.execute(
             """

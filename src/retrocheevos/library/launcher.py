@@ -13,6 +13,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 ROM_PATH_PLACEHOLDER = "{rom_path}"
+# RetroArch and other libretro frontends take the core as `-L <path>`.
+LIBRETRO_CORE_FLAG = "-L"
 
 
 def build_launch_args(rom_path: Path, arguments_template: Optional[str]) -> list[str]:
@@ -39,11 +41,34 @@ def build_launch_args(rom_path: Path, arguments_template: Optional[str]) -> list
     ]
 
 
+def build_libretro_args(rom_path: Path, core_path: Path) -> list[str]:
+    """argv for a libretro frontend: `-L <core> <rom>`.
+
+    RetroArch doesn't have one executable per console — it has one binary and
+    a `.dll`/`.so` core per emulated system, selected with `-L`. Each element
+    stays a separate argv entry, so spaces in either path survive without
+    quoting (the whole reason `build_launch_args` splits before substituting).
+    """
+    return [LIBRETRO_CORE_FLAG, str(core_path), str(rom_path)]
+
+
 def launch_emulator(
-    executable_path: Path, rom_path: Path, arguments_template: Optional[str] = None
+    executable_path: Path,
+    rom_path: Path,
+    arguments_template: Optional[str] = None,
+    core_path: Optional[Path] = None,
 ) -> subprocess.Popen:
-    """Start the emulator as an independent process. Returns immediately (non-blocking)."""
-    args = build_launch_args(rom_path, arguments_template)
+    """Start the emulator as an independent process. Returns immediately (non-blocking).
+
+    A `core_path` switches to the libretro form and **takes precedence over
+    `arguments_template`**: the two describe the same thing, and a config
+    carrying both is far more likely to be a leftover template from before
+    the core was set than a deliberate combination.
+    """
+    if core_path is not None:
+        args = build_libretro_args(rom_path, core_path)
+    else:
+        args = build_launch_args(rom_path, arguments_template)
     logger.info("Launching emulator: %s %s", executable_path, args)
     try:
         return subprocess.Popen([str(executable_path), *args])

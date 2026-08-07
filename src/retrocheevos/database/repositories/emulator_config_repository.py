@@ -13,13 +13,20 @@ class EmulatorConfigRepository:
     def upsert(self, config: EmulatorConfig) -> None:
         self._connection.execute(
             """
-            INSERT INTO emulator_configs (console_id, executable_path, arguments_template)
-            VALUES (?, ?, ?)
+            INSERT INTO emulator_configs
+                (console_id, executable_path, arguments_template, core_path)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(console_id) DO UPDATE SET
                 executable_path = excluded.executable_path,
-                arguments_template = excluded.arguments_template
+                arguments_template = excluded.arguments_template,
+                core_path = excluded.core_path
             """,
-            (config.console_id, config.executable_path, config.arguments_template),
+            (
+                config.console_id,
+                config.executable_path,
+                config.arguments_template,
+                config.core_path,
+            ),
         )
 
     def get(self, console_id: int) -> Optional[EmulatorConfig]:
@@ -45,4 +52,5 @@ class EmulatorConfigRepository:
             console_id=row["console_id"],
             executable_path=row["executable_path"],
             arguments_template=row["arguments_template"],
+            core_path=row["core_path"],
         )
