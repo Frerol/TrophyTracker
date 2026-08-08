@@ -24,7 +24,9 @@ from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.gui.pages.library_page import LibraryPage
 from retrocheevos.gui.pages.lists_page import ListsPage
 from retrocheevos.gui.pages.settings_page import SettingsPage
-from retrocheevos.services import preferences_service, session_service
+from retrocheevos.gui.workers import ServiceWorker
+from retrocheevos.services import preferences_service, session_service, update_service
+from retrocheevos.widgets.update_banner import UpdateBanner
 
 # Snug: the header already carries its own side margins, and the page below
 # has its own. Anything more here reads as dead space at the top of every
@@ -86,12 +88,25 @@ class MainWindow(QMainWindow):
         for page in [*self._nav_pages, *self._menu_pages.values()]:
             self._pages.addWidget(page)
 
+        # Above the header rather than inside a page: it's about the app
+        # itself, not about whatever you happen to be looking at, and putting
+        # it on Home alone would hide it from anyone who left the app on
+        # another page. Starts hidden, so it costs no vertical space until
+        # there is actually something to say.
+        self._update_banner = UpdateBanner()
+        self._update_banner.dismissed.connect(self._on_update_dismissed)
+        # What the banner is currently advertising, so dismissing it can
+        # record *which* version was dismissed. The banner itself stays
+        # presentation-only and doesn't carry it.
+        self._available_update = None
+
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(
             WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN
         )
         layout.setSpacing(0)
+        layout.addWidget(self._update_banner)
         layout.addWidget(self._header)
         layout.addSpacing(HEADER_GAP)
         layout.addWidget(self._pages, stretch=1)
@@ -99,6 +114,53 @@ class MainWindow(QMainWindow):
 
         self._show_page(home_page)
         self._restore_window_state()
+        self._start_update_check()
+
+    def _start_update_check(self) -> None:
+        """Ask GitHub whether there's a newer release, off the UI thread.
+
+        Held on `self` because a `QThread` that goes out of scope is
+        destroyed while still running — Qt aborts the process for that, and
+        it would happen at startup, on every launch.
+
+        `failed` is deliberately not connected. Every expected "no" already
+        comes back as a None result (`update_service.check_for_update`), so
+        anything reaching `failed` is a genuine surprise the user can do
+        nothing about — and a dialog on launch about a *version check* is far
+        worse than the silence.
+        """
+        self._update_worker = ServiceWorker(update_service.check_for_update)
+        self._update_worker.finished_ok.connect(self._on_update_check_finished)
+        self._update_worker.start()
+
+    def _on_update_check_finished(self, available) -> None:
+        if available is None:
+            return
+        dismissed = preferences_service.get_str(
+            preferences_service.KEY_DISMISSED_UPDATE_VERSION
+        )
+        if not update_service.should_notify(available.version, dismissed):
+            return
+        self._available_update = available
+        self._update_banner.show_update(available.version, available.url)
+
+    def _on_update_dismissed(self) -> None:
+        """Remember *which* version was waved away, not that one was.
+
+        `preferences_service.set_str` is a no-op with no active account, and
+        this check runs before anyone has necessarily signed in — so a
+        dismissal made on the login screen hides the banner for this session
+        only and it returns next launch. Deliberately not worked around:
+        preferences are per-account throughout, and inventing a second,
+        account-less store for this one value would be a bigger change than
+        the annoyance justifies. It resolves itself the moment they sign in.
+        """
+        if self._available_update is None:
+            return
+        preferences_service.set_str(
+            preferences_service.KEY_DISMISSED_UPDATE_VERSION,
+            self._available_update.version,
+        )
 
     def _restore_window_state(self) -> None:
         """Fullscreen wins over maximized, since a window can be flagged both

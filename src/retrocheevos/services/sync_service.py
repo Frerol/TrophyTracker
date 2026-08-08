@@ -74,7 +74,9 @@ PROFILE_STATS_REVISION = 2
 
 def sync_consoles(client: RetroAchievementsClient) -> int:
     """Fetch the console list and cache it. Returns the number of consoles synced."""
-    raw_consoles = GamesClient(client).list_console_ids()
+    raw_consoles = _with_rate_limit_retry(
+        "the console list", GamesClient(client).list_console_ids
+    )
     with get_connection() as connection:
         repository = ConsoleRepository(connection)
         for raw_console in raw_consoles:
@@ -95,7 +97,12 @@ def sync_games_for_console(
     per game for that; it's a heavier per-game request (API.md §4: fetch only
     what's needed).
     """
-    raw_games = GamesClient(client).list_games_for_console(console_id, only_with_achievements)
+    raw_games = _with_rate_limit_retry(
+        f"the game list for console {console_id}",
+        lambda: GamesClient(client).list_games_for_console(
+            console_id, only_with_achievements
+        ),
+    )
     now = datetime.now()
     total = len(raw_games)
     with get_connection() as connection:
@@ -183,7 +190,16 @@ def sync_event_progress(
     total = len(events)
     for index, event in enumerate(events, start=1):
         try:
-            progress = games_client.get_user_game_progress(account.username, event.id)
+            # Retried on 429 before the broad catch below sees it. Without
+            # this, a burst limit read as "this event failed" and skipped it
+            # for the whole run — and being rate limited says nothing about
+            # the event, so the next one in the loop would be skipped too.
+            progress = _with_rate_limit_retry(
+                f"progress for event {event.id}",
+                lambda: games_client.get_user_game_progress(
+                    account.username, event.id
+                ),
+            )
         except Exception as error:  # noqa: BLE001 — one bad event mustn't abort the rest
             logger.info("Skipped event %d progress: %s", event.id, error)
         else:
@@ -282,6 +298,41 @@ def sync_median_times(
 
     logger.info("Synced median times: %d of %d games had a value", filled, total)
     return filled
+
+
+def _with_rate_limit_retry(description: str, call):
+    """Run `call()`, riding out RA's burst limiter with exponential backoff.
+
+    The median-times loop had this protection and the catalog sync did not —
+    so a single HTTP 429 aborted a first-time "Sync Everything" outright.
+    That is the worst possible place for it: a brand-new account has the
+    largest sync to do, over a thousand requests, and is therefore the most
+    likely to trip the limiter and the least able to afford losing the run.
+
+    Unlike `_fetch_median_time_with_retry`, exhausting the retries here
+    **re-raises**. A missing median time is one blank cell; a missing console
+    is a hole in the catalog that nothing later would notice or repair, so
+    the caller has to hear about it.
+    """
+    delay = RATE_LIMIT_BACKOFF_SECONDS
+    for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            return call()
+        except RateLimitError:
+            if attempt == MAX_RATE_LIMIT_RETRIES:
+                logger.warning(
+                    "Rate limited %d times on %s; giving up", attempt, description
+                )
+                raise
+            logger.info(
+                "Rate limited on %s (attempt %d) — waiting %.0fs",
+                description,
+                attempt,
+                delay,
+            )
+            time.sleep(delay)
+            delay *= 2
+    return None
 
 
 def _fetch_median_time_with_retry(games_client: GamesClient, game_id: int):
@@ -394,9 +445,23 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
     re-run `sync_profile` after) to pick up completion % for those games too.
     """
     profile_client = ProfileClient(client)
-    profile = profile_client.get_user_profile(account.username)
-    completion_progress = profile_client.get_user_completion_progress(account.username)
-    awards = profile_client.get_user_awards(account.username)
+    # Three back-to-back calls, retried and paced like the loops above. This
+    # is the middle phase of `sync_everything`, so it arrives with ~84
+    # catalog requests already spent — the burst limiter is warm here, not
+    # idle, which made it the most likely phase to trip and the one whose
+    # failure looks least like a rate limit ("Sync Everything failed").
+    profile = _with_rate_limit_retry(
+        "the user profile", lambda: profile_client.get_user_profile(account.username)
+    )
+    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    completion_progress = _with_rate_limit_retry(
+        "completion progress",
+        lambda: profile_client.get_user_completion_progress(account.username),
+    )
+    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    awards = _with_rate_limit_retry(
+        "user awards", lambda: profile_client.get_user_awards(account.username)
+    )
     now = datetime.now()
 
     stats = build_profile_stats(account.id, profile, completion_progress)

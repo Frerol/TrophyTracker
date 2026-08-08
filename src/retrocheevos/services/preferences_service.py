@@ -27,6 +27,10 @@ KEY_WINDOW_HEIGHT = "window.height"
 # Grids
 KEY_LIBRARY_COVER_SIZE = "library.cover_size"
 KEY_CONTINUE_PLAYING_COVER_SIZE = "continue_playing.cover_size"
+# Updates — the release tag whose banner the user dismissed. Stores the
+# *version*, not a boolean, so a later release notifies again on its own
+# rather than needing something to remember to clear a flag.
+KEY_DISMISSED_UPDATE_VERSION = "update.dismissed_version"
 
 
 def _account_id() -> Optional[int]:

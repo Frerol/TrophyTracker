@@ -148,9 +148,16 @@ class ListsPage(Page):
     def _on_create_list(self) -> None:
         account = self.app_context.active_account
         if account is None:
+            # Said out loud rather than returning silently: a button that
+            # does nothing at all is indistinguishable from one that failed,
+            # which is exactly the ambiguity a "my list wasn't saved" report
+            # leaves you in.
+            QMessageBox.warning(
+                self, "Not signed in", "Sign in before creating lists."
+            )
             return
         name, accepted = QInputDialog.getText(self, "New List", "Name:")
-        if not accepted:
+        if not accepted or not name.strip():
             return
         try:
             created = lists_service.create_list(account.id, name)

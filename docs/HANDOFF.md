@@ -429,6 +429,18 @@ algumas centenas de jogos. Foi proposto e ainda não teve resposta.
   convertido só na camada de apresentação.
 - **Rate limit** — ~3 pedidos/segundo é o tecto. `CATALOG_SYNC_CALL_DELAY_SECONDS
   = 0.3` está perto do mínimo viável. Não paralelizar.
+- **Qualquer chamada nova à API tem de passar por `_with_rate_limit_retry`.**
+  O espaçamento sozinho não chega: reduz a probabilidade de 429, não a
+  elimina. Só o sync de tempos médios tinha recuo exponencial; `sync_consoles`,
+  `sync_games_for_console`, `sync_profile` (3 chamadas seguidas sem pausa
+  nenhuma) e o progresso de eventos não tinham, e um único 429 abortava um
+  "Sync Everything" inteiro. Pior no sítio pior: uma conta nova faz a maior
+  sincronização de todas (~84 + 3 + ~237 pedidos), portanto é a mais provável
+  de disparar o limitador e a que menos pode perder a corrida.
+  Duas políticas distintas ao esgotar as tentativas, de propósito:
+  `_with_rate_limit_retry` **relança** (um console em falta é um buraco no
+  catálogo que ninguém repara nem repara depois), `_fetch_median_time_with_retry`
+  devolve `None` (uma célula vazia que a próxima corrida volta a oferecer).
 - **`API_GetGameProgression.php` existe** e devolve `MedianTimeToBeatHardcore`
   (confirmado ao vivo, ex.: Diablo → 326 s). Um pedido por jogo.
 - **`achievements` / `user_achievements` estão sempre vazias.** `sync_game_details`
@@ -1113,6 +1125,48 @@ Segunda lista predefinida, **automática**: não guarda linhas em `user_lists`,
 - O nome "Library" só fica livre depois do Bloco 11 renomear a página.
 
 ---
+
+## 5b. Verificação de atualizações (só aviso)
+
+`version.py::APP_VERSION` é a **única** fonte de verdade da versão — nada mais
+deve fixar um número. Ao arrancar, `services/update_service.py` consulta
+`releases/latest` do GitHub numa `ServiceWorker` (nunca na thread da UI: uma
+chamada de rede no arranque congelaria a janela no pior momento possível) e,
+se houver versão mais recente, `widgets/update_banner.py` aparece por cima do
+header.
+
+Regras que não devem ser quebradas:
+
+- **Nunca autenticar este pedido.** O endpoint é público e a chave que a app
+  guarda é da RetroAchievements — não tem nada que fazer num pedido ao
+  GitHub. Há um teste que falha se alguém acrescentar um header `Authorization`
+  ou `params`.
+- **Todo o tipo de "não" devolve `None`**, incluindo estar offline. Um aviso
+  de erro no arranque porque o wifi está desligado é um bug. O motivo vai
+  para o log.
+- **Comparação numérica, nunca de strings.** `"1.10.0" < "1.9.0"` é verdade
+  para strings — um compare lexical deixaria de reportar updates exactamente
+  no décimo lançamento, sem sintoma nenhum. Coberto por teste.
+- **Tag ilegível lê-se como "sem update"**, nunca ao contrário: um banner
+  levantado por uma tag que ninguém consegue interpretar não desaparecia nem
+  actualizando.
+- **O "×" guarda a versão dispensada** em
+  `preferences_service.KEY_DISMISSED_UPDATE_VERSION` — a *versão*, não um
+  booleano, para que um release posterior volte a avisar sozinho em vez de
+  depender de alguém se lembrar de limpar uma flag.
+  `update_service.should_notify` tem o **viés oposto** ao de `is_newer`, de
+  propósito: aqui "não consigo interpretar" significa **mostrar**, porque uma
+  dispensa corrompida a silenciar todos os updates futuros teria como sintoma
+  não acontecer nada — o tipo de falha que nunca se dá por ela.
+- **Limitação conhecida:** `set_str` é no-op sem conta ativa, portanto uma
+  dispensa feita antes de iniciar sessão vale só para essa sessão. Não foi
+  contornado: as preferências são todas por conta, e inventar um segundo
+  armazenamento sem conta só para este valor era uma mudança maior do que o
+  incómodo justifica. Resolve-se sozinho assim que a pessoa entra.
+
+Para lançar: subir `APP_VERSION`, criar a tag `v<APP_VERSION>` e **publicar um
+release** contra ela. O check lê *releases*, não tags — uma tag sem release é
+invisível de propósito, para a tag poder existir antes do build estar pronto.
 
 ## 6. Verificação sugerida ao retomar
 

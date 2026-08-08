@@ -55,6 +55,7 @@ change only affects how Home's field drives it). Clearing the field, or
 """
 
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -117,14 +118,29 @@ USER_MENU_DESTINATIONS = [
     ("settings", "Settings"),
 ]
 
+def _assets_dir() -> Path:
+    """Where `assets/` lives, from source and from a frozen build.
+
+    PyInstaller unpacks bundled data into a temporary directory it points
+    `sys._MEIPASS` at; `__file__` inside the bundle resolves somewhere else
+    entirely, so the source-relative path finds nothing and the logo and
+    window icon silently fail to load in the .exe. Checked at call time, not
+    import time, because `_MEIPASS` only exists in a frozen process.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled:
+        return Path(bundled) / "assets"
+    return Path(__file__).resolve().parents[4] / "assets"
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
-LOGO_PATH = PROJECT_ROOT / "assets" / "logo.png"
+LOGO_PATH = _assets_dir() / "logo.png"
 # `logo.png` is non-square (889x561, just the "RC" artwork) — fine for this
 # page's own inline header (scaled by height, aspect ratio preserved), but
 # forcing it into a square window/taskbar icon slot stretched it visibly.
 # `icon.png` is the same artwork centered on a square transparent canvas —
 # used for `MainWindow`/`QApplication.setWindowIcon` instead, never here.
-ICON_PATH = PROJECT_ROOT / "assets" / "icon.png"
+ICON_PATH = _assets_dir() / "icon.png"
 # Header sizing. The points are the biggest thing here and the band is
 # *shorter* than before regardless: the height was set by the avatar button,
 # so trimming that is what buys the space back while the numbers grow.
