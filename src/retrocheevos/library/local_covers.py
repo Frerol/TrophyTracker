@@ -11,8 +11,12 @@ RA cover instead — this cache simply stops being read for it, never deleted.
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LOCAL_COVER_CACHE_DIR = PROJECT_ROOT / "cache" / "local_covers"
+from retrocheevos import paths
+
+# Unlike the other three caches this one is **not** re-downloadable: these are
+# images the user picked by hand off their own disk. Landing in a temporary
+# bundle directory would have quietly discarded them on every launch.
+LOCAL_COVER_CACHE_DIR = paths.cache_dir("local_covers")
 
 
 def cached_local_cover_path(installed_rom_id: int) -> Path:

@@ -1,10 +1,13 @@
-"""Data access for `notifications` and `notification_settings` (Database.md 5.1, 5.2)."""
+"""Data access for `notifications` (Database.md 5.1).
+
+`notification_settings` went with migration v22 — nothing ever read or wrote
+it, and the three methods here that touched it had no callers.
+"""
 
 import sqlite3
-from typing import Optional
 
 from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
-from retrocheevos.models.notification import Notification, NotificationSetting
+from retrocheevos.models.notification import Notification
 from retrocheevos.utils.enums import NotificationType
 
 
@@ -41,38 +44,6 @@ class NotificationRepository:
 
     def mark_read(self, notification_id: int) -> None:
         self._connection.execute("UPDATE notifications SET read = 1 WHERE id = ?", (notification_id,))
-
-    def get_setting(self, account_id: int, notification_type: NotificationType) -> Optional[bool]:
-        row = self._connection.execute(
-            "SELECT enabled FROM notification_settings WHERE account_id = ? AND type = ?",
-            (account_id, notification_type.value),
-        ).fetchone()
-        return bool(row["enabled"]) if row else None
-
-    def set_setting(
-        self, account_id: int, notification_type: NotificationType, enabled: bool
-    ) -> None:
-        self._connection.execute(
-            """
-            INSERT INTO notification_settings (account_id, type, enabled)
-            VALUES (?, ?, ?)
-            ON CONFLICT(account_id, type) DO UPDATE SET enabled = excluded.enabled
-            """,
-            (account_id, notification_type.value, enabled),
-        )
-
-    def list_settings(self, account_id: int) -> list[NotificationSetting]:
-        rows = self._connection.execute(
-            "SELECT * FROM notification_settings WHERE account_id = ?", (account_id,)
-        ).fetchall()
-        return [
-            NotificationSetting(
-                account_id=row["account_id"],
-                type=NotificationType(row["type"]),
-                enabled=bool(row["enabled"]),
-            )
-            for row in rows
-        ]
 
     @staticmethod
     def _row_to_notification(row: sqlite3.Row) -> Notification:

@@ -85,8 +85,3 @@ def get_continue_playing(
             )
         )
     return entries
-
-
-def get_recommendations(account_id: int) -> list[Game]:
-    """Placeholder — the real recommendation engine is v1.1 (DevelopmentRoadmap.md)."""
-    return []

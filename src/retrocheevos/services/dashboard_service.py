@@ -1,9 +1,9 @@
-﻿"""Dashboard read path (UI.md 3.1) — MVP scope: Continue Playing + Recent
+"""Dashboard read path (UI.md 3.1) — MVP scope: Continue Playing + Recent
 Activity + an empty Recommendations placeholder. See `core/dashboard.py` for
 what's deliberately left out and why.
 """
 
-from retrocheevos.core.dashboard import ContinuePlayingEntry, get_continue_playing, get_recommendations
+from retrocheevos.core.dashboard import ContinuePlayingEntry, get_continue_playing
 from retrocheevos.database.connection import get_connection
 from retrocheevos.database.repositories.game_completion_repository import (
     GameCompletionRepository,
@@ -11,7 +11,6 @@ from retrocheevos.database.repositories.game_completion_repository import (
 from retrocheevos.database.repositories.game_repository import GameRepository
 from retrocheevos.database.repositories.library_repository import LibraryRepository
 from retrocheevos.database.repositories.list_repository import ListRepository
-from retrocheevos.models.game import Game
 from retrocheevos.models.library import InstalledRom
 
 
@@ -37,7 +36,3 @@ def get_unmatched_continue_playing_roms(account_id: int) -> list[InstalledRom]:
     """
     with get_connection() as connection:
         return LibraryRepository(connection, account_id).get_unmatched_installed_roms()
-
-
-def get_recommended_games(account_id: int) -> list[Game]:
-    return get_recommendations(account_id)

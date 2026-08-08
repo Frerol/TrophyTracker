@@ -1,4 +1,4 @@
-"""Notification DTOs — map to `notifications` and `notification_settings` (Database.md 5.1, 5.2)."""
+"""Notification DTOs — map to `notifications` (Database.md 5.1)."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,10 +16,3 @@ class Notification:
     created_at: Optional[datetime] = None
     read: bool = False
     id: Optional[int] = None
-
-
-@dataclass
-class NotificationSetting:
-    account_id: int
-    type: NotificationType
-    enabled: bool

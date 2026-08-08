@@ -460,6 +460,26 @@ DROP_ORPHAN_TABLES_V20 = [
     "DROP TABLE IF EXISTS console_quick_links",
 ]
 
+# Two more tables nothing ever read or wrote. Both were created by the
+# original schema in anticipation of features that were never built:
+#
+#   notification_settings — per-account toggles for notification types. The
+#       three repository methods that touched it had no callers and went with
+#       the same cleanup round; `notifications` itself stays, it is live.
+#   leaderboard_cache     — there is no leaderboard feature. Its repository
+#       and model were deleted alongside this.
+#
+# Verified empty in both the source and the frozen-build databases before
+# dropping. `IF EXISTS` because a database created after this migration
+# landed still runs the historical CREATE statements above and then this —
+# the same shape as V20, which is why those CREATEs are deliberately left
+# alone: a migration list is a historical record, and editing an old entry
+# desynchronises every database that already applied it.
+DROP_ORPHAN_TABLES_V22 = [
+    "DROP TABLE IF EXISTS notification_settings",
+    "DROP TABLE IF EXISTS leaderboard_cache",
+]
+
 CREATE_TABLES_V18 = [
     """
     CREATE TABLE IF NOT EXISTS user_preferences (

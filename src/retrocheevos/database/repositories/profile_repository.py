@@ -78,14 +78,6 @@ class ProfileRepository:
         badge.id = row["id"]
         return badge
 
-    def list_badges(self, account_id: int, owned_only: bool = False) -> list[Badge]:
-        query = "SELECT * FROM badges WHERE account_id = ?"
-        params: list = [account_id]
-        if owned_only:
-            query += " AND owned = 1"
-        rows = self._connection.execute(query, params).fetchall()
-        return [self._row_to_badge(row) for row in rows]
-
     @staticmethod
     def _row_to_stats(row: sqlite3.Row) -> ProfileStats:
         return ProfileStats(
@@ -99,16 +91,4 @@ class ProfileRepository:
             user_pic_path=row["user_pic_path"],
             stats_revision=row["stats_revision"],
             last_synced_at=datetime_from_sql(row["last_synced_at"]),
-        )
-
-    @staticmethod
-    def _row_to_badge(row: sqlite3.Row) -> Badge:
-        return Badge(
-            id=row["id"],
-            account_id=row["account_id"],
-            name=row["name"],
-            owned=bool(row["owned"]),
-            image_path=row["image_path"],
-            progress=row["progress"],
-            is_event=bool(row["is_event"]),
         )

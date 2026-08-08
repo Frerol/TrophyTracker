@@ -14,10 +14,11 @@ from pathlib import Path
 
 import requests
 
+from retrocheevos import paths
+
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-IMAGE_CACHE_DIR = PROJECT_ROOT / "cache" / "images"
+IMAGE_CACHE_DIR = paths.cache_dir("images")
 IMAGE_BASE_URL = "https://i.retroachievements.org"
 DOWNLOAD_TIMEOUT_SECONDS = 10
 

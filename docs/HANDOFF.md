@@ -1168,6 +1168,62 @@ Para lançar: subir `APP_VERSION`, criar a tag `v<APP_VERSION>` e **publicar um
 release** contra ela. O check lê *releases*, não tags — uma tag sem release é
 invisível de propósito, para a tag poder existir antes do build estar pronto.
 
+## 5c. Ronda de segurança e limpeza final
+
+**A chave da API ia parar ao log, em texto simples.** `client.py` fazia
+`logger.exception` no `except requests.RequestException`, e a mensagem do
+urllib3 dentro do traceback é `Max retries exceeded with url:
+/API/X.php?z=user&y=<chave>`. Bastava estar offline, um DNS lento ou um
+timeout. Ficava em `logs/retrocheevos.log` — precisamente o ficheiro que uma
+pessoa envia a outra a pedir ajuda. O docstring da classe prometia
+"Credentials are never logged"; era falso.
+
+Duas vias, ambas fechadas:
+1. A directa: `logger.warning` com `redact_credentials(str(error), key)`.
+2. A indirecta: `raise ... from error` guardava o original em `__cause__`, e
+   `main.py::_log_uncaught_exception` regista com `exc_info` — o que imprime
+   também o traceback da causa, com o URL. Passou a `from None`, com o
+   diagnóstico útil preservado (já redigido) na mensagem nova.
+
+**Regra a manter:** nada derivado de um erro de request pode ser escrito sem
+passar por `redact_credentials`. Coberto por `tests/api/`.
+
+**Os quatro caches de imagens escreviam para dentro do bundle.**
+`game_images`, `user_pics`, `local_covers` e `activity_icons` derivavam o
+directório de `__file__`, sem tratar `sys.frozen` — ao contrário do
+`connection.py`, que resolvia exactamente isto. Invisível a correr da fonte.
+No .exe: escrita ao lado do executável (falha silenciosa em Program Files),
+descartada a cada arranque num build one-file, e — o pior — **por instalação
+em vez de por utilizador**, ou seja dois utilizadores do Windows a partilhar
+fotos de perfil em cache. O `local_covers` era o mais grave por não ser
+re-descarregável: são capas escolhidas à mão. Agora tudo passa por
+`retrocheevos/paths.py`, que é o único sítio onde a decisão se toma.
+
+**Órfãos removidos** (3 passagens até convergir — remover a primeira camada
+expõe a seguinte): ficheiros `core/cache_policy.py`,
+`database/repositories/leaderboard_repository.py`, `models/leaderboard.py`;
+18 funções/classes; 8 imports. Restam só `rowCount`/`headerData`, que são
+overrides do Qt chamados pela framework.
+
+**Migração v22 — tabelas órfãs apagadas.** `notification_settings` e
+`leaderboard_cache` (atenção ao nome: **não** é `leaderboards`, que não
+existe — confirmar sempre o nome real no schema antes de escrever um DROP).
+Ambas verificadas vazias nas duas bases de dados antes de apagar. A base
+existente migrou de 21→22 sem perder nada: `notifications`, `accounts`,
+`games` (12042) e `user_lists` com as contagens intactas, `integrity_check`
+ok, `foreign_key_check` limpo.
+
+Os `CREATE TABLE` históricos ficam de propósito, tal como no v20: uma base
+nova cria-as e o v22 apaga-as logo a seguir. Editar uma migração antiga
+dessincroniza todas as bases que já a aplicaram — o custo de as criar por um
+instante é muito menor que esse risco.
+
+**Fica por decidir (não mexido de propósito):**
+- A chave da API está em texto simples no SQLite. É o normal em apps desktop
+  sem integração com o cofre do SO, mas convém ser dito em vez de assumido.
+- 14 ficheiros `.py` têm BOM UTF-8. O Python importa-os bem; ferramentas de
+  análise não (partiu o scanner de código morto até usar `utf-8-sig`).
+
 ## 6. Verificação sugerida ao retomar
 
 1. Abrir a app e confirmar que a Home mostra **98 / 56 / 56,75 %**. A revisão

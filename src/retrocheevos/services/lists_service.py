@@ -14,7 +14,6 @@ from retrocheevos.database.repositories.list_repository import ListRepository
 from retrocheevos.models.game import Game
 from retrocheevos.models.list_definition import ListDefinition
 from retrocheevos.models.list_entry import ListEntry
-from retrocheevos.utils.enums import ListType
 
 
 def ensure_predefined_lists(account_id: int) -> list[ListDefinition]:
@@ -169,8 +168,3 @@ def get_games_in_list(account_id: int, list_id: int) -> list[Game]:
             list_repository=repository,
             game_repository=GameRepository(connection),
         )
-
-
-def get_blocked_game_ids(account_id: int) -> set[int]:
-    with get_connection() as connection:
-        return ListRepository(connection).get_game_ids_by_slug(account_id, ListType.BLOCKED)

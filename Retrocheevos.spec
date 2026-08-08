@@ -13,6 +13,8 @@
 #                Nothing here would be right for anyone else, and shipping it
 #                would hand over a RetroAchievements API key.
 #   logs/      — a record of what one person did with the app.
+#   cache/     — downloaded artwork, including the profile pictures of the
+#                developer's account and everyone they follow.
 #
 # Neither is excluded by a rule below: PyInstaller only bundles what a spec
 # names, and this one names `assets` and nothing else. The `excludes` entry
@@ -44,6 +46,7 @@ analysis = Analysis(
     excludes=[
         "database",
         "logs",
+        "cache",
         "tkinter",
         "PySide6.QtQml",
         "PySide6.QtQuick",

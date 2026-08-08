@@ -1,15 +1,17 @@
 """User profile picture caching — mirrors `library/game_images.py`'s shape
-(same confirmed base URL, `https://i.retroachievements.org`), reusing its
-`build_image_url`/`download_image` directly since neither is actually
-game-specific, just keyed by username instead of game id here.
+(same confirmed base URL, `https://i.retroachievements.org`), keyed by
+username instead of game id.
+
+It used to re-export that module's `build_image_url`/`download_image` for
+convenience; nothing ever imported them from here (`services/image_service.py`
+takes them from `game_images` directly), so the re-export is gone.
 """
 
 from pathlib import Path
 
-from retrocheevos.library.game_images import build_image_url, download_image  # noqa: F401
+from retrocheevos import paths
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-USER_PIC_CACHE_DIR = PROJECT_ROOT / "cache" / "user_pics"
+USER_PIC_CACHE_DIR = paths.cache_dir("user_pics")
 
 
 def cached_user_pic_path(username: str) -> Path:

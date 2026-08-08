@@ -1,4 +1,4 @@
-﻿"""Explorer table model (UI.md 3.2) — `QAbstractTableModel` backing the
+"""Explorer table model (UI.md 3.2) — `QAbstractTableModel` backing the
 Game list table, matching the RetroAchievements site layout. `QTableView`
 only ever paints visible rows via delegates, so this is what gives the
 table its virtualization for free — no per-row widget pool needed (unlike
@@ -79,9 +79,6 @@ class ExplorerTableModel(QAbstractTableModel):
         self._console_names = console_names
         self._installed_game_ids = installed_game_ids
         self.endResetModel()
-
-    def game_at(self, row: int) -> Game:
-        return self._results[row].game
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._results)

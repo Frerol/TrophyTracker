@@ -1,4 +1,4 @@
-﻿"""Explorer read path (UI.md 3.2) — cache-only, never triggers a sync (API.md §4)."""
+"""Explorer read path (UI.md 3.2) — cache-only, never triggers a sync (API.md §4)."""
 
 from retrocheevos.core.explorer import (
     ExplorerFilters,
@@ -30,17 +30,3 @@ def get_games(account_id: int, filters: ExplorerFilters) -> list[GameWithComplet
 def get_total_game_count() -> int:
     with get_connection() as connection:
         return total_game_count(game_repository=GameRepository(connection))
-
-
-def count_games_for_console(console_id: int) -> int:
-    with get_connection() as connection:
-        return GameRepository(connection).count_for_console(console_id)
-
-
-def list_consoles_with_games() -> list[int]:
-    """Console ids that actually have synced games — the sync dropdown only
-    offers these, since picking an empty console just produces a confusing
-    "nothing happened" result.
-    """
-    with get_connection() as connection:
-        return GameRepository(connection).list_console_ids_with_games()

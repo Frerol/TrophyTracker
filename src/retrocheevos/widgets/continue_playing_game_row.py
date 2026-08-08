@@ -17,7 +17,6 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QSizePolicy,

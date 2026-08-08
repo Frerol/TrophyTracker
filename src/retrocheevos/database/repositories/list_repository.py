@@ -86,15 +86,6 @@ class ListRepository:
         ).fetchone()
         return self._row_to_definition(row) if row else None
 
-    def get_definition_by_slug(
-        self, account_id: int, slug: ListType
-    ) -> Optional[ListDefinition]:
-        row = self._connection.execute(
-            "SELECT * FROM user_list_definitions WHERE account_id = ? AND slug = ?",
-            (account_id, slug.value),
-        ).fetchone()
-        return self._row_to_definition(row) if row else None
-
     # --- membership --------------------------------------------------
 
     def add_to_list(self, entry: ListEntry) -> None:

@@ -37,11 +37,3 @@ class NotificationType(str, Enum):
     BADGE = "badge"
     EVENT = "event"
     FOLLOWED_GAME_UPDATE = "followed_game_update"
-
-
-class LeaderboardScope(str, Enum):
-    FRIENDS = "friends"
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    ALL_TIME = "all_time"
-    GAMES_BEATEN = "games_beaten"

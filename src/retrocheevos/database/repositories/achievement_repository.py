@@ -1,9 +1,8 @@
 """Data access for `achievements` and `user_achievements` (Database.md 2.5, 2.6)."""
 
 import sqlite3
-from typing import Optional
 
-from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
+from retrocheevos.database.serialization import datetime_to_sql
 from retrocheevos.models.achievement import Achievement, UserAchievement
 
 
@@ -63,35 +62,6 @@ class AchievementRepository:
         user_achievement.id = row["id"]
         return user_achievement
 
-    def get_unlocked_for_account(
-        self, account_id: int, game_id: Optional[int] = None
-    ) -> list[UserAchievement]:
-        query = """
-            SELECT user_achievements.* FROM user_achievements
-            JOIN achievements ON achievements.id = user_achievements.achievement_id
-            WHERE user_achievements.account_id = ?
-        """
-        params: list = [account_id]
-        if game_id is not None:
-            query += " AND achievements.game_id = ?"
-            params.append(game_id)
-
-        rows = self._connection.execute(query, params).fetchall()
-        return [self._row_to_user_achievement(row) for row in rows]
-
-    def get_recent_unlocks(self, account_id: int, limit: int = 20) -> list[UserAchievement]:
-        """Most recent unlocks for an account, newest first (Dashboard 'Recent activity')."""
-        rows = self._connection.execute(
-            """
-            SELECT * FROM user_achievements
-            WHERE account_id = ? AND unlocked_at IS NOT NULL
-            ORDER BY unlocked_at DESC
-            LIMIT ?
-            """,
-            (account_id, limit),
-        ).fetchall()
-        return [self._row_to_user_achievement(row) for row in rows]
-
     def get_mastered_game_ids(self, account_id: int) -> set[int]:
         """Game IDs where every achievement has been unlocked in hardcore mode.
 
@@ -133,14 +103,4 @@ class AchievementRepository:
             description=row["description"],
             points=row["points"],
             badge_path=row["badge_path"],
-        )
-
-    @staticmethod
-    def _row_to_user_achievement(row: sqlite3.Row) -> UserAchievement:
-        return UserAchievement(
-            id=row["id"],
-            account_id=row["account_id"],
-            achievement_id=row["achievement_id"],
-            unlocked_at=datetime_from_sql(row["unlocked_at"]),
-            hardcore=bool(row["hardcore"]),
         )

@@ -8,10 +8,9 @@ has never synced (a followed friend's game).
 
 from pathlib import Path
 
-from retrocheevos.library.game_images import build_image_url, download_image  # noqa: F401
+from retrocheevos import paths
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-ACTIVITY_ICON_CACHE_DIR = PROJECT_ROOT / "cache" / "activity_icons"
+ACTIVITY_ICON_CACHE_DIR = paths.cache_dir("activity_icons")
 
 
 def cached_activity_icon_path(game_id: int) -> Path:

@@ -142,22 +142,6 @@ class GameRepository:
             "SELECT COUNT(*) FROM games WHERE " + " AND ".join(_BROWSABLE_GAME_CLAUSES)
         ).fetchone()[0]
 
-    def count_for_console(self, console_id: int) -> int:
-        return self._connection.execute(
-            "SELECT COUNT(*) FROM games WHERE console_id = ? AND has_achievements = 1",
-            (console_id,),
-        ).fetchone()[0]
-
-    def list_console_ids_with_games(self) -> list[int]:
-        """Consoles that have at least one browsable game — excludes both the
-        ones never synced and the special Events/Standalone consoles.
-        """
-        rows = self._connection.execute(
-            "SELECT DISTINCT console_id FROM games WHERE "
-            + " AND ".join(_BROWSABLE_GAME_CLAUSES)
-        ).fetchall()
-        return [row["console_id"] for row in rows]
-
     def list_events(self) -> list[Game]:
         """Community events, which `search()`/`count_all()` deliberately
         exclude from the catalog — Home shows them in their own section
@@ -208,12 +192,6 @@ class GameRepository:
             "INSERT INTO game_hashes (game_id, hash) VALUES (?, ?)",
             (game_hash.game_id, game_hash.hash),
         )
-
-    def get_hashes_for_game(self, game_id: int) -> list[str]:
-        rows = self._connection.execute(
-            "SELECT hash FROM game_hashes WHERE game_id = ?", (game_id,)
-        ).fetchall()
-        return [row["hash"] for row in rows]
 
     def find_game_id_by_hash(self, rom_hash: str) -> Optional[int]:
         """Look up the game a ROM hash matches. Never assume compatibility without a hit."""
