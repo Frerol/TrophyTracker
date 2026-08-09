@@ -42,8 +42,9 @@ from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDele
 from retrocheevos.gui.dialogs.match_rom_dialog import MatchRomDialog
 from retrocheevos.gui.image_loader import ImageLoader
 from retrocheevos.gui.pages.base_page import Page
+from retrocheevos.gui.selection import selected_item
 from retrocheevos.gui.workers import ServiceWorker
-from retrocheevos.models.library import RomFolderScanResult
+from retrocheevos.models.library import RehashResult, RomFolderScanResult
 from retrocheevos.services import console_service, library_service, preferences_service
 from retrocheevos.widgets.cover_size_slider import CoverSizeSlider
 from retrocheevos.widgets.installed_game_frame import InstalledGameFrame
@@ -74,6 +75,7 @@ ROM_ID_ROLE = Qt.ItemDataRole.UserRole
 EMPTY_TEXT = "No installed games yet. Add a ROM folder below and scan it."
 SCAN_BUTTON_TEXT = "Scan Folder"
 SCAN_ALL_BUTTON_TEXT = "Scan All Folders"
+REHASH_BUTTON_TEXT = "Re-hash Library"
 REMOVE_BUTTON_WIDTH = 32
 REFRESH_BUTTON_TEXT = "Refresh"
 
@@ -156,10 +158,22 @@ class LibraryPage(Page):
         # the per-folder button made tedious.
         self._scan_all_button = QPushButton(SCAN_ALL_BUTTON_TEXT)
         self._scan_all_button.clicked.connect(self._on_scan_all_folders)
+        # Neither scan button can reach an already-recorded ROM: both skip
+        # files already in `installed_roms`, so a ROM keeps whatever hash the
+        # app computed the day it was scanned. This is the only way to pick up
+        # a hashing improvement without removing and re-adding every folder.
+        self._rehash_button = QPushButton(REHASH_BUTTON_TEXT)
+        self._rehash_button.setToolTip(
+            "Recompute the hash of every ROM already in the library using the "
+            "current hasher, then re-match. Use after installing RAHasher or "
+            "updating the app. Only rewrites hashes that actually changed."
+        )
+        self._rehash_button.clicked.connect(self._on_rehash)
         self._scan_status_label = QLabel()
         scan_row = QHBoxLayout()
         scan_row.addWidget(self._scan_button)
         scan_row.addWidget(self._scan_all_button)
+        scan_row.addWidget(self._rehash_button)
         scan_row.addWidget(self._scan_status_label, stretch=1)
 
         # Without this, a ROM whose hash matched nothing would be invisible
@@ -423,14 +437,17 @@ class LibraryPage(Page):
         self._refresh_rom_folders()
 
     def _on_remove_rom_folder(self) -> None:
-        item = self._rom_folders_list.currentItem()
+        item = selected_item(self._rom_folders_list)
         if item is None:
+            QMessageBox.information(
+                self, "No folder selected", "Pick a folder from the list above to remove."
+            )
             return
         library_service.remove_rom_folder(item.data(ROM_FOLDER_ID_ROLE))
         self._refresh_rom_folders()
 
     def _on_scan_folder(self) -> None:
-        item = self._rom_folders_list.currentItem()
+        item = selected_item(self._rom_folders_list)
         if item is None:
             QMessageBox.warning(
                 self, "No folder selected", "Pick a folder from the list above to scan."
@@ -465,13 +482,41 @@ class LibraryPage(Page):
         self._scan_worker.failed.connect(self._on_scan_failed)
         self._scan_worker.start()
 
+    def _on_rehash(self) -> None:
+        if self._unmatched_list.count() == 0 and self._rom_folders_list.count() == 0:
+            QMessageBox.warning(
+                self, "Nothing to re-hash", "No ROMs have been scanned yet."
+            )
+            return
+
+        self._set_scan_buttons_enabled(False)
+        self._rehash_button.setText("Re-hashing...")
+        self._scan_status_label.setText("")
+        self._rehash_worker = ServiceWorker(library_service.rehash_installed_roms)
+        self._rehash_worker.finished_ok.connect(self._on_rehash_done)
+        self._rehash_worker.failed.connect(self._on_rehash_failed)
+        self._rehash_worker.start()
+
+    def _on_rehash_done(self, result: RehashResult) -> None:
+        self._reset_scan_button()
+        self._scan_status_label.setText(_describe_rehash(result))
+        self.refresh()
+
+    def _on_rehash_failed(self, message: str) -> None:
+        self._reset_scan_button()
+        self._scan_status_label.setText("")
+        QMessageBox.warning(self, "Re-hash failed", message)
+
     def _set_scan_buttons_enabled(self, enabled: bool) -> None:
         self._scan_button.setEnabled(enabled)
         self._scan_all_button.setEnabled(enabled)
+        # Same tables as the scans, so it shares their mutual exclusion.
+        self._rehash_button.setEnabled(enabled)
 
     def _reset_scan_button(self) -> None:
         self._scan_button.setText(SCAN_BUTTON_TEXT)
         self._scan_all_button.setText(SCAN_ALL_BUTTON_TEXT)
+        self._rehash_button.setText(REHASH_BUTTON_TEXT)
         self._set_scan_buttons_enabled(True)
 
     def _on_scan_done(self, result: RomFolderScanResult) -> None:
@@ -500,8 +545,11 @@ class LibraryPage(Page):
         self.refresh()
 
     def _on_remove_unmatched(self) -> None:
-        item = self._unmatched_list.currentItem()
+        item = selected_item(self._unmatched_list)
         if item is None:
+            QMessageBox.information(
+                self, "Nothing selected", "Pick a ROM from the list above to remove."
+            )
             return
         self._remove_unmatched(item.data(ROM_ID_ROLE))
 
@@ -521,8 +569,11 @@ class LibraryPage(Page):
         self.refresh()
 
     def _on_match_to_game(self) -> None:
-        item = self._unmatched_list.currentItem()
+        item = selected_item(self._unmatched_list)
         if item is None:
+            QMessageBox.information(
+                self, "Nothing selected", "Pick a ROM from the list above to match."
+            )
             return
         installed_rom = library_service.get_installed_rom(item.data(ROM_ID_ROLE))
         if installed_rom is None:
@@ -564,4 +615,21 @@ def _describe_scan(result: RomFolderScanResult) -> str:
         parts.append(f"{len(result.ambiguous_paths)} ambiguous (console unclear)")
     if result.unrecognized_paths:
         parts.append(f"{len(result.unrecognized_paths)} not ROM files")
+    return ", ".join(parts) + "."
+
+
+def _describe_rehash(result: RehashResult) -> str:
+    """One line summarising the re-hash pass.
+
+    "0 changed" is the expected result on a second run and says something
+    useful — the library is already on the current hasher — so it is stated
+    rather than left as an empty-looking success.
+    """
+    parts = [f"{result.checked} ROM(s) checked", f"{result.changed} hash(es) updated"]
+    if result.newly_matched:
+        parts.append(f"{result.newly_matched} newly matched")
+    if result.missing:
+        parts.append(f"{len(result.missing)} file(s) missing")
+    if result.failed:
+        parts.append(f"{len(result.failed)} failed to hash")
     return ", ".join(parts) + "."

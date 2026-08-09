@@ -36,7 +36,12 @@ from retrocheevos.library.rom_title import (
 from retrocheevos.library.zip_extraction import extract_member
 from retrocheevos.models.emulator_config import EmulatorConfig
 from retrocheevos.models.game import Game
-from retrocheevos.models.library import InstalledRom, RomFolder, RomFolderScanResult
+from retrocheevos.models.library import (
+    InstalledRom,
+    RehashResult,
+    RomFolder,
+    RomFolderScanResult,
+)
 from retrocheevos.services import session_service
 
 
@@ -207,6 +212,128 @@ def match_installed_rom_to_game(installed_rom_id: int, game_id: int) -> None:
         _library_repo(connection).set_game_id(installed_rom_id, game_id)
 
 
+def rematch_unmatched_roms() -> int:
+    """Re-run hash matching over ROMs that are already recorded but unmatched.
+
+    Matching happens once, at scan time (`record_installed_rom`), against
+    whatever was in `game_hashes` then. That table was empty until the hash
+    backfill existed, so every ROM scanned before it ran was recorded with
+    `game_id = NULL` and would have stayed that way forever — a folder
+    rescan skips files already in `installed_roms`, by design, because
+    hashing is the expensive part.
+
+    Costs nothing: the hash is already stored on each row, so this is a
+    local lookup per ROM and no API calls at all. It is what turns the hours
+    of hash syncing into actually-matched games.
+
+    Returns how many ROMs got matched.
+    """
+    matched = 0
+    with get_connection() as connection:
+        repository = _library_repo(connection)
+        game_repository = GameRepository(connection)
+        for rom in repository.list_installed_roms():
+            if rom.game_id is not None or not rom.hash:
+                continue
+            game_id = game_repository.find_game_id_by_hash(rom.hash)
+            if game_id is not None:
+                repository.set_game_id(rom.id, game_id)
+                matched += 1
+
+    logger.info("Re-matched %d previously unmatched ROM(s)", matched)
+    return matched
+
+
+def rehash_installed_roms(
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> RehashResult:
+    """Recompute every recorded ROM's hash with the current hasher, then
+    re-match anything whose hash changed.
+
+    `rematch_unmatched_roms` re-runs *matching* against the stored hash. This
+    re-runs the *hashing*, which is the half that was unreachable: a folder
+    rescan skips files already in `installed_roms` (deliberately — hashing is
+    the expensive part), so a ROM recorded in 2025 kept its 2025 hash no
+    matter how much the hashing improved afterwards. Three of them were
+    provably wrong when this was written: two NES files whose iNES header the
+    old whole-file MD5 never stripped, and a Dreamcast `.gdi` where it hashed
+    the text index instead of the disc.
+
+    Only writes when the hash actually changes, so a second run is a no-op
+    against the database and every `last_played_at` and manual match survives.
+
+    Re-matching is attempted for any ROM that is unmatched *or* whose hash
+    moved — a changed hash can invalidate an existing match as easily as
+    create one. An existing match is never cleared: if the new hash finds
+    nothing, the old `game_id` stays, because it may well have been the
+    user's own "Match to Game…" choice.
+
+    `progress_callback(done, total, current_path)` runs on this thread.
+
+    Runs file I/O and can shell out to RAHasher per ROM — call from a
+    background thread (CodingStandards' threading model).
+    """
+    with get_connection() as connection:
+        roms = _library_repo(connection).list_installed_roms()
+
+    total = len(roms)
+    changed = 0
+    newly_matched = 0
+    missing: list[str] = []
+    failed: list[str] = []
+
+    for index, rom in enumerate(roms, start=1):
+        if progress_callback is not None:
+            progress_callback(index, total, rom.file_path)
+
+        path = Path(rom.file_path)
+        if not path.exists():
+            missing.append(rom.file_path)
+            continue
+
+        try:
+            new_hash = compute_rom_hash(path, rom.console_id)
+        except Exception:  # noqa: BLE001 — one unreadable ROM mustn't end the pass
+            logger.exception("Could not re-hash %s", rom.file_path)
+            failed.append(rom.file_path)
+            continue
+
+        hash_changed = new_hash != rom.hash
+        if not hash_changed and rom.game_id is not None:
+            continue
+
+        with get_connection() as connection:
+            repository = _library_repo(connection)
+            if hash_changed:
+                logger.info(
+                    "Re-hashed %s: %s -> %s", rom.file_path, rom.hash, new_hash
+                )
+                repository.set_hash(rom.id, new_hash)
+                changed += 1
+
+            game_id = GameRepository(connection).find_game_id_by_hash(new_hash)
+            if game_id is not None and game_id != rom.game_id:
+                repository.set_game_id(rom.id, game_id)
+                newly_matched += 1
+
+    logger.info(
+        "Re-hash pass: %d checked, %d hashes changed, %d newly matched, "
+        "%d missing, %d failed",
+        total,
+        changed,
+        newly_matched,
+        len(missing),
+        len(failed),
+    )
+    return RehashResult(
+        checked=total,
+        changed=changed,
+        newly_matched=newly_matched,
+        missing=missing,
+        failed=failed,
+    )
+
+
 def list_games_for_matching(console_id: int) -> list[Game]:
     """Every locally-synced game with achievements for one console, for the
     "Match to Game..." picker. Deliberately bypasses `core/explorer.py`'s
@@ -370,6 +497,12 @@ def scan_rom_folder(
     game, which is harder to notice and undo than a file simply not being
     picked up.
 
+    The folder's own `console_id` is passed to detection as a tie-breaker
+    (see `console_detection._resolve`), which is what makes a folder of disc
+    images scan to anything at all — `.chd`/`.cue`/`.bin`/`.iso` each map to
+    several consoles, so before this a correctly configured PS1 or PS2 folder
+    came back entirely "ambiguous".
+
     `progress_callback(scanned_count, current_path)` is called before each
     file is hashed — a folder of disc images takes minutes, so the caller
     needs something to show. It runs on this thread, so it must not touch
@@ -403,7 +536,7 @@ def scan_rom_folder(
             already_known_count += 1
             continue
 
-        detection = detect_console(file_path)
+        detection = detect_console(file_path, rom_folder.console_id)
         if not detection.is_confident:
             if detection.candidate_console_ids:
                 ambiguous_paths.append(str(file_path))

@@ -1,10 +1,13 @@
 ﻿"""Retrocheevos entry point."""
 
+import ctypes
+import ctypes.wintypes
 import faulthandler
 import logging
 import sys
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QAbstractNativeEventFilter, Qt, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -12,6 +15,7 @@ from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.main_window import MainWindow
 from retrocheevos.gui.pages.home_page import ICON_PATH
 from retrocheevos.gui.styles import APP_STYLESHEET
+from retrocheevos.services import credential_store
 from retrocheevos.utils.logging_setup import LOG_DIR, configure_logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +27,12 @@ CRASH_LOG_FILE = LOG_DIR / "crash.log"
 # `setWindowIcon` is called with (`QIcon(LOGO_PATH)` was confirmed to load
 # correctly — not the icon file/path at fault). Must be set before the
 # first window is shown.
-APP_USER_MODEL_ID = "Retrocheevos.App"
+#
+# The `.v2` suffix is load-bearing — see `_set_windows_app_id`. Changing this
+# string again resets the shell's association for the app, which is a real
+# effect on users' machines (taskbar pins stop resolving), so do not edit it
+# to tidy up naming.
+APP_USER_MODEL_ID = "Retrocheevos.App.v2"
 
 # `icon.png` is a single 889x889 image. Handing Qt one oversized pixmap
 # leaves it to downscale on demand for every slot Windows asks for (16px in
@@ -31,6 +40,21 @@ APP_USER_MODEL_ID = "Retrocheevos.App"
 # large source image tends to come out muddy or, on some shells, not at all.
 # Pre-scaling into the icon gives each slot a purpose-made bitmap.
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+_WM_GETICON = 0x007F
+
+
+class _MSG(ctypes.Structure):
+    """The Win32 `MSG` a Qt native event hands over as an opaque address."""
+
+    _fields_ = [
+        ("hwnd", ctypes.wintypes.HWND),
+        ("message", ctypes.wintypes.UINT),
+        ("wParam", ctypes.wintypes.WPARAM),
+        ("lParam", ctypes.wintypes.LPARAM),
+        ("time", ctypes.wintypes.DWORD),
+        ("pt", ctypes.wintypes.POINT),
+    ]
 
 
 def _build_app_icon() -> QIcon:
@@ -58,15 +82,100 @@ def _build_app_icon() -> QIcon:
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+    # Both the AUMID and whether this is a frozen run are logged, because the
+    # taskbar bug turned on exactly that pair and a log that only said
+    # "AUMID Retrocheevos.App" on every run is part of why it was chased
+    # through the icon file for so long. See `_set_windows_app_id`.
     logger.info(
-        "Loaded app icon from %s (%dx%d source, %d sizes, AUMID %s)",
+        "Loaded app icon from %s (%dx%d source, %d sizes, frozen=%s, AUMID %s)",
         ICON_PATH,
         source.width(),
         source.height(),
         len(ICON_SIZES),
-        APP_USER_MODEL_ID,
+        bool(getattr(sys, "frozen", False)),
+        APP_USER_MODEL_ID if sys.platform == "win32" else "n/a (not Windows)",
     )
     return icon
+
+
+def _set_windows_app_id() -> None:
+    """Claim a taskbar identity, from source and frozen alike.
+
+    An explicit AppUserModelID is how a python.exe-hosted app stops being
+    grouped under python.exe, so running from source has always needed one.
+    Frozen, it should be unnecessary — the process *is* `Retrocheevos.exe`,
+    which the shell can hang an identity on by itself — and for a while this
+    function returned early in that case.
+
+    That turned out not to hold, and the way it failed is worth recording so
+    nobody removes this again on the same reasoning:
+
+    * With no explicit ID, the frozen app's taskbar button rendered the
+      correct icon most of the time and the generic white placeholder some of
+      the time, on the same build, minutes apart. Verified by screenshot on
+      both sides of the transition.
+    * The app was not at fault in either state. `WM_GETICON` returned live
+      `ICON_BIG`/`ICON_SMALL` handles with the right artwork throughout,
+      unchanged across six minutes of polling; the window was visible,
+      unowned, uncloaked and taskbar-eligible; the icon compiled into the
+      .exe probed clean at all ten sizes the shell asks for; and the message
+      loop never once failed to answer within the shell's timeout.
+
+    So the varying part is how the shell resolves *which application* the
+    window belongs to. Deriving that from the executable path leaves it free
+    to consult a cache that still remembers this path under the previous ID
+    — the app declared `Retrocheevos.App` before — and that stale association
+    is the remaining explanation for an intermittent placeholder.
+
+    Hence `.v2`: an identifier the shell has never seen, so nothing cached
+    can answer for it. That is why this is set unconditionally now, and why
+    the suffix must not be tidied away. Whether it fixes the intermittency is
+    the open question this exists to answer.
+    """
+    if sys.platform != "win32":
+        return
+
+    import ctypes
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+
+
+class _IconQueryLogger(QAbstractNativeEventFilter):
+    """Logs every `WM_GETICON` the shell sends this app's windows.
+
+    Diagnostic, and deliberately kept: the taskbar-icon bug has now been
+    chased twice through black-box observation — screenshots, icon probes,
+    responsiveness polling — and every one of those measures the app *after*
+    the shell has already made its decision. What none of them can see is the
+    only moment that matters: whether the shell asked for the icon at all,
+    and when relative to the event loop starting.
+
+    One line per query, and the shell sends a handful per window, so this
+    costs nothing in a log that already carries a line per synced game.
+
+    `wParam` is the size class asked for: 0 `ICON_SMALL`, 1 `ICON_BIG`,
+    2 `ICON_SMALL2`. `handled=False` always — this only observes; Qt's own
+    window procedure still answers.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._started = time.monotonic()
+        self._count = 0
+
+    def nativeEventFilter(self, event_type, message):  # type: ignore[override]
+        if event_type == b"windows_generic_MSG":
+            msg = _MSG.from_address(int(message))
+            if msg.message == _WM_GETICON:
+                self._count += 1
+                logger.info(
+                    "WM_GETICON #%d: hwnd=%#x wParam=%d at +%.3fs after loop start",
+                    self._count,
+                    msg.hwnd or 0,
+                    msg.wParam,
+                    time.monotonic() - self._started,
+                )
+        return False, 0
 
 
 def _log_uncaught_exception(exc_type, exc_value, exc_tb) -> None:
@@ -83,10 +192,7 @@ def main() -> int:
     sys.excepthook = _log_uncaught_exception
     logger.info("Starting Retrocheevos")
 
-    if sys.platform == "win32":
-        import ctypes
-
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    _set_windows_app_id()
 
     # `sys.excepthook` only ever sees Python exceptions — a genuine native
     # crash (e.g. a Qt/GUI object touched off the main thread) never reaches
@@ -102,7 +208,18 @@ def main() -> int:
     # Bring the schema up to date before any page touches the database.
     initialize_database().close()
 
+    # After the schema, before any page reads an account: moves API keys out
+    # of the plaintext column and into the OS credential vault. Idempotent —
+    # once moved there is nothing left to find.
+    credential_store.migrate_plaintext_keys()
+
     app = QApplication(sys.argv)
+    # Installed before any window exists, so the very first query is caught.
+    # Held on `app` rather than a local: Qt keeps only a borrowed pointer, and
+    # a filter garbage-collected mid-run would take the app down with it.
+    if sys.platform == "win32":
+        app._icon_query_logger = _IconQueryLogger()  # type: ignore[attr-defined]
+        app.installNativeEventFilter(app._icon_query_logger)  # type: ignore[attr-defined]
     app.setStyleSheet(APP_STYLESHEET)
     # Belt-and-suspenders with `MainWindow.setWindowIcon`: the app-level
     # icon is what some Windows UI (Alt-Tab, taskbar) reads directly,
@@ -112,7 +229,41 @@ def main() -> int:
     window = MainWindow()
     window.setWindowIcon(app_icon)
     window.show()
+    _reassert_window_icon(window, app_icon)
     return app.exec()
+
+
+def _reassert_window_icon(window: MainWindow, app_icon: QIcon) -> None:
+    """Set the window icon again, from inside the running event loop.
+
+    `show()` is what makes the shell create the taskbar button, and the shell
+    asks the new window for its icon almost immediately — but `show()` runs
+    *before* `app.exec()`, so at that moment nothing in this process is
+    pumping messages yet. `WM_GETICON` is a **sent** message: answering it
+    requires the target thread to be in a message loop. A query that lands in
+    that gap goes unanswered until it times out, and the shell keeps the
+    generic placeholder it started the button with.
+
+    That gap is normally microseconds, which is exactly why the symptom was
+    intermittent — the taskbar button showed the right icon most of the time,
+    and a plain white rectangle when the timing went the wrong way, on the
+    same build minutes apart. It also explains why every measurement of the
+    app itself came back clean: by the time anything could be inspected, the
+    loop was running and `WM_GETICON` answered correctly forever after. The
+    window was never wrong; only the shell's one-shot first look at it was.
+
+    Re-setting the icon once the loop is up sends a fresh `WM_SETICON`, which
+    is the documented way to make the shell re-read a taskbar button's icon.
+    Queued at 0ms and again at 1500ms: the first covers the ordinary case,
+    the second the secondary-monitor taskbars, which build their buttons on a
+    separate and later pass — and the vertical monitor's taskbar is where
+    this was actually seen.
+    """
+    def reassert() -> None:
+        window.setWindowIcon(app_icon)
+
+    QTimer.singleShot(0, reassert)
+    QTimer.singleShot(1500, reassert)
 
 
 if __name__ == "__main__":

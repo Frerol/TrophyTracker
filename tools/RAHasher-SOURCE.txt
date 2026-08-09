@@ -1,0 +1,53 @@
+RAHasher — corresponding source and licence notice
+==================================================
+
+`RAHasher.exe` distributed alongside Retrocheevos is NOT part of Retrocheevos
+and is NOT covered by Retrocheevos' own licence. It is a separate program,
+redistributed unmodified, and Retrocheevos invokes it as a subprocess.
+
+  Program:      RAHasher
+  Version:      1.8.3
+  Build:        x64 Windows, from RAHasher-x64-Windows-1.8.3.zip
+  SHA-256:      23e2181a671387280f85678eecf00d3e877d3c0826322532fc353d4a108f3591
+  Size:         366,592 bytes
+  Obtained:     https://github.com/RetroAchievements/RALibretro/releases/tag/1.8.3
+  Copyright:    The RetroAchievements team and RALibretro contributors
+  Licence:      GNU General Public License version 3 — full text in
+                RAHasher-COPYING.txt, in this same directory.
+
+Corresponding source (GPL-3.0 section 6)
+----------------------------------------
+The complete corresponding source for this binary is the RALibretro
+repository at tag 1.8.3, including its submodules (notably `rcheevos`, which
+is itself MIT-licensed and contains the hashing implementation in
+`src/rhash/`):
+
+  https://github.com/RetroAchievements/RALibretro/tree/1.8.3
+
+  git clone --recursive https://github.com/RetroAchievements/RALibretro
+  git checkout 1.8.3
+
+The Windows binary is built from `src/RAHasher.vcxproj`, Release
+configuration, which defines HAVE_CHD — this is what makes `.chd` images
+hashable and is worth preserving if you ever rebuild it yourself.
+
+If that URL is unreachable, the authors of Retrocheevos will provide the
+corresponding source on request, on a physical medium or by download, for no
+more than the cost of distribution. Raise an issue on the Retrocheevos
+repository to ask.
+
+Why this file exists
+--------------------
+Shipping a GPL-3.0 binary is allowed and costs nothing in licence terms for
+the program that merely invokes it — running a separate executable is
+aggregation, not linking, so Retrocheevos does not become GPL. What it does
+require is that whoever receives the binary also receives its licence text
+and a way to get its source. That is this file and RAHasher-COPYING.txt, and
+`Retrocheevos.spec` refuses to build a bundle containing the .exe without
+both of them.
+
+Updating RAHasher
+-----------------
+Replace the .exe, then update the version, SHA-256, size and tag above. The
+version number in this file is the one users will rely on to fetch matching
+source; leaving it stale is the licence problem, not the .exe being old.

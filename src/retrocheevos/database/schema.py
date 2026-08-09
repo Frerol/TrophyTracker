@@ -480,6 +480,21 @@ DROP_ORPHAN_TABLES_V22 = [
     "DROP TABLE IF EXISTS leaderboard_cache",
 ]
 
+# RetroAchievements' API returns some games' hashes uppercase — 176 of 13327
+# rows in one synced catalog, across 137 games including Pokémon Snap,
+# Terranigma and Jet Force Gemini. Every hasher this app uses prints
+# lowercase, and SQLite compares TEXT case-sensitively, so those games could
+# never be matched: Pokémon Snap sat in "Unmatched ROMs" with a hash that was
+# right in every character but its case.
+#
+# `find_game_id_by_hash` now compares with LOWER() on both sides so it works
+# regardless, and `replace_hashes` lowercases on the way in. This normalizes
+# the rows already stored, so that LOWER() on the column stops defeating
+# `idx_game_hashes_hash` for everyone who synced before the fix.
+NORMALIZE_GAME_HASH_CASE_V23 = [
+    "UPDATE game_hashes SET hash = LOWER(hash) WHERE hash <> LOWER(hash)",
+]
+
 CREATE_TABLES_V18 = [
     """
     CREATE TABLE IF NOT EXISTS user_preferences (

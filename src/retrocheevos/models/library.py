@@ -47,3 +47,25 @@ class RomFolderScanResult:
     # Extension maps to no known console at all — saves, patches, box art,
     # readme files, and everything else that lives alongside real ROMs.
     unrecognized_paths: list[str]
+
+
+@dataclass
+class RehashResult:
+    """What `library_service.rehash_installed_roms` did.
+
+    `changed` is the number that matters: it is how many ROMs were carrying a
+    hash from an older, worse hasher. Zero means the library was already up
+    to date, which is the normal outcome on a second run.
+    """
+
+    checked: int
+    changed: int
+    newly_matched: int
+    # Files that have since been deleted or moved — left in the table
+    # untouched, since a missing file is `purge_missing_installed_roms`'
+    # business, not this function's.
+    missing: list[str]
+    # Hashing raised or the hasher refused the file. Reported rather than
+    # swallowed: a format that silently fails to re-hash is exactly the kind
+    # of thing that stays broken because nobody hears about it.
+    failed: list[str]

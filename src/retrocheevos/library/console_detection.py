@@ -8,11 +8,19 @@ anything less gets reported instead.
 
 Extension lookups come from `console_catalog.py` (ported from RA's own
 hasher). Unambiguous extensions are trusted outright. For ambiguous ones,
-this module only ever resolves `.iso` — by sniffing for
-`PSP_GAME/PARAM.SFO` (see `psp_hash.looks_like_psp_disc`), the one disc
-layout this codebase can currently parse with confidence. Anything else
-ambiguous is left unresolved on purpose: guessing wrong here means silently
-filing a ROM under the wrong console, which is worse than asking.
+two tie-breakers are tried, in this order:
+
+1. Content. Only `.iso` can be sniffed — for `PSP_GAME/PARAM.SFO` (see
+   `psp_hash.looks_like_psp_disc`), the one disc layout this codebase can
+   currently parse with confidence. What's actually inside the file beats
+   anything inferred from where it sits.
+2. `folder_console_id`, the console the user declared for the ROM folder
+   being scanned. Applied only when it is already one of the extension's
+   candidates.
+
+Anything still ambiguous after that is left unresolved on purpose: guessing
+wrong here means silently filing a ROM under the wrong console, which is
+worse than asking.
 
 `.zip` gets one extra pre-check: if it contains exactly one file, detection
 runs again against *that file's* extension instead of trusting the `.zip`
@@ -50,11 +58,17 @@ class DetectionResult:
         return self.console_id is not None or bool(self.candidate_console_ids)
 
 
-def detect_console(file_path: Path) -> DetectionResult:
+def detect_console(
+    file_path: Path, folder_console_id: Optional[int] = None
+) -> DetectionResult:
+    """`folder_console_id` is the console the ROM folder is configured for, if
+    any — a tie-breaker between an extension's candidates, never more than
+    that. See `_resolve` for why it stops there.
+    """
     extension = file_path.suffix.lstrip(".")
 
     if extension.lower() == "zip":
-        zip_result = _detect_single_file_zip(file_path)
+        zip_result = _detect_single_file_zip(file_path, folder_console_id)
         if zip_result is not None:
             return zip_result
         # Not a single-file zip (or its one member isn't a recognized ROM
@@ -71,10 +85,39 @@ def detect_console(file_path: Path) -> DetectionResult:
         if psp_hash.looks_like_psp_disc(file_path):
             return DetectionResult(console_id=psp_hash.PSP_CONSOLE_ID)
 
-    return DetectionResult(candidate_console_ids=candidates)
+    return _resolve(candidates, folder_console_id)
 
 
-def _detect_single_file_zip(zip_path: Path) -> Optional[DetectionResult]:
+def _resolve(
+    candidates: tuple[int, ...],
+    folder_console_id: Optional[int],
+    inner_member: Optional[str] = None,
+) -> DetectionResult:
+    """Last word on an ambiguous extension: take the folder's declared console
+    if the extension could plausibly be it, otherwise stay ambiguous.
+
+    Disc-based consoles are where scanning kept coming up empty. `.chd`
+    covers nine consoles, `.cue` nine, `.bin` five, `.iso` six — a folder of
+    PS1 or PS2 games is a folder where *every* file is ambiguous, so a
+    correctly configured ROM folder could scan to zero results. The console
+    the user picked for that folder was sitting in `rom_folders.console_id`
+    the whole time and nothing read it.
+
+    Deliberately only a tie-breaker. An extension RA maps to nothing at all
+    (`.cso`, say) stays unrecognized rather than being claimed by the folder:
+    the extension list is what says whether this codebase can hash the format
+    correctly, and a folder label is a statement about consoles, not formats.
+    Nor does it override a single-candidate extension — a `.gba` in a folder
+    labelled SNES is a misfiled ROM, not a Super Nintendo game.
+    """
+    if folder_console_id is not None and folder_console_id in candidates:
+        return DetectionResult(console_id=folder_console_id, inner_member=inner_member)
+    return DetectionResult(candidate_console_ids=candidates, inner_member=inner_member)
+
+
+def _detect_single_file_zip(
+    zip_path: Path, folder_console_id: Optional[int]
+) -> Optional[DetectionResult]:
     member_name = find_single_rom_member(zip_path)
     if member_name is None:
         return None
@@ -87,4 +130,4 @@ def _detect_single_file_zip(zip_path: Path) -> Optional[DetectionResult]:
     if len(candidates) == 1:
         return DetectionResult(console_id=candidates[0], inner_member=member_name)
 
-    return DetectionResult(candidate_console_ids=candidates, inner_member=member_name)
+    return _resolve(candidates, folder_console_id, inner_member=member_name)

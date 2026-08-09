@@ -1218,11 +1218,119 @@ nova cria-as e o v22 apaga-as logo a seguir. Editar uma migração antiga
 dessincroniza todas as bases que já a aplicaram — o custo de as criar por um
 instante é muito menor que esse risco.
 
+**Espaçamento Play/"+" no Explorer — regrediu duas vezes, agora com teste.**
+A causa nunca foi o `_BUTTON_SPACING`. Era o `sizeHint` do `ActionsDelegate`
+responder pela linha que recebia: linhas instaladas mostram "Play" + "+",
+as outras só "+". Mas a **largura da coluna é uma só, partilhada por todas as
+linhas** — e o `ResizeToContents` só amostra um número limitado de linhas
+(`resizeContentsPrecision`, 1000 por omissão) num catálogo de ~12k. Se as
+amostradas não estiverem instaladas, a coluna fica dimensionada para um
+botão e todas as instaladas abaixo pintam o "+" fora da coluna.
+
+Medido antes do fix: coluna 51px, `sizeHint` 69px, transbordo de 9px.
+Depois: coluna 70px, folga de 15px entre os dois, sem transbordo.
+
+**Por isso é que volta:** depende dos dados. Um catálogo pequeno ou com outra
+ordenação esconde-o por completo. `tests/gui/test_actions_delegate_width.py`
+fixa a invariante que interessa — o `sizeHint` não pode depender da linha.
+
+**Associação de ROMs por hash — estava estruturalmente impossível.**
+`game_hashes` só tinha um escritor, `sync_game_details`, e essa função **não
+tinha chamadores em lado nenhum**. Tabela sempre vazia →
+`find_game_id_by_hash` nunca devolvia nada → todos os ROMs ficavam sem
+`game_id`. Daí o Explorer mostrar 2 instalados (associados à mão) contra 74
+na Library: os critérios estão ambos certos, o que falhava era a associação.
+
+`sync_all_game_hashes` (botão "Sync ROM Hashes" no Explorer) resolve:
+- **Resumível** via `list_ids_missing_hashes` — obrigatório numa corrida de
+  uma hora. Um jogo que genuinamente não tem hashes volta a ser pedido em
+  cada corrida, porque "pedido e vazio" e "nunca pedido" são
+  indistinguíveis; o preço é um pedido repetido, a alternativa era uma
+  coluna cuja única função era lembrar-se de uma resposta vazia.
+- **`replace_hashes`, não `add_hash`** — não há constraint única em
+  `(game_id, hash)`, portanto re-correr duplicava todas as linhas.
+- **Chama `library_service.rematch_unmatched_roms()` no fim.** Sem isto a
+  hora é desperdiçada: a associação só acontece no scan, e um rescan salta
+  ficheiros já registados de propósito. Não custa chamadas — o hash já está
+  guardado em `installed_roms.hash`.
+
+**Custo, para quem vier a seguir:** `sync_game_details` faz **3** pedidos por
+jogo (extended, tempo médio, hashes) → ~36k pedidos, ~3h. Só o terceiro serve
+a associação de ROMs. Por isso o modo por omissão é `full_details=False`, um
+pedido por jogo, ~12k, ~1h. O diálogo deixa escolher.
+
+**Chaves da API saíram do SQLite para o cofre do SO.**
+`services/credential_store.py` guarda-as no Windows Credential Manager
+(`WinVaultKeyring`), encriptadas pela conta de utilizador do SO. A coluna
+`accounts.api_key` **não** é código morto — é o segundo metade do desenho:
+
+- **Degradação graciosa.** O `keyring` resolve o backend em tempo de execução
+  e pode não haver nenhum. Sem cofre, a chave fica na coluna e a app funciona,
+  com aviso no log. Recusar arrancar por causa de uma *melhoria* de
+  armazenamento seria pior que o problema original.
+- **A coluna só é limpa depois de o cofre confirmar a escrita.** Uma chave
+  guardada em lado nenhum é uma conta que nunca mais autentica.
+- **`migrate_plaintext_keys()` corre no arranque**, não como migração de
+  schema: estas dependem do SO e podem falhar por máquina, coisa que o
+  `PRAGMA user_version` não sabe exprimir — uma base marcada como migrada
+  numa máquina sem cofre nunca mais tentaria.
+- **Faz `VACUUM` a seguir.** Um `UPDATE` limpa o *valor*, não os bytes:
+  o SQLite deixa o conteúdo antigo em páginas libertadas, legível com um
+  editor hexadecimal. Sem o VACUUM esta mudança era cosmética.
+- **`Retrocheevos.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
+  `win32ctypes.core`). O backend é resolvido por entry points, portanto a
+  análise estática do PyInstaller não o vê — sem isto o `.exe` cai
+  silenciosamente no caminho "sem cofre" e as chaves voltam à base de dados.
+
 **Fica por decidir (não mexido de propósito):**
-- A chave da API está em texto simples no SQLite. É o normal em apps desktop
   sem integração com o cofre do SO, mas convém ser dito em vez de assumido.
 - 14 ficheiros `.py` têm BOM UTF-8. O Python importa-os bem; ferramentas de
   análise não (partiu o scanner de código morto até usar `utf-8-sig`).
+
+## 5d. Hashing de ROMs: RAHasher e a decisão de licença
+
+O `library/hashing.py` fazia MD5 do ficheiro inteiro e não implementava as
+regras por consola do RA (cabeçalhos NES/N64, faixas em discos, hash do
+executável no PlayStation). Reimplementar formato a formato foi abandonado
+a meio: `library/ciso.py` (`.cso`) chegou a ser escrito, o CHD e o RVZ não.
+
+**Decisão:** o hasher oficial do RetroAchievements, `RAHasher.exe`, invocado
+como subprocesso por `library/rahasher.py`. É construído das mesmas fontes
+`rcheevos/src/rhash` que o site usa, portanto está certo por construção em
+vez de por a nossa reimplementação ser cuidadosa que baste.
+
+**Licença — ler antes de distribuir.** RAHasher é compilado do RALibretro,
+que é **GPL-3.0** (o `rcheevos` por baixo é MIT, mas o binário distribuído
+não). Chamá-lo como processo separado é agregação, não linkagem: **não** torna
+o Retrocheevos GPL. Redistribuir o binário é que traz deveres — texto da
+licença e fonte correspondente (ou oferta escrita). Estão cumpridos em
+`tools/`: `RAHasher-COPYING.txt` e `RAHasher-SOURCE.txt`, e o
+`Retrocheevos.spec` **recusa-se a construir** um bundle com o .exe se algum
+deles faltar. Ao atualizar o binário, atualizar a versão e o SHA-256 no
+`RAHasher-SOURCE.txt` — deixá-los desatualizados é que é o problema de
+licença, não o .exe ser antigo.
+
+**O que o RAHasher resolve** (verificado contra ROMs reais, 1.8.3 x64):
+`.chd` (PS1 e PS2), `.cue`, `.iso` de PS2, `.gdi` de Dreamcast — todos
+falhavam por completo antes. A build Windows oficial define `HAVE_CHD` no
+`src/RAHasher.vcxproj` (a de Linux no CI usa `HAVE_CHD=1`); sem essa flag o
+binário imprime "CHD not supported" e devolve 0, portanto não trocar por uma
+build própria sem confirmar isto.
+
+**O que o RAHasher NÃO resolve, e é por isso que há fallback:**
+- `.cso` → "Could not open track". O `library/ciso.py` trata-o e dá o hash
+  certo (igual ao do `.iso` equivalente, que é o que o RA tem em catálogo).
+  O `ciso.py` não é redundante; é estritamente melhor aqui.
+- `.rvz` → "Not a Gamecube disc". Ninguém o suporta. Continua fora do
+  `console_catalog`, de propósito — um `.rvz` que chegasse ao hasher cairia
+  no MD5 do ficheiro inteiro e ficaria registado com um hash que não
+  corresponde a nada. **Este é o caso a vigiar** se alguém adicionar a
+  extensão ao catálogo.
+
+**Estado sem o binário:** suportado, não é erro. A app usa o hashing interno
+de sempre. A procura (`rahasher.find_executable`) não é cacheada de propósito
+— largar o .exe em `tools/` ou ao lado do executável é apanhado sem
+reiniciar.
 
 ## 6. Verificação sugerida ao retomar
 

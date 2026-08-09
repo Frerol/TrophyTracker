@@ -86,7 +86,6 @@ class ExplorerPage(Page):
         # two separate attributes this replaced only ever held one live
         # thread anyway.
         self._sync_worker: Optional[ServiceWorker] = None
-        self._play_worker: Optional[ServiceWorker] = None
         self._sync_phase = ""
         self._current_results: list[GameWithCompletion] = []
         self._console_names: dict[int, str] = {}
@@ -107,6 +106,12 @@ class ExplorerPage(Page):
         self._sync_median_times_button = QPushButton("Sync Median Times")
         self._sync_median_times_button.clicked.connect(self._on_sync_median_times)
 
+        # Same shape and the same reason as the button above: one request per
+        # game, opt-in, resumable. This one is what makes ROM scanning able
+        # to match files to games at all — `game_hashes` has no other writer.
+        self._sync_hashes_button = QPushButton("Sync ROM Hashes")
+        self._sync_hashes_button.clicked.connect(self._on_sync_game_hashes)
+
         self._catalog_sync_progress = QProgressBar()
         self._catalog_sync_progress.setVisible(False)
         self._catalog_sync_progress.setTextVisible(True)
@@ -122,6 +127,7 @@ class ExplorerPage(Page):
         sync_bar.setContentsMargins(0, 0, 0, 0)
         sync_bar.addWidget(self._sync_everything_button)
         sync_bar.addWidget(self._sync_median_times_button)
+        sync_bar.addWidget(self._sync_hashes_button)
         sync_bar.addWidget(self._catalog_sync_progress, stretch=1)
         sync_bar.addStretch(1)
 
@@ -151,7 +157,6 @@ class ExplorerPage(Page):
         self._table.setItemDelegateForColumn(COLUMN_TITLE, TitleDelegate(self._table))
         self._table.setItemDelegateForColumn(COLUMN_PROGRESS, ProgressDelegate(self._table))
         self._actions_delegate = ActionsDelegate(self._table)
-        self._actions_delegate.play_requested.connect(self._on_play)
         self._actions_delegate.list_action_requested.connect(self._on_list_action)
         self._actions_delegate.block_requested.connect(self._on_block)
         self._actions_delegate.set_membership_provider(self._list_ids_for_game)
@@ -314,6 +319,7 @@ class ExplorerPage(Page):
         # attribute safe (see `_sync_worker`).
         self._sync_everything_button.setEnabled(enabled)
         self._sync_median_times_button.setEnabled(enabled)
+        self._sync_hashes_button.setEnabled(enabled)
 
     def _on_sync_failed(self, message: str) -> None:
         self._set_sync_buttons_enabled(True)
@@ -370,6 +376,66 @@ class ExplorerPage(Page):
         self._refresh_results()
         self.sync_finished.emit(list(new_event_ids or []))
 
+    def _on_sync_game_hashes(self) -> None:
+        account = self.app_context.active_account
+        if account is None:
+            return
+
+        # The times here are measured against the live API, not computed from
+        # the pacing constant — the previous wording costed a request at the
+        # 0.3s sleep alone, ignored the round trip on top of it, and so
+        # advertised "about an hour" for a run that takes closer to 1h40.
+        # Understating the cheap option is bad; understating the expensive
+        # one at "three hours" when it is four, in a Yes/No where the
+        # expensive answer buys nothing this feature uses, is worse.
+        with_details = QMessageBox.question(
+            self,
+            "Sync ROM hashes",
+            "Fetch ROM hashes for the whole catalog so scanned files match "
+            "themselves to games.\n\n"
+            "One request per game. Consoles you have ROMs for are fetched "
+            "first — about 45 minutes — and the rest of the catalogue takes "
+            "the run to roughly 1h40. You can stop once your own consoles "
+            "are done: a second run only fetches what's still missing.\n\n"
+            "Also fetch achievements and median times for every game? That "
+            "is three requests per game instead of one, taking the whole "
+            "catalogue to about 4 hours. Neither is used for ROM matching — "
+            "answer No unless you specifically want that extra data.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        client = session_service.build_api_client(account)
+        self._set_sync_buttons_enabled(False)
+        self._catalog_sync_progress.setValue(0)
+        self._catalog_sync_progress.setFormat("Starting hash sync…")
+        self._catalog_sync_progress.setVisible(True)
+        self._sync_worker = ServiceWorker(
+            sync_service.sync_all_game_hashes,
+            client,
+            report_progress=True,
+            full_details=with_details == QMessageBox.StandardButton.Yes,
+        )
+        self._sync_worker.progress.connect(self._on_game_hashes_progress)
+        self._sync_worker.finished_ok.connect(self._on_game_hashes_done)
+        self._sync_worker.failed.connect(self._on_sync_failed)
+        self._sync_worker.start()
+
+    def _on_game_hashes_progress(self, current: int, total: int) -> None:
+        self._show_progress_percent("ROM hashes", current, total)
+
+    def _on_game_hashes_done(self, synced: int) -> None:
+        self._set_sync_buttons_enabled(True)
+        self._catalog_sync_progress.setVisible(False)
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "ROM hashes synced",
+            f"{synced} game(s) now have ROM hashes.\n\n"
+            "Previously unmatched ROMs were re-checked against them — see the "
+            "Library for what matched.",
+        )
+
     def _on_sync_median_times(self) -> None:
         account = self.app_context.active_account
         if account is None:
@@ -400,12 +466,4 @@ class ExplorerPage(Page):
             else "Every game already had whatever median time RetroAchievements publishes."
         )
         QMessageBox.information(self, "Median times synced", message)
-
-    def _on_play(self, game_id: int) -> None:
-        self._play_worker = ServiceWorker(library_service.launch_game, game_id)
-        self._play_worker.failed.connect(self._on_play_failed)
-        self._play_worker.start()
-
-    def _on_play_failed(self, message: str) -> None:
-        QMessageBox.warning(self, "Couldn't launch game", message)
 

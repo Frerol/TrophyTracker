@@ -11,6 +11,7 @@ QThread and re-emits it as a Qt signal.
 """
 
 import logging
+import sqlite3
 import time
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -42,8 +43,8 @@ from retrocheevos.database.repositories.game_repository import (
 )
 from retrocheevos.database.repositories.profile_repository import ProfileRepository
 from retrocheevos.models.account import Account
-from retrocheevos.models.game import GameHash
 from retrocheevos.models.game_completion import GameCompletion
+from retrocheevos.services import library_service
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,14 @@ def sync_games_for_console(
 # delay reliably return HTTP 429. `sync_full_catalog` makes one
 # `API_GetGameList.php` call per console (~84 of them), so it paces them the
 # same way that module already does.
+#
+# This is the *sleep between* calls, NOT the cost of a call. Every docstring
+# in this module that estimated a run's duration used to multiply this by the
+# request count and land at about half the real figure, because the HTTP round
+# trip (~0.22s, timed against the live API) happens on top of it. Budget
+# ~0.5s per request, not 0.3s — and if you change this constant, the
+# durations quoted in `sync_all_game_hashes` and the Explorer's sync dialog
+# are what go stale.
 CATALOG_SYNC_CALL_DELAY_SECONDS = 0.3
 # Measured live: one request per 0.1s starts returning HTTP 429 after ~9
 # calls, so the delay above is near the practical floor. These govern what
@@ -159,6 +168,22 @@ def sync_full_catalog(
     return total_games
 
 
+def _account_exists(account_id: int) -> bool:
+    """Is this account still in the database?
+
+    Long syncs carry an `Account` snapshot taken before they started, and
+    Settings can delete that account mid-run. One indexed lookup against a
+    loop that already spends 0.3s and an HTTP round trip per iteration.
+    """
+    with get_connection() as connection:
+        return (
+            connection.execute(
+                "SELECT 1 FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+            is not None
+        )
+
+
 def sync_event_progress(
     client: RetroAchievementsClient,
     account: Account,
@@ -189,6 +214,26 @@ def sync_event_progress(
     now = datetime.now()
     total = len(events)
     for index, event in enumerate(events, start=1):
+        # The account can be deleted while this loop runs. It takes ~237
+        # requests at 0.3s, so it is live for over a minute, and nothing
+        # stops it when Settings removes the account underneath it — the
+        # `account` here is a snapshot taken before the run began. Writing a
+        # `game_completion` for an id that no longer exists in `accounts`
+        # fails the foreign key, which is what surfaced as "removing an
+        # account crashes with FOREIGN KEY constraint failed" *after* the
+        # removal itself had already succeeded.
+        #
+        # Stops the whole run rather than skipping one event: every
+        # remaining iteration would fail the same way, and there is nothing
+        # left to sync for an account that is gone.
+        if not _account_exists(account.id):
+            logger.info(
+                "Event progress sync stopped at %d/%d: account %d was removed",
+                index,
+                total,
+                account.id,
+            )
+            return new_event_ids
         try:
             # Retried on 429 before the broad catch below sees it. Without
             # this, a burst limit read as "this event failed" and skipped it
@@ -203,19 +248,41 @@ def sync_event_progress(
         except Exception as error:  # noqa: BLE001 — one bad event mustn't abort the rest
             logger.info("Skipped event %d progress: %s", event.id, error)
         else:
-            with get_connection() as connection:
-                GameCompletionRepository(connection).upsert(
-                    GameCompletion(
-                        account_id=account.id,
-                        game_id=event.id,
-                        percent_complete=compute_percent_complete(
-                            progress.achievements_unlocked, progress.achievements_total
-                        ),
-                        achievements_unlocked=progress.achievements_unlocked,
-                        achievements_total=progress.achievements_total,
-                        last_synced_at=now,
+            try:
+                with get_connection() as connection:
+                    GameCompletionRepository(connection).upsert(
+                        GameCompletion(
+                            account_id=account.id,
+                            game_id=event.id,
+                            percent_complete=compute_percent_complete(
+                                progress.achievements_unlocked,
+                                progress.achievements_total,
+                            ),
+                            achievements_unlocked=progress.achievements_unlocked,
+                            achievements_total=progress.achievements_total,
+                            last_synced_at=now,
+                        )
                     )
+            except sqlite3.IntegrityError:
+                # The check at the top of the loop can be beaten: the account
+                # survives it, then the ~0.3s API call above gives the user
+                # exactly the window they need to press Remove, and the write
+                # lands against an id that is gone. No check can close that —
+                # the state is only knowable at the moment of the write — so
+                # the lost race is handled here rather than guarded against.
+                #
+                # Re-raised if the account is still there, because then the
+                # foreign key failure means something else entirely and
+                # swallowing it would hide a real bug.
+                if _account_exists(account.id):
+                    raise
+                logger.info(
+                    "Event progress sync stopped at %d/%d: account %d removed mid-write",
+                    index,
+                    total,
+                    account.id,
                 )
+                return new_event_ids
         if progress_callback:
             progress_callback(index, total)
         if index < total:
@@ -242,8 +309,9 @@ def sync_everything(
     guaranteed rather than a thing the user has to know.
 
     Median times are deliberately NOT included: they cost one API call per
-    game (~12k, roughly an hour), against ~3 minutes for everything here.
-    They stay on their own per-console action.
+    game (~12k, so ~1h40 at the measured ~0.5s per request — see
+    `sync_all_game_hashes`), against ~3 minutes for everything here. They
+    stay on their own per-console action.
 
     Returns the newly-detected event ids from the last phase.
     """
@@ -268,8 +336,9 @@ def sync_median_times(
 
     Separate from `sync_everything` because the data comes from a different,
     per-game endpoint (`API_GetGameProgression.php`) — `API_GetGameList.php`
-    doesn't carry it — so this costs one paced request per game, on the order
-    of an hour for a full catalog, against ~3 minutes for everything else.
+    doesn't carry it — so this costs one paced request per game, ~1h40 for a
+    full catalog at the measured ~0.5s per request (see
+    `sync_all_game_hashes`), against ~3 minutes for everything else.
 
     Only fetches games still missing the value, so an interrupted run resumes
     where it stopped and a second run over an already-filled catalog is
@@ -338,7 +407,7 @@ def _with_rate_limit_retry(description: str, call):
 def _fetch_median_time_with_retry(games_client: GamesClient, game_id: int):
     """One game's median time, riding out RA's burst limiter.
 
-    This loop runs for the better part of an hour on a full catalog, so a
+    This loop runs for well over an hour on a full catalog, so a
     single HTTP 429 used to throw away the whole run — and the limiter is
     easy to trip: measured live, one request every 0.1s starts returning 429
     after about nine calls, which is why the pacing above stays at 0.3s.
@@ -374,14 +443,26 @@ def sync_game_details(client: RetroAchievementsClient, game_id: int) -> None:
     clean it back up later.
     """
     games_client = GamesClient(client)
-    raw_game, raw_achievements = games_client.get_game_extended(game_id)
+    # All three calls retried: this had none, and it is now reachable from a
+    # ~36k-request backfill (`sync_all_game_hashes(full_details=True)`) where
+    # tripping the burst limiter is a matter of when, not if.
+    raw_game, raw_achievements = _with_rate_limit_retry(
+        f"details for game {game_id}", lambda: games_client.get_game_extended(game_id)
+    )
 
     if raw_game.num_achievements <= 0:
         logger.info("Skipped syncing game %d: no achievement set", game_id)
         return
 
-    progression = games_client.get_median_time_to_beat_hardcore(game_id)
-    hashes = games_client.get_game_hashes(game_id)
+    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    progression = _with_rate_limit_retry(
+        f"median time for game {game_id}",
+        lambda: games_client.get_median_time_to_beat_hardcore(game_id),
+    )
+    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    hashes = _with_rate_limit_retry(
+        f"hashes for game {game_id}", lambda: games_client.get_game_hashes(game_id)
+    )
     now = datetime.now()
 
     with get_connection() as connection:
@@ -391,12 +472,111 @@ def sync_game_details(client: RetroAchievementsClient, game_id: int) -> None:
         game_repository.upsert_game(map_game(raw_game, progression, synced_at=now))
         for raw_achievement in raw_achievements:
             achievement_repository.upsert_achievement(map_achievement(raw_achievement))
-        for rom_hash in hashes:
-            game_repository.add_hash(GameHash(game_id=game_id, hash=rom_hash))
+        # `replace_hashes`, not a loop of `add_hash`: there is no unique
+        # constraint on `(game_id, hash)`, so re-running this over a game
+        # already synced used to append a second copy of every hash.
+        game_repository.replace_hashes(game_id, hashes)
 
     logger.info(
         "Synced game %d: %d achievements, %d hashes", game_id, len(raw_achievements), len(hashes)
     )
+
+
+def sync_all_game_hashes(
+    client: RetroAchievementsClient,
+    progress_callback: Optional[ProgressCallback] = None,
+    full_details: bool = False,
+) -> int:
+    """Backfill ROM hashes across the catalog, so scanning a folder can match
+    files to games by hash instead of leaving them unmatched.
+
+    This is the missing half of ROM matching: `game_hashes` was only ever
+    written by `sync_game_details`, which had no callers anywhere, so the
+    table stayed empty and `find_game_id_by_hash` could never return a hit.
+    Every scanned ROM landed unmatched.
+
+    **Cost — measured, not derived from the pacing constant.** An earlier
+    version of this docstring costed the run at `CATALOG_SYNC_CALL_DELAY_SECONDS`
+    per request and claimed about an hour. That is wrong by roughly half:
+    0.3s is the *sleep between* calls, and the HTTP round trip happens on top
+    of it. Timed against the live API over 443 games, a `full_details=True`
+    run averaged **1.26s per game** — three requests plus two sleeps, which
+    puts the network round trip at ~0.22s and gives:
+
+    ======================  ==================  ==============
+    Mode                    Per game            Full ~11k queue
+    ======================  ==================  ==============
+    hashes only (default)   ~0.52s              **~1h40**
+    full_details=True       ~1.26s              **~4h**
+    ======================  ==================  ==============
+
+    In practice the number that matters is smaller: `list_ids_missing_hashes`
+    puts consoles you actually own ROMs for at the front, and that prefix was
+    ~5k games — **about 45 minutes** — after which the rest is catalogue you
+    have no files for and the run can simply be stopped.
+
+    Those figures are one connection's, and latency is the dominant term, so
+    treat them as the right order of magnitude rather than a guarantee. What
+    is not connection-dependent is the ratio: `full_details=True` costs three
+    times the requests for nothing ROM matching uses. Median times have their
+    own backfill (`sync_median_times`) and achievements are not surfaced
+    anywhere yet.
+
+    **Resumable.** Works off `list_ids_missing_hashes`, so stopping and
+    re-running picks up where it left off rather than starting over — the
+    whole reason that query exists.
+
+    Returns the number of games that got at least one hash. Games that fail
+    are skipped, not fatal: over 12k requests something will go wrong, and
+    losing hours of progress to one bad game would be absurd.
+    """
+    with get_connection() as connection:
+        game_ids = GameRepository(connection).list_ids_missing_hashes()
+
+    games_client = GamesClient(client)
+    total = len(game_ids)
+    synced = 0
+    logger.info(
+        "Hash backfill starting: %d games missing hashes (full_details=%s)",
+        total,
+        full_details,
+    )
+
+    for index, game_id in enumerate(game_ids, start=1):
+        try:
+            if full_details:
+                sync_game_details(client, game_id)
+                synced += 1
+            else:
+                hashes = _with_rate_limit_retry(
+                    f"hashes for game {game_id}",
+                    lambda: games_client.get_game_hashes(game_id),
+                )
+                if hashes:
+                    with get_connection() as connection:
+                        GameRepository(connection).replace_hashes(game_id, hashes)
+                    synced += 1
+        except Exception as error:  # noqa: BLE001 — one bad game mustn't kill the run
+            logger.info("Skipped hashes for game %d: %s", game_id, error)
+
+        if progress_callback:
+            progress_callback(index, total)
+        if index < total:
+            time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+
+    # The point of the whole run. Without this the newly-fetched hashes sit
+    # unused: matching only happens at scan time, and a rescan deliberately
+    # skips files already recorded, so ROMs scanned before the backfill would
+    # stay unmatched forever. Costs no API calls — the hashes are already on
+    # the rows.
+    matched = library_service.rematch_unmatched_roms()
+    logger.info(
+        "Hash backfill finished: %d of %d games got hashes, %d ROM(s) newly matched",
+        synced,
+        total,
+        matched,
+    )
+    return synced
 
 
 def sync_account_progress(
@@ -463,6 +643,15 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
         "user awards", lambda: profile_client.get_user_awards(account.username)
     )
     now = datetime.now()
+
+    # Same hazard as the event loop: the three requests above take a second
+    # or so, and Settings can delete the account in that window. Checked
+    # here, immediately before the write, rather than at the top of the
+    # function — a check before the network calls proves nothing about the
+    # state when the write finally lands.
+    if not _account_exists(account.id):
+        logger.info("Profile sync discarded: account %d was removed", account.id)
+        return
 
     stats = build_profile_stats(account.id, profile, completion_progress)
     stats.last_synced_at = now

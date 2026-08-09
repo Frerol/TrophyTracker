@@ -172,7 +172,6 @@ class ActionsDelegate(QStyledItemDelegate):
     mouse-tracking) and are fully clickable.
     """
 
-    play_requested = Signal(int)  # game_id
     list_action_requested = Signal(int, object)  # game_id, list_id
     # Separate from `list_action_requested` because Block is resolved by slug
     # rather than by list id — the user can rename the Blocked list, and the
@@ -186,8 +185,16 @@ class ActionsDelegate(QStyledItemDelegate):
         self._membership_provider = None
 
     def _button_specs_for(self, index: QModelIndex) -> list[tuple[str, str]]:
-        if index.data(INSTALLED_ROLE):
-            return [("play", "Play"), ("menu", "+")]
+        """Always just "+", installed or not.
+
+        Explorer is for finding and curating games; launching them happens on
+        the Library page, which is where installed games live and where the
+        cover art is clickable. A second launch route here bought nothing and
+        cost a two-button column that kept coming out cramped.
+
+        `index` is now unused, kept because Qt calls this per row and a
+        future per-row button would need it back.
+        """
         return [("menu", "+")]
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
@@ -214,8 +221,26 @@ class ActionsDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
-        specs = self._button_specs_for(index)
+        """Always sized for the **widest** row this column can hold, not for
+        `index`'s own row.
+
+        A column has one width shared by every row, but this delegate's
+        content varies per row — installed games get "Play" and "+",
+        everything else gets just "+". Asking `_button_specs_for(index)` here
+        meant the width depended on which rows Qt happened to sample:
+        `ResizeToContents` measures a bounded number of rows
+        (`resizeContentsPrecision`, 1000 by default) out of the ~12k in the
+        catalog. Sample only uninstalled rows and the column comes out sized
+        for one button, so every installed row further down had its "+"
+        painted past the column edge and clipped — which is exactly what
+        "Play and + are squashed again" looks like.
+
+        It regressed rather than being newly broken because it depends on the
+        data: it only shows once enough uninstalled games precede the
+        installed ones, so a smaller or differently-ordered catalog hides it.
+        """
         style = option.widget.style() if option.widget else QApplication.style()
+        specs = self._widest_specs()
         total_width = 2 * _BUTTON_MARGIN + _BUTTON_SPACING * (len(specs) - 1)
         max_height = 0
         for _key, label in specs:
@@ -223,6 +248,20 @@ class ActionsDelegate(QStyledItemDelegate):
             total_width += size.width()
             max_height = max(max_height, size.height())
         return QSize(total_width, max_height + 2 * _BUTTON_MARGIN)
+
+    @staticmethod
+    def _widest_specs() -> list[tuple[str, str]]:
+        """The most buttons any row can show, mirroring `_button_specs_for`.
+
+        Every row now shows the same single "+", so this is momentarily
+        identical to it. It stays because the bug it guards against is
+        structural, not about these particular buttons: the column has one
+        width and this delegate is free to vary its content per row, so the
+        width must come from the widest case rather than from whichever rows
+        `ResizeToContents` happened to sample. Re-introduce a per-row button
+        without updating this and the clipping comes straight back.
+        """
+        return [("menu", "+")]
 
     def editorEvent(
         self, event: QEvent, model, option: QStyleOptionViewItem, index: QModelIndex
@@ -253,9 +292,7 @@ class ActionsDelegate(QStyledItemDelegate):
         game_id = index.data(GAME_ID_ROLE)
         if game_id is None:
             return False
-        if key == "play":
-            self.play_requested.emit(game_id)
-        elif key == "menu":
+        if key == "menu":
             self._show_menu(option, index, game_id)
         return True
 

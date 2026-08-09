@@ -25,10 +25,13 @@ byte sector only, same as RAHasher — fine in practice since PSP_GAME and
 SYSDIR only ever hold a handful of entries.
 """
 
+import contextlib
 import hashlib
 import logging
 from pathlib import Path
-from typing import BinaryIO, Optional
+from typing import BinaryIO, Iterator, Optional
+
+from retrocheevos.library import ciso
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ def compute_psp_iso_hash(file_path: Path) -> str:
     """RA-compatible hash for a PSP `.iso` dump. Raises `NotAPspDiscError` if
     the file isn't a recognizable PSP ISO9660 image, `OSError` on read failure.
     """
-    with open(file_path, "rb") as rom_file:
+    with _open_disc(file_path) as rom_file:
         param_sfo = _find_entry(rom_file, _PARAM_SFO_PATH)
         if param_sfo is None:
             raise NotAPspDiscError(f"Not a PSP game disc: {file_path}")
@@ -69,15 +72,43 @@ def compute_psp_iso_hash(file_path: Path) -> str:
         return digest.hexdigest()
 
 
+@contextlib.contextmanager
+def _open_disc(file_path: Path) -> Iterator[BinaryIO]:
+    """The disc image as a seekable stream, inflating a `.cso` transparently.
+
+    Everything below this line reads ISO9660 and neither knows nor cares
+    whether the bytes came off disk verbatim or through `ciso`. That's what
+    makes a CSO hash to the same value as the ISO it was made from — the
+    algorithm never sees the difference.
+
+    Dispatch is on content, not extension: `.cso` and `.iso` both get handed
+    to us, plenty of people rename one to the other, and the magic bytes are
+    the only thing that actually settles it.
+    """
+    if ciso.is_ciso(file_path):
+        try:
+            reader = ciso.CisoReader(file_path)
+        except ciso.CisoError as error:
+            raise NotAPspDiscError(f"Unreadable CISO image {file_path}: {error}") from error
+        try:
+            yield reader  # type: ignore[misc]
+        finally:
+            reader.close()
+        return
+
+    with open(file_path, "rb") as rom_file:
+        yield rom_file
+
+
 def looks_like_psp_disc(file_path: Path) -> bool:
     """Cheap positive-identification check for Watch Folder auto-detection
     (`console_detection.py`) — true if `PSP_GAME/PARAM.SFO` is present, without
     hashing anything. Never raises: any read/parse failure just means "no".
     """
     try:
-        with open(file_path, "rb") as rom_file:
+        with _open_disc(file_path) as rom_file:
             return _find_entry(rom_file, _PARAM_SFO_PATH) is not None
-    except (OSError, NotAPspDiscError):
+    except (OSError, NotAPspDiscError, ciso.CisoError):
         return False
 
 

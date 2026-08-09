@@ -11,6 +11,9 @@ from typing import Optional
 
 from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
 from retrocheevos.models.account import Account
+# Lives under `services/` by filename, but it is a data store like this one —
+# it imports nothing from the rest of the app, so there is no cycle here.
+from retrocheevos.services import credential_store
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,14 @@ class AccountRepository:
         self._connection = connection
 
     def add(self, account: Account) -> Account:
-        """Insert a new account, or update it in place if the username already exists."""
+        """Insert a new account, or update it in place if the username already exists.
+
+        The API key goes to the OS credential vault, and the database column
+        is written **empty** — but only once the vault has confirmed the
+        write. If it hasn't, the column keeps the key, because a key stored
+        nowhere is an account that can never authenticate again.
+        """
+        stored_in_vault = credential_store.set_key(account.username, account.api_key)
         self._connection.execute(
             """
             INSERT INTO accounts (username, api_key, is_active, last_synced_at)
@@ -32,7 +42,7 @@ class AccountRepository:
             """,
             (
                 account.username,
-                account.api_key,
+                "" if stored_in_vault else account.api_key,
                 account.is_active,
                 datetime_to_sql(account.last_synced_at),
             ),
@@ -76,16 +86,74 @@ class AccountRepository:
             (datetime_to_sql(synced_at), account_id),
         )
 
+    # Every table with a foreign key to `accounts`, in an order that respects
+    # the one dependency among them: `user_lists.list_id` points at
+    # `user_list_definitions.id`, so the memberships go before the lists.
+    #
+    # Derived from `PRAGMA foreign_key_list` over the whole schema rather than
+    # written from memory — `rom_folders` and `installed_roms` only joined
+    # this set in migration v21, and missing one is invisible until a delete
+    # fails on it.
+    _ACCOUNT_CHILD_TABLES = (
+        "user_lists",
+        "user_list_definitions",
+        "user_achievements",
+        "game_completion",
+        "badges",
+        "profile_stats",
+        "notifications",
+        "user_preferences",
+        "installed_roms",
+        "rom_folders",
+    )
+
     def remove(self, account_id: int) -> None:
+        """Delete an account **and everything belonging to it**.
+
+        Every one of those foreign keys is `ON DELETE NO ACTION`, so deleting
+        the account row on its own left ten kinds of orphan behind and SQLite
+        refused with `FOREIGN KEY constraint failed` — the crash this
+        replaces. Changing them to `ON DELETE CASCADE` would mean rebuilding
+        ten tables (SQLite cannot alter a foreign key in place), so the
+        deletion is explicit here instead.
+
+        `WHERE account_id = ?` deliberately leaves rows whose `account_id` is
+        NULL: those belong to nobody, and removing one person's account is
+        not the moment to guess who they were meant for.
+        """
+        # Read before the row goes: the vault is keyed by username, and
+        # removing the account without removing its credential would leave
+        # the key behind in Credential Manager after the user asked for
+        # everything to be deleted.
+        row = self._connection.execute(
+            "SELECT username FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+
+        for table in self._ACCOUNT_CHILD_TABLES:
+            self._connection.execute(
+                f"DELETE FROM {table} WHERE account_id = ?", (account_id,)
+            )
         self._connection.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
-        logger.info("Removed account id=%d", account_id)
+
+        if row is not None:
+            credential_store.delete_key(row["username"])
+        logger.info("Removed account id=%d and its data", account_id)
 
     @staticmethod
     def _row_to_account(row: sqlite3.Row) -> Account:
+        """The vault is the source of truth; the column is the fallback.
+
+        Hydrating here rather than in a service is deliberate — this is the
+        single funnel every `Account` passes through, so no caller can end up
+        holding one with an empty key and discover it only when a request
+        401s.
+        """
+        username = row["username"]
+        api_key = credential_store.get_key(username) or row["api_key"] or ""
         return Account(
             id=row["id"],
-            username=row["username"],
-            api_key=row["api_key"],
+            username=username,
+            api_key=api_key,
             is_active=bool(row["is_active"]),
             last_synced_at=datetime_from_sql(row["last_synced_at"]),
         )

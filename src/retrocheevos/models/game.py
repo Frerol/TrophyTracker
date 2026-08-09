@@ -20,10 +20,3 @@ class Game:
     times_used_in_hardcore_beat_median: Optional[int] = None
     retroachievements_url: Optional[str] = None
     last_synced_at: Optional[datetime] = None
-
-
-@dataclass
-class GameHash:
-    game_id: int
-    hash: str
-    id: Optional[int] = None

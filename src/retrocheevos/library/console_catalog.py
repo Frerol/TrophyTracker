@@ -91,6 +91,11 @@ SINGLE_CONSOLE_EXTENSIONS: dict[str, int] = {
     "chf": FAIRCHILD_CHANNEL_F,
     "cia": NINTENDO_3DS,
     "col": COLECOVISION,
+    # A `.cso` is a deflated `.iso`, and only PSP dumps are distributed this
+    # way — unlike the plain `.iso` container, which six consoles share, so
+    # this one is unambiguous. `library.ciso` inflates it on the fly so
+    # `psp_hash` produces the same hash the equivalent `.iso` would.
+    "cso": PSP,
     "csw": ZX_SPECTRUM,
     "cxi": NINTENDO_3DS,
     "d64": COMMODORE_64,
@@ -160,6 +165,8 @@ AMBIGUOUS_EXTENSION_CANDIDATES: dict[str, tuple[int, ...]] = {
     # rc_hash_initialize_iterator_bin: only checks size to pick a CD-track
     # guess vs. cartridge; still not something we should trust blindly.
     "bin": (THREE_DO, PLAYSTATION, PLAYSTATION_2, SEGA_CD, MEGA_DRIVE),
+    # `cso` is deliberately *not* here — it is unambiguously PSP (see
+    # SINGLE_CONSOLE_EXTENSIONS); only the plain `.iso` container is shared.
     "chd": (
         PLAYSTATION,
         PLAYSTATION_2,

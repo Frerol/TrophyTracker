@@ -144,6 +144,25 @@ class LibraryRepository:
             (game_id, installed_rom_id),
         )
 
+    def set_hash(self, installed_rom_id: int, rom_hash: str) -> None:
+        """Replace a recorded ROM's hash, for `library_service.rehash_installed_roms`.
+
+        The hash was written once, at scan time, by whatever hasher the app
+        had then — and a folder rescan skips files already recorded, so it
+        would never be revisited. Improving the hashing (RAHasher, the PSP
+        and CISO readers) therefore had no effect at all on a library already
+        scanned, which is the gap this exists to close.
+
+        `game_id` is left alone on purpose: re-matching is a separate step
+        that runs off the new hash, and clearing a match here would throw
+        away a manual "Match to Game…" the user made by hand if the new hash
+        happened to find nothing.
+        """
+        self._execute(
+            "UPDATE installed_roms SET hash = ? WHERE id = ?",
+            (rom_hash, installed_rom_id),
+        )
+
     def set_last_played(self, installed_rom_id: int, played_at: datetime) -> None:
         """Stamped by `services/library_service.py::_launch_installed_rom` on
         every successful launch — deliberately not part of `add_installed_rom`'s

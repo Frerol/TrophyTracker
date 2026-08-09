@@ -56,6 +56,7 @@ change only affects how Home's field drives it). Clearing the field, or
 
 import logging
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -176,9 +177,30 @@ LOGIN_ACTION_TEXT = "Login"
 ADD_ACCOUNT_ACTION_TEXT = "Add an account…"
 ACTIVITY_LOADING_TEXT = "Loading recent activity…"
 ACTIVITY_ERROR_TEXT = "Couldn't load recent activity."
-# The fetch itself measures ~6s against the live API, so refreshing every
-# 30s keeps the feed close to current without ever overlapping itself.
-ACTIVITY_REFRESH_INTERVAL_MS = 30_000
+# What one refresh actually costs, counted from `activity_feed_service`:
+# one call for the follow list, then two per user (summary + game progress)
+# across self plus up to `FOLLOWED_USERS_LIMIT` (30) followed accounts —
+# about 63 requests, paced 0.3s apart, so roughly 19 seconds of API traffic.
+#
+# At the old 30s interval that was ~126 requests a minute, sustained for as
+# long as Home stayed open: heavier than the hash backfill (~115/min), and
+# unlike the backfill it never finishes. It also spent 19 of every 30
+# seconds mid-fetch, so any slowdown had refreshes treading on each other.
+# The visible symptom was Recent Activity failing outright during a catalog
+# sync — the two were competing for the same burst limiter — but the feed
+# was over-fetching on its own long before any sync started.
+#
+# Three minutes is chosen against what the data actually is: rich presence
+# and "last game played" don't move on a 30-second scale, and a refresh
+# takes 19s regardless, so the extra latency is imperceptible while the
+# request rate drops roughly sixfold.
+ACTIVITY_REFRESH_INTERVAL_MS = 180_000
+# On failure the interval doubles up to this ceiling, resetting on the next
+# success (see `_on_activity_feed_failed`). A failed fetch is nearly always
+# the API's burst limiter, and retrying at full cadence into a limiter is
+# what turns one rate-limited call into a stream of them — during a hash
+# backfill the old code failed every 30s for the entire hour.
+ACTIVITY_BACKOFF_CEILING_MS = 1_500_000  # 25 minutes
 EVENTS_MIN_HEIGHT = 320
 NEW_EVENTS_BANNER_COLOR = styles.LINK
 MAX_BANNER_EVENT_NAMES = 3
@@ -331,6 +353,12 @@ class HomePage(Page):
         self._activity_refresh_timer.timeout.connect(
             lambda: self._refresh_activity_feed(show_loading=False)
         )
+        # Current backoff, in milliseconds. Kept separate from the timer's own
+        # interval so `showEvent` can restart at the base cadence without
+        # having to know what the last failure had stretched it to.
+        self._activity_retry_interval_ms = ACTIVITY_REFRESH_INTERVAL_MS
+        # `time.monotonic()` of the last fetch *attempt*, or None if none yet.
+        self._activity_last_attempt: Optional[float] = None
 
         # Sized via stylesheet, not `setFont`. `gui/styles.py` sets
         # `font-size` on `QWidget`, and in Qt a stylesheet font declaration
@@ -721,7 +749,21 @@ class HomePage(Page):
         # coming back to Home after a while should show current data, not
         # whatever was on screen when you left. `refresh()` covers the
         # navigation path, but not e.g. un-minimising the window.
-        self._refresh_activity_feed(show_loading=False)
+        #
+        # Gated on the current interval, because this is the one path that
+        # can bypass the backoff entirely: every arrival on Home is 63 API
+        # requests, and bouncing between Home and Library a few times while
+        # the limiter is already angry would fire all of them each way. The
+        # cached feed is painted regardless, so the gate costs nothing
+        # visible.
+        if self._activity_refresh_is_due():
+            self._refresh_activity_feed(show_loading=False)
+
+    def _activity_refresh_is_due(self) -> bool:
+        if self._activity_last_attempt is None:
+            return True
+        elapsed_ms = (time.monotonic() - self._activity_last_attempt) * 1000
+        return elapsed_ms >= self._activity_retry_interval_ms
 
     def hideEvent(self, event) -> None:  # noqa: N802 — Qt override
         super().hideEvent(event)
@@ -1069,6 +1111,10 @@ class HomePage(Page):
         account = self.app_context.active_account
         if account is None:
             return
+        # Stamped here rather than on completion: what the backoff paces is
+        # how often this app *asks*, and a fetch that fails still spent the
+        # requests.
+        self._activity_last_attempt = time.monotonic()
 
         # Bail before touching state if a fetch is already in flight —
         # clearing `_activity_entries` and then not starting a worker would
@@ -1191,6 +1237,7 @@ class HomePage(Page):
         # Survives across navigations so returning to Home can paint
         # immediately instead of waiting out another fetch — see `refresh()`.
         self._activity_cache = entries
+        self._reset_activity_refresh_interval()
         self._render_activity_entries(entries)
 
     def _render_activity_entries(self, entries: list[ActivityEntry]) -> None:
@@ -1213,9 +1260,43 @@ class HomePage(Page):
         # `activity_feed_service.py`) left the loading label showing
         # forever with no feedback, since nothing ever replaced it.
         logger.warning("Recent activity fetch failed: %s", message)
+        self._back_off_activity_refresh()
         if not self._activity_entries:
             self._clear_activity_feed()
             self._activity_feed_layout.addWidget(QLabel(ACTIVITY_ERROR_TEXT))
+
+    def _back_off_activity_refresh(self) -> None:
+        """Double the refresh interval, up to the ceiling.
+
+        A failure here is almost always RA's burst limiter, and the thing
+        that makes that worse is retrying into it at full cadence: 63
+        requests, fail, wait 30s, 63 requests, fail. Through an hour-long
+        hash backfill the old code did exactly that, start to finish.
+
+        Deliberately blind to *why* it failed. Special-casing the rate-limit
+        error would leave every other failure — no network, RA down, an
+        expired key — hammering just as hard, and backing off is the right
+        response to all of them.
+        """
+        self._activity_retry_interval_ms = min(
+            self._activity_retry_interval_ms * 2, ACTIVITY_BACKOFF_CEILING_MS
+        )
+        self._activity_refresh_timer.setInterval(self._activity_retry_interval_ms)
+        logger.info(
+            "Recent activity refresh backed off to %ds",
+            self._activity_retry_interval_ms // 1000,
+        )
+
+    def _reset_activity_refresh_interval(self) -> None:
+        """Back to the base cadence after a success, so one bad patch of
+        network doesn't leave the feed on a 25-minute timer for the rest of
+        the session.
+        """
+        if self._activity_retry_interval_ms == ACTIVITY_REFRESH_INTERVAL_MS:
+            return
+        self._activity_retry_interval_ms = ACTIVITY_REFRESH_INTERVAL_MS
+        self._activity_refresh_timer.setInterval(ACTIVITY_REFRESH_INTERVAL_MS)
+        logger.info("Recent activity refresh back to %ds", ACTIVITY_REFRESH_INTERVAL_MS // 1000)
 
     def _on_play(self, game_id: int) -> None:
         self._play_worker = ServiceWorker(library_service.launch_game, game_id)

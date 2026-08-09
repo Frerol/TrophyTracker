@@ -4,7 +4,7 @@ import sqlite3
 from typing import Optional
 
 from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
-from retrocheevos.models.game import Game, GameHash
+from retrocheevos.models.game import Game
 from retrocheevos.utils.enums import GameType
 
 # RetroAchievements models community events as "games" on their own console,
@@ -96,12 +96,14 @@ class GameRepository:
         first — lets the backfill resume where it left off instead of
         re-requesting everything after an interruption.
 
-        Ordered by relevance rather than by id, because the fetch is one
-        API request per game and RetroAchievements' rate limiter caps that
-        at roughly three per second — a full catalog takes about an hour no
-        matter what. Ordering means the filter becomes useful for the games
-        you actually own within seconds, instead of only after the whole
-        run finishes:
+        Ordered by relevance rather than by id, because the fetch is one API
+        request per game and the pacing plus the round trip works out at
+        ~0.5s each (measured — see `sync_service.sync_all_game_hashes`), so a
+        full catalog is ~1h40 no matter what. This ordering is what makes
+        that bearable: the prefix covering consoles the user owns ROMs for
+        was ~5k games, about 45 minutes, after which the run can be stopped
+        with nothing relevant left undone. Without it the useful answers
+        would arrive only when the whole run finished:
           1. games with a ROM installed
           2. games on a console you have ROMs for
           3. everything else
@@ -126,6 +128,60 @@ class GameRepository:
             """
         ).fetchall()
         return [row["id"] for row in rows]
+
+    def list_ids_missing_hashes(self) -> list[int]:
+        """Browsable games with no ROM hash stored yet, ordered like
+        `list_ids_missing_median_time` — installed first, then your consoles,
+        then the rest.
+
+        Resumability is the point. The hash backfill is one request per game
+        across ~12k games; without a "what's still missing" query, an
+        interruption means starting over, and at ~1h40 that is the difference
+        between a job you can stop and one you cannot.
+
+        A game that genuinely has no hashes on RetroAchievements comes back
+        every time, since "fetched and empty" and "never fetched" look
+        identical here. That costs a repeat request on a re-run and is worth
+        it: the alternative is a `hashes_synced_at` column whose only job is
+        remembering an empty answer.
+        """
+        rows = self._connection.execute(
+            "SELECT id FROM games WHERE "
+            + " AND ".join(_BROWSABLE_GAME_CLAUSES)
+            + """ AND id NOT IN (SELECT DISTINCT game_id FROM game_hashes)
+            ORDER BY
+                CASE
+                    WHEN id IN (
+                        SELECT game_id FROM installed_roms WHERE game_id IS NOT NULL
+                    ) THEN 0
+                    WHEN console_id IN (SELECT DISTINCT console_id FROM installed_roms)
+                        THEN 1
+                    ELSE 2
+                END,
+                id
+            """
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    def replace_hashes(self, game_id: int, hashes: list[str]) -> None:
+        """Swap in this game's hash set, normalized to lowercase.
+
+        `add_hash` alone would duplicate every row on a re-run — there is no
+        unique constraint on `(game_id, hash)` — so a resumable backfill that
+        revisits a game has to clear first.
+
+        Lowercased on the way in because the API is inconsistent about case
+        (see `find_game_id_by_hash`) and every hasher this app uses prints
+        lowercase. Normalizing at the single point of entry keeps the lookup
+        able to use its index in the common case; the `LOWER()` there is for
+        rows that predate this.
+        """
+        self._connection.execute("DELETE FROM game_hashes WHERE game_id = ?", (game_id,))
+        for rom_hash in hashes:
+            self._connection.execute(
+                "INSERT INTO game_hashes (game_id, hash) VALUES (?, ?)",
+                (game_id, rom_hash.lower()),
+            )
 
     def get_by_id(self, game_id: int) -> Optional[Game]:
         row = self._connection.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
@@ -187,16 +243,25 @@ class GameRepository:
         rows = self._connection.execute(query, params).fetchall()
         return [self._row_to_game(row) for row in rows]
 
-    def add_hash(self, game_hash: GameHash) -> None:
-        self._connection.execute(
-            "INSERT INTO game_hashes (game_id, hash) VALUES (?, ?)",
-            (game_hash.game_id, game_hash.hash),
-        )
-
     def find_game_id_by_hash(self, rom_hash: str) -> Optional[int]:
-        """Look up the game a ROM hash matches. Never assume compatibility without a hit."""
+        """Look up the game a ROM hash matches. Never assume compatibility without a hit.
+
+        Compared case-insensitively, because RetroAchievements' API is not
+        consistent about it: 176 of 13327 synced hashes came back uppercase
+        (Pokémon Snap, Terranigma, Jet Force Gemini…) while the rest were
+        lowercase, and RAHasher always prints lowercase. SQLite's `=` on TEXT
+        is case-sensitive, so those 137 games could never be matched by any
+        correctly-hashed ROM — Pokémon Snap sat in "Unmatched ROMs" with a
+        hash that was character-for-character right apart from its case.
+
+        `LOWER(hash)` on the left defeats `idx_game_hashes_hash`, so this is
+        a scan of a table with a few tens of thousands of rows. `store_hashes`
+        lowercases on the way in specifically so that stays the fallback path
+        rather than the normal one; the function-side LOWER is what covers
+        rows written before that existed.
+        """
         row = self._connection.execute(
-            "SELECT game_id FROM game_hashes WHERE hash = ?", (rom_hash,)
+            "SELECT game_id FROM game_hashes WHERE LOWER(hash) = LOWER(?)", (rom_hash,)
         ).fetchone()
         return row["game_id"] if row else None
 

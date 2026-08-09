@@ -26,18 +26,65 @@
 # Windows user. That is what makes handing the .exe to someone else safe:
 # they start empty and build their own.
 
+from pathlib import Path
+
 from PyInstaller.building.api import COLLECT, EXE, PYZ
 from PyInstaller.building.build_main import Analysis
 
 BLOCK_CIPHER = None
 
+# RAHasher — RetroAchievements' own hasher, used by `library/rahasher.py` when
+# present. Bundled only if it has been placed in `tools/` first; the build
+# works either way and the app degrades to its built-in hashing without it.
+#
+# Not committed to this repository, and shipping it is a licensing decision
+# rather than an oversight. RAHasher is built from RALibretro, which is
+# GPL-3.0 (the `rcheevos` hashing code inside it is MIT, but the binary as
+# distributed is not). Invoking it as a separate process is aggregation, not
+# linking, so it does not make this app GPL — but *redistributing* the binary
+# carries GPL-3.0 obligations: ship its license text and either the
+# corresponding source or a written offer for it. `tools/` is therefore
+# expected to hold `RAHasher.exe` alongside `RAHasher-COPYING.txt` and a
+# `RAHasher-SOURCE.txt` naming the exact upstream tag the binary came from,
+# and all three ship together or none do.
+_TOOLS_DIR = Path("tools")
+_RAHASHER = _TOOLS_DIR / "RAHasher.exe"
+_RAHASHER_LICENSE_FILES = ("RAHasher-COPYING.txt", "RAHasher-SOURCE.txt")
+
+if _RAHASHER.is_file():
+    missing = [name for name in _RAHASHER_LICENSE_FILES if not (_TOOLS_DIR / name).is_file()]
+    if missing:
+        raise SystemExit(
+            f"tools/RAHasher.exe is present but {', '.join(missing)} is not. "
+            "RAHasher is GPL-3.0; redistributing the binary without its license "
+            "text and a pointer to the corresponding source is a licence "
+            "violation. Add the missing file(s), or remove RAHasher.exe to build "
+            "without it."
+        )
+    rahasher_binaries = [(str(_RAHASHER), "tools")]
+    rahasher_datas = [(str(_TOOLS_DIR / name), "tools") for name in _RAHASHER_LICENSE_FILES]
+    print(f"Retrocheevos.spec: bundling {_RAHASHER} and its licence files")
+else:
+    rahasher_binaries = []
+    rahasher_datas = []
+    print("Retrocheevos.spec: no tools/RAHasher.exe — building without it")
+
 analysis = Analysis(
     ["src/retrocheevos/main.py"],
     pathex=["src"],
-    binaries=[],
+    binaries=rahasher_binaries,
     # (source, destination-inside-the-bundle)
-    datas=[("assets", "assets")],
-    hiddenimports=[],
+    datas=[("assets", "assets"), *rahasher_datas],
+    # `keyring` picks its backend at runtime through entry points, so nothing
+    # in the source ever names `keyring.backends.Windows` — PyInstaller's
+    # static analysis cannot see it and the frozen app would fall back to the
+    # "no vault available" path, silently keeping API keys in the database.
+    # `win32ctypes` is what the Windows backend calls into.
+    hiddenimports=[
+        "keyring.backends.Windows",
+        "win32ctypes.core",
+        "win32ctypes.core.ctypes",
+    ],
     hookspath=[],
     runtime_hooks=[],
     # Belt and braces — see the note above. Also drops Qt modules PySide6

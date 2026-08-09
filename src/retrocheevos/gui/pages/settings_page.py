@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
 from retrocheevos.gui.pages.base_page import Page
+from retrocheevos.gui.selection import selected_item
 from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.services import (
     console_service,
@@ -194,18 +195,56 @@ class SettingsPage(Page):
         self.refresh()
 
     def _on_switch_account(self) -> None:
-        item = self._accounts_list.currentItem()
+        item = selected_item(self._accounts_list)
         if item is None:
+            QMessageBox.information(
+                self,
+                "No account selected",
+                "Select an account in the list first, then press Switch to Selected.",
+            )
             return
         session_service.switch_account(item.data(Qt.ItemDataRole.UserRole))
         self.app_context.refresh_active_account()
         self.refresh()
 
     def _on_remove_account(self) -> None:
-        item = self._accounts_list.currentItem()
+        item = selected_item(self._accounts_list)
         if item is None:
+            # Said out loud rather than returning silently: the old silent
+            # return is exactly what made this look broken.
+            QMessageBox.information(
+                self,
+                "No account selected",
+                "Select an account in the list first, then press Remove Selected.",
+            )
             return
-        session_service.remove_account(item.data(Qt.ItemDataRole.UserRole))
+
+        account_id = item.data(Qt.ItemDataRole.UserRole)
+        # Spelled out, because this is now genuinely destructive. Until the
+        # foreign keys were handled, removing an account with data attached
+        # failed outright — the crash was accidentally acting as a guard.
+        # Now it succeeds, so the guard has to be a real one.
+        counts = session_service.count_account_data(account_id)
+        if counts:
+            detail = "\n".join(f"  • {total} {label}" for label, total in counts.items())
+            body = (
+                f"Remove {item.text()}?\n\nThis permanently deletes:\n{detail}\n\n"
+                "The ROM files on disk are not touched. This cannot be undone."
+            )
+        else:
+            body = f"Remove {item.text()}?\n\nThis account has no data stored yet."
+
+        confirmed = QMessageBox.question(
+            self,
+            "Remove account",
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+
+        session_service.remove_account(account_id)
         self.app_context.refresh_active_account()
         self.refresh()
 
@@ -240,8 +279,13 @@ class SettingsPage(Page):
         self.refresh()
 
     def _on_remove_emulator(self) -> None:
-        item = self._emulators_list.currentItem()
+        item = selected_item(self._emulators_list)
         if item is None:
+            QMessageBox.information(
+                self,
+                "No emulator selected",
+                "Select an emulator in the list first, then press Remove.",
+            )
             return
         self._remove_emulator(item.data(Qt.ItemDataRole.UserRole))
 
