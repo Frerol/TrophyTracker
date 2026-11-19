@@ -34,6 +34,9 @@ Each RetroAchievements account that signs in on this app has its own data stored
 
 ## Setting up emulators
 
+Console selection is available offline, before the first catalog sync.
+Select a saved emulator to load its settings for editing.
+
 In Settings, per console, configure:
 - **Executable**: path to the emulator's `.exe`.
 - **Core** (optional): if you use **RetroArch**, you also need to specify the core for that console (e.g. `snes9x_libretro.dll`). RetroArch doesn't have one exe per console — it uses a single exe with multiple cores.

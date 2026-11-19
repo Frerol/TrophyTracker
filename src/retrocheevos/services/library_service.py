@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from retrocheevos.database.connection import create_connection, get_connection
+from retrocheevos.core.console_reference import CONSOLE_NAMES
+from retrocheevos.database.repositories.console_repository import ConsoleRepository
 from retrocheevos.database.repositories.emulator_config_repository import (
     EmulatorConfigRepository,
 )
@@ -36,6 +38,7 @@ from retrocheevos.library.rom_title import (
 )
 from retrocheevos.library.zip_extraction import extract_member
 from retrocheevos.models.emulator_config import EmulatorConfig
+from retrocheevos.models.console import Console
 from retrocheevos.models.game import Game
 from retrocheevos.models.library import (
     InstalledRom,
@@ -127,6 +130,7 @@ def add_rom_folder(
     path: str, console_id: Optional[int] = None, watch_enabled: bool = False
 ) -> RomFolder:
     with get_connection() as connection:
+        _ensure_config_console(connection, console_id)
         return _library_repo(connection).add_rom_folder(
             RomFolder(path=path, console_id=console_id, watch_enabled=watch_enabled)
         )
@@ -384,6 +388,14 @@ def scan_and_record_rom(file_path: str, console_id: int) -> InstalledRom:
     return _record_installed_rom_for_account(file_path, console_id, rom_hash, account_id)
 
 
+def _ensure_config_console(connection: sqlite3.Connection, console_id: Optional[int]) -> None:
+    """Persist offline reference data only when a local configuration needs it."""
+    if console_id in CONSOLE_NAMES:
+        ConsoleRepository(connection).add_if_missing(
+            Console(id=console_id, name=CONSOLE_NAMES[console_id])
+        )
+
+
 def set_emulator_config(
     console_id: int,
     executable_path: str,
@@ -391,6 +403,7 @@ def set_emulator_config(
     core_path: Optional[str] = None,
 ) -> EmulatorConfig:
     with get_connection() as connection:
+        _ensure_config_console(connection, console_id)
         config = EmulatorConfig(
             console_id=console_id,
             executable_path=executable_path,

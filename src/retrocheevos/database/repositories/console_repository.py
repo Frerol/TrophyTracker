@@ -27,6 +27,14 @@ class ConsoleRepository:
         ).fetchone()
         return self._row_to_console(row) if row else None
 
+    def add_if_missing(self, console: Console) -> None:
+        """Seed a local configuration's reference without replacing synced data."""
+        self._connection.execute(
+            "INSERT INTO consoles (id, name, icon_path) VALUES (?, ?, ?) "
+            "ON CONFLICT(id) DO NOTHING",
+            (console.id, console.name, console.icon_path),
+        )
+
     def get_by_name(self, name: str) -> Optional[Console]:
         row = self._connection.execute(
             "SELECT * FROM consoles WHERE name = ?", (name,)

@@ -391,7 +391,7 @@ class LibraryPage(Page):
     # --- ROM folders --------------------------------------------------
 
     def _refresh_rom_folders(self) -> None:
-        consoles = console_service.list_consoles()
+        consoles = console_service.list_configurable_consoles()
         console_names = {console.id: console.name for console in consoles}
 
         previous = self._folder_console_selector.currentData()

@@ -41,6 +41,7 @@ from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDele
 from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.selection import selected_item
 from retrocheevos.gui.workers import ServiceWorker
+from retrocheevos.models.emulator_config import EmulatorConfig
 from retrocheevos.services import (
     console_service,
     library_service,
@@ -53,6 +54,7 @@ class SettingsPage(Page):
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
         self._sync_profile_worker: Optional[ServiceWorker] = None
+        self._emulator_configs: dict[int, EmulatorConfig] = {}
 
         self._username_input = QLineEdit()
         self._api_key_input = QLineEdit()
@@ -84,7 +86,7 @@ class SettingsPage(Page):
 
         self._emulator_args_input = QLineEdit()
         self._emulator_args_input.setPlaceholderText(
-            "Optional arguments, e.g. -L cores/snes9x_libretro.dll {rom_path}"
+            'Optional arguments, e.g. --fullscreen "{rom_path}"'
         )
 
         save_emulator_button = QPushButton("Save Emulator")
@@ -96,7 +98,7 @@ class SettingsPage(Page):
         # leave it empty and nothing changes for them.
         self._emulator_core_input = QLineEdit()
         self._emulator_core_input.setPlaceholderText(
-            "Optional libretro core, e.g. cores/snes9x_libretro.dll (RetroArch)"
+            "Optional libretro core (.dll on Windows, .so on Linux)"
         )
         browse_core_button = QPushButton("Browse...")
         browse_core_button.clicked.connect(self._on_browse_core)
@@ -111,6 +113,8 @@ class SettingsPage(Page):
         emulator_form.addRow("Arguments", self._emulator_args_input)
 
         self._emulators_list = QListWidget()
+        self._emulator_console_selector.currentIndexChanged.connect(self._load_selected_emulator)
+        self._emulators_list.currentItemChanged.connect(self._on_emulator_selected)
         emulators_delegate = RemovableListDelegate(self._emulators_list)
         emulators_delegate.remove_requested.connect(self._remove_emulator)
         self._emulators_list.setItemDelegate(emulators_delegate)
@@ -156,7 +160,10 @@ class SettingsPage(Page):
             item.setData(Qt.ItemDataRole.UserRole, account.id)
             self._accounts_list.addItem(item)
 
-        consoles = console_service.list_consoles()
+        consoles = console_service.list_configurable_consoles()
+        self._emulator_configs = {
+            config.console_id: config for config in library_service.list_emulator_configs()
+        }
         console_names = {console.id: console.name for console in consoles}
         previous_console = self._emulator_console_selector.currentData()
         self._emulator_console_selector.blockSignals(True)
@@ -170,7 +177,7 @@ class SettingsPage(Page):
         self._emulator_console_selector.blockSignals(False)
 
         self._emulators_list.clear()
-        for config in library_service.list_emulator_configs():
+        for config in self._emulator_configs.values():
             console_name = console_names.get(config.console_id, f"Console #{config.console_id}")
             # The core is shown because it changes how the game is launched —
             # a config that looks identical but launches differently is worse
@@ -181,6 +188,23 @@ class SettingsPage(Page):
             item = QListWidgetItem(summary)
             item.setData(Qt.ItemDataRole.UserRole, config.console_id)
             self._emulators_list.addItem(item)
+        self._load_selected_emulator()
+
+    def _load_selected_emulator(self) -> None:
+        config = self._emulator_configs.get(self._emulator_console_selector.currentData())
+        self._emulator_path_input.setText(config.executable_path if config else "")
+        self._emulator_args_input.setText((config.arguments_template or "") if config else "")
+        self._emulator_core_input.setText((config.core_path or "") if config else "")
+
+    def _on_emulator_selected(
+        self, current: Optional[QListWidgetItem], _previous: Optional[QListWidgetItem]
+    ) -> None:
+        if current is None:
+            return
+        index = self._emulator_console_selector.findData(current.data(Qt.ItemDataRole.UserRole))
+        if index >= 0:
+            self._emulator_console_selector.setCurrentIndex(index)
+            self._load_selected_emulator()
 
     def _on_add_account(self) -> None:
         username = self._username_input.text().strip()

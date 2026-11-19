@@ -43,4 +43,9 @@ Categories=Game;Utility;
 Terminal=false
 EOF
 version="$(PYTHONPATH=src .venv/bin/python -c 'from retrocheevos.version import APP_VERSION; print(APP_VERSION)')"
-ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "dist/Retrocheevos-${version}-x86_64.AppImage"
+output="dist/Retrocheevos-${version}-x86_64.AppImage"
+temporary_output="${output%.AppImage}.build-$$.AppImage"
+trap 'rm -f -- "$temporary_output"' EXIT
+ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "$temporary_output"
+# Replace atomically: an older AppImage may currently be mounted/running.
+mv -f -- "$temporary_output" "$output"
