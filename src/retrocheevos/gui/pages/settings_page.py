@@ -21,7 +21,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -37,11 +37,13 @@ from PySide6.QtWidgets import (
 )
 
 from retrocheevos.gui.app_context import AppContext
+from retrocheevos.gui.dialogs.find_emulator_dialog import FindEmulatorDialog
 from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
 from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.selection import selected_item
 from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.models.emulator_config import EmulatorConfig
+from retrocheevos.widgets.console_selector import ConsoleSelector
 from retrocheevos.services import (
     console_service,
     library_service,
@@ -75,14 +77,17 @@ class SettingsPage(Page):
         account_buttons.addWidget(switch_button)
         account_buttons.addWidget(remove_account_button)
 
-        self._emulator_console_selector = QComboBox()
+        self._emulator_console_selector = ConsoleSelector()
         self._emulator_path_input = QLineEdit()
         self._emulator_path_input.setPlaceholderText("Path to emulator executable")
         browse_emulator_button = QPushButton("Browse...")
         browse_emulator_button.clicked.connect(self._on_browse_emulator)
+        find_emulator_button = QPushButton("Find...")
+        find_emulator_button.clicked.connect(self._on_find_emulator)
         emulator_path_row = QHBoxLayout()
         emulator_path_row.addWidget(self._emulator_path_input)
         emulator_path_row.addWidget(browse_emulator_button)
+        emulator_path_row.addWidget(find_emulator_button)
 
         self._emulator_args_input = QLineEdit()
         self._emulator_args_input.setPlaceholderText(
@@ -276,6 +281,17 @@ class SettingsPage(Page):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Emulator Executable")
         if file_path:
             self._emulator_path_input.setText(file_path)
+
+    def _on_find_emulator(self) -> None:
+        console_id = self._emulator_console_selector.currentData()
+        if console_id is None:
+            QMessageBox.information(self, "No console selected", "Pick a console first.")
+            return
+        dialog = FindEmulatorDialog(
+            console_id, self._emulator_console_selector.currentText(), self
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_candidate is not None:
+            self._emulator_path_input.setText(dialog.selected_candidate.executable_path)
 
     def _on_browse_core(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(

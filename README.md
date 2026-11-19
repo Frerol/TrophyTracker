@@ -36,6 +36,11 @@ Each RetroAchievements account that signs in on this app has its own data stored
 
 Console selection is available offline, before the first catalog sync.
 Select a saved emulator to load its settings for editing.
+Use **Find...** next to the executable field to search for known emulators
+for the selected console. Search common installation locations or choose a
+folder containing portable installations. Select a result, then click
+**Save Emulator**. RetroArch also needs a core in the **Core** field.
+Console dropdowns show up to ten entries at a time and scroll through the rest.
 
 In Settings, per console, configure:
 - **Executable**: path to the emulator's `.exe`.

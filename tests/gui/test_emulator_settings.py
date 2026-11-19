@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 import retrocheevos.database.connection as db
 from retrocheevos.database.migrations import initialize_database
@@ -13,6 +13,7 @@ from retrocheevos.database.repositories.console_repository import ConsoleReposit
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.pages.settings_page import SettingsPage
 from retrocheevos.models.console import Console
+from retrocheevos.models.emulator_discovery import EmulatorCandidate
 from retrocheevos.services import console_service, library_service
 
 _app = QApplication.instance() or QApplication([])
@@ -105,3 +106,22 @@ class EmulatorSettingsTests(unittest.TestCase):
         self.page._remove_emulator(41)
         self.assertEqual(library_service.list_emulator_configs(), [])
         self.assertEqual(self.page._emulator_path_input.text(), '')
+
+    def test_discovery_fills_path_and_waits_for_save(self) -> None:
+        self._select(41)
+        with patch('retrocheevos.gui.pages.settings_page.FindEmulatorDialog') as factory:
+            factory.return_value.exec.return_value = QDialog.DialogCode.Accepted
+            factory.return_value.selected_candidate = EmulatorCandidate('PPSSPP', '/apps/PPSSPP.AppImage')
+            self.page._on_find_emulator()
+        self.assertEqual(self.page._emulator_path_input.text(), '/apps/PPSSPP.AppImage')
+        self.assertEqual(library_service.list_emulator_configs(), [])
+        self.page._on_save_emulator()
+        self.assertEqual(library_service.list_emulator_configs()[0].executable_path, '/apps/PPSSPP.AppImage')
+
+    def test_cancel_discovery_preserves_current_path(self) -> None:
+        self._select(41)
+        self.page._emulator_path_input.setText('/existing/emulator')
+        with patch('retrocheevos.gui.pages.settings_page.FindEmulatorDialog') as factory:
+            factory.return_value.exec.return_value = QDialog.DialogCode.Rejected
+            self.page._on_find_emulator()
+        self.assertEqual(self.page._emulator_path_input.text(), '/existing/emulator')

@@ -22,7 +22,6 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QFileDialog,
     QGridLayout,
@@ -47,6 +46,7 @@ from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.models.library import RehashResult, RomFolderScanResult
 from retrocheevos.services import console_service, library_service, preferences_service
 from retrocheevos.widgets.cover_size_slider import CoverSizeSlider
+from retrocheevos.widgets.console_selector import ConsoleSelector
 from retrocheevos.widgets.installed_game_frame import InstalledGameFrame
 from retrocheevos.widgets.unmatched_rom_card import UnmatchedRomCard
 
@@ -137,7 +137,7 @@ class LibraryPage(Page):
     def _build_rom_folders_section(self) -> QWidget:
         container = QWidget()
 
-        self._folder_console_selector = QComboBox()
+        self._folder_console_selector = ConsoleSelector()
         add_folder_button = QPushButton("Add Folder for Console...")
         add_folder_button.clicked.connect(self._on_add_rom_folder)
         remove_folder_button = QPushButton("Remove Selected")
