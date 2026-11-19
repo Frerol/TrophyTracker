@@ -495,6 +495,17 @@ NORMALIZE_GAME_HASH_CASE_V23 = [
     "UPDATE game_hashes SET hash = LOWER(hash) WHERE hash <> LOWER(hash)",
 ]
 
+# Paths are unique per account. NULL owners need a separate index because
+# SQLite normally allows repeated NULL values in a composite unique index.
+SCOPE_LIBRARY_PATHS_V24 = [
+    "DROP INDEX IF EXISTS idx_rom_folders_path",
+    "DROP INDEX IF EXISTS idx_installed_roms_file_path",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_rom_folders_account_path ON rom_folders(account_id, path)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_rom_folders_unowned_path ON rom_folders(path) WHERE account_id IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_roms_account_path ON installed_roms(account_id, file_path)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_roms_unowned_path ON installed_roms(file_path) WHERE account_id IS NULL",
+]
+
 CREATE_TABLES_V18 = [
     """
     CREATE TABLE IF NOT EXISTS user_preferences (

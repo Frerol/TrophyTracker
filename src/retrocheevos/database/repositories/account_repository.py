@@ -141,7 +141,7 @@ class AccountRepository:
 
     @staticmethod
     def _row_to_account(row: sqlite3.Row) -> Account:
-        """The vault is the source of truth; the column is the fallback.
+        """A nonempty column is a pending vault write and takes precedence.
 
         Hydrating here rather than in a service is deliberate — this is the
         single funnel every `Account` passes through, so no caller can end up
@@ -149,7 +149,7 @@ class AccountRepository:
         401s.
         """
         username = row["username"]
-        api_key = credential_store.get_key(username) or row["api_key"] or ""
+        api_key = row["api_key"] or credential_store.get_key(username) or ""
         return Account(
             id=row["id"],
             username=username,

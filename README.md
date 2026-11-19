@@ -38,6 +38,25 @@ In Settings, per console, configure:
 - **Executable**: path to the emulator's `.exe`.
 - **Core** (optional): if you use **RetroArch**, you also need to specify the core for that console (e.g. `snes9x_libretro.dll`). RetroArch doesn't have one exe per console — it uses a single exe with multiple cores.
 
+## Building an AppImage (Linux x86_64)
+
+Create `.venv` with `python3 -m venv .venv`, then install dependencies with
+`.venv/bin/pip install -r requirements.txt pyinstaller`.
+Download the official [appimagetool](https://github.com/AppImage/appimagetool/releases)
+and [x86_64 runtime](https://github.com/AppImage/type2-runtime/releases).
+Extract appimagetool with `--appimage-extract` if FUSE is unavailable, then run:
+
+```sh
+APPIMAGETOOL=/absolute/path/to/squashfs-root/AppRun \
+APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 tools/build_appimage.sh
+```
+
+The result is `dist/Retrocheevos-1.0.0-x86_64.AppImage` (version comes from
+`src/retrocheevos/version.py`). Build on the oldest Linux distribution you
+intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
+is omitted; provide a native `tools/RAHasher` with its license/source files
+to bundle that optional helper, or use the app's built-in hashing.
+
 ## Updates
 
 The app automatically checks whether a newer version has been published on GitHub and shows a small notice — it never downloads or installs anything on its own. You'll need to manually grab the new version when you want to update.

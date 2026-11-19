@@ -10,6 +10,7 @@ any more.
 """
 
 import logging
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -119,7 +120,7 @@ def _normalize_path_for_comparison(path: str) -> str:
     strings would let already-scanned files slip through as "new" and get
     re-hashed on every scan — normalize both sides before comparing.
     """
-    return str(Path(path).resolve()).casefold()
+    return os.path.normcase(str(Path(path).resolve()))
 
 
 def add_rom_folder(
@@ -273,8 +274,9 @@ def rehash_installed_roms(
     Runs file I/O and can shell out to RAHasher per ROM — call from a
     background thread (CodingStandards' threading model).
     """
+    account_id = _active_account_id()
     with get_connection() as connection:
-        roms = _library_repo(connection).list_installed_roms()
+        roms = LibraryRepository(connection, account_id).list_installed_roms()
 
     total = len(roms)
     changed = 0
@@ -292,7 +294,7 @@ def rehash_installed_roms(
             continue
 
         try:
-            new_hash = compute_rom_hash(path, rom.console_id)
+            new_hash = _hash_recorded_rom(path, rom.console_id)
         except Exception:  # noqa: BLE001 — one unreadable ROM mustn't end the pass
             logger.exception("Could not re-hash %s", rom.file_path)
             failed.append(rom.file_path)
@@ -303,7 +305,7 @@ def rehash_installed_roms(
             continue
 
         with get_connection() as connection:
-            repository = _library_repo(connection)
+            repository = LibraryRepository(connection, account_id)
             if hash_changed:
                 logger.info(
                     "Re-hashed %s: %s -> %s", rom.file_path, rom.hash, new_hash
@@ -350,9 +352,17 @@ def record_installed_rom(file_path: str, console_id: int, rom_hash: str) -> Inst
     assume compatibility without a hit). Use `scan_and_record_rom` for a real
     file — this exists separately for callers that already have the hash.
     """
+    return _record_installed_rom_for_account(
+        file_path, console_id, rom_hash, _active_account_id()
+    )
+
+
+def _record_installed_rom_for_account(
+    file_path: str, console_id: int, rom_hash: str, account_id: Optional[int]
+) -> InstalledRom:
     with get_connection() as connection:
         game_id = GameRepository(connection).find_game_id_by_hash(rom_hash)
-        return _library_repo(connection).add_installed_rom(
+        return LibraryRepository(connection, account_id).add_installed_rom(
             InstalledRom(
                 file_path=file_path,
                 hash=rom_hash,
@@ -369,8 +379,9 @@ def scan_and_record_rom(file_path: str, console_id: int) -> InstalledRom:
     Runs file I/O — call from a background thread, not the UI thread
     (CodingStandards' threading model).
     """
-    rom_hash = compute_rom_hash(Path(file_path), console_id)
-    return record_installed_rom(file_path, console_id, rom_hash)
+    account_id = _active_account_id()
+    rom_hash = _hash_recorded_rom(Path(file_path), console_id)
+    return _record_installed_rom_for_account(file_path, console_id, rom_hash, account_id)
 
 
 def set_emulator_config(
@@ -512,13 +523,24 @@ def scan_rom_folder(
     (CodingStandards' threading model). Raises `RomFolderNotFoundError` if
     the folder row is gone.
     """
+    return _scan_rom_folder_for_account(
+        rom_folder_id, _active_account_id(), progress_callback
+    )
+
+
+def _scan_rom_folder_for_account(
+    rom_folder_id: int,
+    account_id: Optional[int],
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> RomFolderScanResult:
     with get_connection() as connection:
-        rom_folder = _library_repo(connection).get_rom_folder(rom_folder_id)
+        repository = LibraryRepository(connection, account_id)
+        rom_folder = repository.get_rom_folder(rom_folder_id)
         if rom_folder is None:
             raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
         already_installed = {
             _normalize_path_for_comparison(path)
-            for path in _library_repo(connection).get_installed_file_paths()
+            for path in repository.get_installed_file_paths()
         }
 
     recorded: list[InstalledRom] = []
@@ -550,7 +572,9 @@ def scan_rom_folder(
 
         rom_hash = _hash_in_place(file_path, detection.console_id, detection.inner_member)
         recorded.append(
-            record_installed_rom(str(file_path), detection.console_id, rom_hash)
+            _record_installed_rom_for_account(
+                str(file_path), detection.console_id, rom_hash, account_id
+            )
         )
 
     return RomFolderScanResult(
@@ -713,9 +737,14 @@ def scan_all_rom_folders(
         ambiguous_paths=[],
         unrecognized_paths=[],
     )
-    for rom_folder in list_rom_folders():
+    account_id = _active_account_id()
+    with get_connection() as connection:
+        folders = LibraryRepository(connection, account_id).list_rom_folders()
+    for rom_folder in folders:
         try:
-            result = scan_rom_folder(rom_folder.id, progress_callback=progress_callback)
+            result = _scan_rom_folder_for_account(
+                rom_folder.id, account_id, progress_callback
+            )
         except Exception:
             logger.exception("Scan failed for ROM folder %s", rom_folder.path)
             continue
@@ -724,6 +753,15 @@ def scan_all_rom_folders(
         combined.ambiguous_paths.extend(result.ambiguous_paths)
         combined.unrecognized_paths.extend(result.unrecognized_paths)
     return combined
+
+
+def _hash_recorded_rom(file_path: Path, console_id: int) -> str:
+    """Use the same single-ROM ZIP handling for manual scans and rehashes."""
+    inner_member = (
+        detect_console(file_path, console_id).inner_member
+        if file_path.suffix.lower() == ".zip" else None
+    )
+    return _hash_in_place(file_path, console_id, inner_member)
 
 
 def _hash_in_place(

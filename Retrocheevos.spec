@@ -27,6 +27,7 @@
 # they start empty and build their own.
 
 from pathlib import Path
+import sys
 
 from PyInstaller.building.api import COLLECT, EXE, PYZ
 from PyInstaller.building.build_main import Analysis
@@ -48,14 +49,14 @@ BLOCK_CIPHER = None
 # `RAHasher-SOURCE.txt` naming the exact upstream tag the binary came from,
 # and all three ship together or none do.
 _TOOLS_DIR = Path("tools")
-_RAHASHER = _TOOLS_DIR / "RAHasher.exe"
+_RAHASHER = _TOOLS_DIR / ("RAHasher.exe" if sys.platform == "win32" else "RAHasher")
 _RAHASHER_LICENSE_FILES = ("RAHasher-COPYING.txt", "RAHasher-SOURCE.txt")
 
 if _RAHASHER.is_file():
     missing = [name for name in _RAHASHER_LICENSE_FILES if not (_TOOLS_DIR / name).is_file()]
     if missing:
         raise SystemExit(
-            f"tools/RAHasher.exe is present but {', '.join(missing)} is not. "
+            f"{_RAHASHER} is present but {', '.join(missing)} is not. "
             "RAHasher is GPL-3.0; redistributing the binary without its license "
             "text and a pointer to the corresponding source is a licence "
             "violation. Add the missing file(s), or remove RAHasher.exe to build "
@@ -67,7 +68,7 @@ if _RAHASHER.is_file():
 else:
     rahasher_binaries = []
     rahasher_datas = []
-    print("Retrocheevos.spec: no tools/RAHasher.exe — building without it")
+    print(f"Retrocheevos.spec: no {_RAHASHER} — building without it")
 
 analysis = Analysis(
     ["src/retrocheevos/main.py"],
@@ -84,7 +85,7 @@ analysis = Analysis(
         "keyring.backends.Windows",
         "win32ctypes.core",
         "win32ctypes.core.ctypes",
-    ],
+    ] if sys.platform == "win32" else ["keyring.backends.SecretService"],
     hookspath=[],
     runtime_hooks=[],
     # Belt and braces — see the note above. Also drops Qt modules PySide6

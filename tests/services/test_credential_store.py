@@ -124,6 +124,20 @@ class CredentialStoreTests(unittest.TestCase):
         session_service.remove_account(account.id)
         self.assertNotIn("Someone", self.vault.entries)
 
+    def test_new_key_wins_when_vault_update_fails(self):
+        from retrocheevos.services import session_service
+
+        session_service.add_account("Someone", "O" * 32)
+        with patch.object(credential_store, "set_key", return_value=False):
+            session_service.add_account("Someone", "N" * 32)
+        self.assertEqual(self.vault.get("Someone"), "O" * 32)
+        self.assertEqual(session_service.get_active_account().api_key, "N" * 32)
+        # Once the vault accepts writes, startup migration reconciles it.
+        self.assertEqual(credential_store.migrate_plaintext_keys(), 1)
+        self.assertEqual(self._column("Someone"), "")
+        self.assertEqual(self.vault.get("Someone"), "N" * 32)
+        self.assertEqual(session_service.get_active_account().api_key, "N" * 32)
+
 
 if __name__ == "__main__":
     unittest.main()

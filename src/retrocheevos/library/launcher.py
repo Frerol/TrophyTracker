@@ -6,6 +6,7 @@ that's `services/library_service.py`'s job (Architecture.md's layering).
 """
 
 import logging
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -31,7 +32,13 @@ def build_launch_args(rom_path: Path, arguments_template: Optional[str]) -> list
     if not arguments_template:
         return [str(rom_path)]
 
-    tokens = arguments_template.split()
+    lexer = shlex.shlex(arguments_template, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    # Templates also contain Windows paths: backslashes are path separators,
+    # not shell escapes. Quotes group arguments and are removed by shlex.
+    lexer.escape = ""
+    tokens = list(lexer)
     if ROM_PATH_PLACEHOLDER not in arguments_template:
         return [*tokens, str(rom_path)]
 

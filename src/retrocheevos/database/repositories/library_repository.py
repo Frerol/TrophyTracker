@@ -51,10 +51,9 @@ class LibraryRepository:
             """
             INSERT INTO rom_folders (path, console_id, watch_enabled, account_id)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(path) DO UPDATE SET
+            ON CONFLICT DO UPDATE SET
                 console_id = excluded.console_id,
-                watch_enabled = excluded.watch_enabled,
-                account_id = excluded.account_id
+                watch_enabled = excluded.watch_enabled
             """,
             (
                 rom_folder.path,
@@ -64,7 +63,8 @@ class LibraryRepository:
             ),
         )
         row = self._connection.execute(
-            "SELECT id FROM rom_folders WHERE path = ?", (rom_folder.path,)
+            "SELECT id FROM rom_folders WHERE path = ? AND account_id IS ?",
+            (rom_folder.path, self._account_id),
         ).fetchone()
         rom_folder.id = row["id"]
         return rom_folder
@@ -91,12 +91,11 @@ class LibraryRepository:
             INSERT INTO installed_roms
                 (game_id, file_path, hash, console_id, detected_at, account_id)
             VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(file_path) DO UPDATE SET
+            ON CONFLICT DO UPDATE SET
                 game_id = excluded.game_id,
                 hash = excluded.hash,
                 console_id = excluded.console_id,
-                detected_at = excluded.detected_at,
-                account_id = excluded.account_id
+                detected_at = excluded.detected_at
             """,
             (
                 installed_rom.game_id,
@@ -108,8 +107,8 @@ class LibraryRepository:
             ),
         )
         row = self._connection.execute(
-            "SELECT id FROM installed_roms WHERE file_path = ?",
-            (installed_rom.file_path,),
+            "SELECT id FROM installed_roms WHERE file_path = ? AND account_id IS ?",
+            (installed_rom.file_path, self._account_id),
         ).fetchone()
         installed_rom.id = row["id"]
         return installed_rom
