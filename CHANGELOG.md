@@ -1,3 +1,9 @@
+## 0.1.0 — TrophyTracker
+
+- Rename the application, build outputs and documentation to TrophyTracker.
+- Preserve existing data and credential identifiers for compatibility.
+- Disable automatic update checks against the original project's releases.
+
 # Changelog
 
 ## 1.1.0 — 2026-11-19

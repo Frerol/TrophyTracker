@@ -100,7 +100,7 @@ def _dolphin_cached_cover(disc_id: str) -> Optional[Path]:
 def download_cover_image(url: str, destination: Path) -> bool:
     """Validate and atomically install a bounded image. False means HTTP 404."""
     with requests.get(url, timeout=(3, 8), stream=True,
-                      headers={'User-Agent': f'Retrocheevos/{APP_VERSION}'}) as response:
+                      headers={'User-Agent': f'TrophyTracker/{APP_VERSION}'}) as response:
         if response.status_code == 404:
             return False
         response.raise_for_status()

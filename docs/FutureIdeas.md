@@ -1,4 +1,4 @@
-# RetroCheevos — Future Ideas
+# TrophyTracker — Future Ideas
 
 Unscheduled ideas, not committed to any version yet. See
 `DevelopmentRoadmap.md` for the actual versioned plan.

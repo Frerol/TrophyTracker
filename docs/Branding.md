@@ -1,7 +1,7 @@
-# Retrocheevos visual identity
+# TrophyTracker visual identity
 
-The 1.1.0 refresh keeps the Retrocheevos name and introduces an R-shaped
-controller, an achievement check and a coral sparkle. The shared header pairs
+The application is now named TrophyTracker. The existing R-shaped controller,
+achievement check and coral sparkle are retained from the Retrocheevos artwork. The shared header pairs
 the emblem with a text wordmark, keeping the name sharp at different scales.
 
 - `assets/logo.png`: header emblem.
@@ -9,7 +9,7 @@ the emblem with a text wordmark, keeping the name sharp at different scales.
 - Ink background: `#0b1120`; raised surfaces: `#111b2b`.
 - Mint accent: `#6ce7c4`; coral accent: `#ff957f`.
 - Theme implementation: `src/retrocheevos/gui/styles.py`.
-- [Home preview](previews/home-1.1.0.png) uses fictional account and progress data.
+- [Historical Retrocheevos 1.1.0 Home preview](previews/home-1.1.0.png) uses fictional account and progress data.
 
 Persistent Home, Library, Lists and Settings navigation exposes the primary
 destinations. Settings separates accounts, emulators and profile synchronization.

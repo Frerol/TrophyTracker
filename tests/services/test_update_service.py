@@ -74,6 +74,19 @@ class DismissalTests(unittest.TestCase):
 
 
 class CheckForUpdateTests(unittest.TestCase):
+    def setUp(self):
+        for name, value in (("GITHUB_OWNER", "test-owner"), ("GITHUB_REPO", "test-repo")):
+            patcher = patch.object(update_service, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_unconfigured_source_does_not_make_a_request(self):
+        with patch.object(update_service, "GITHUB_OWNER", ""), patch.object(
+            update_service.requests, "get"
+        ) as get:
+            self.assertIsNone(update_service.check_for_update())
+        get.assert_not_called()
+
     def test_every_failure_is_silent(self):
         """Being offline must not surface anything. This runs at startup."""
         for label, patched in {

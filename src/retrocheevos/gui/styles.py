@@ -1,4 +1,4 @@
-"""Retrocheevos visual identity: ink surfaces, mint accents and warm highlights."""
+"""TrophyTracker visual identity: ink surfaces, mint accents and warm highlights."""
 
 BG = '#0b1120'
 BOX_BG = '#111b2b'

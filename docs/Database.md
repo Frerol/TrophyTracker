@@ -1,4 +1,4 @@
-# RetroCheevos — Database
+# TrophyTracker — Database
 
 ## 1. Principles
 

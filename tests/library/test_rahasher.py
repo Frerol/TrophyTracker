@@ -9,7 +9,7 @@ from unittest import mock
 from retrocheevos.library import hashing, rahasher
 from retrocheevos.library.rahasher import RaHasherError
 
-# A real RAHasher.exe is not in this repository (GPL-3.0, see Retrocheevos.spec),
+# A real RAHasher.exe is not in this repository (GPL-3.0, see TrophyTracker.spec),
 # so these drive a stand-in that reproduces its documented contract: hash on
 # stdout, exit 0; reason on stderr, exit 1. The point under test is this
 # module's half of that contract — argument order, output validation, failure

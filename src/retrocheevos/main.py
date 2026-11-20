@@ -1,4 +1,4 @@
-﻿"""Retrocheevos entry point."""
+﻿"""TrophyTracker entry point."""
 
 import ctypes
 import ctypes.wintypes
@@ -32,7 +32,7 @@ CRASH_LOG_FILE = LOG_DIR / "crash.log"
 # string again resets the shell's association for the app, which is a real
 # effect on users' machines (taskbar pins stop resolving), so do not edit it
 # to tidy up naming.
-APP_USER_MODEL_ID = "Retrocheevos.App.v2"
+APP_USER_MODEL_ID = "TrophyTracker.App.v2"
 
 # `icon.png` is a single 889x889 image. Handing Qt one oversized pixmap
 # leaves it to downscale on demand for every slot Windows asks for (16px in
@@ -84,7 +84,7 @@ def _build_app_icon() -> QIcon:
         )
     # Both the AUMID and whether this is a frozen run are logged, because the
     # taskbar bug turned on exactly that pair and a log that only said
-    # "AUMID Retrocheevos.App" on every run is part of why it was chased
+    # "AUMID TrophyTracker.App" on every run is part of why it was chased
     # through the icon file for so long. See `_set_windows_app_id`.
     logger.info(
         "Loaded app icon from %s (%dx%d source, %d sizes, frozen=%s, AUMID %s)",
@@ -103,7 +103,7 @@ def _set_windows_app_id() -> None:
 
     An explicit AppUserModelID is how a python.exe-hosted app stops being
     grouped under python.exe, so running from source has always needed one.
-    Frozen, it should be unnecessary — the process *is* `Retrocheevos.exe`,
+    Frozen, it should be unnecessary — the process *is* `TrophyTracker.exe`,
     which the shell can hang an identity on by itself — and for a while this
     function returned early in that case.
 
@@ -124,7 +124,7 @@ def _set_windows_app_id() -> None:
     So the varying part is how the shell resolves *which application* the
     window belongs to. Deriving that from the executable path leaves it free
     to consult a cache that still remembers this path under the previous ID
-    — the app declared `Retrocheevos.App` before — and that stale association
+    — the original app declared `Retrocheevos.App` before — and that stale association
     is the remaining explanation for an intermittent placeholder.
 
     Hence `.v2`: an identifier the shell has never seen, so nothing cached
@@ -190,7 +190,7 @@ def _log_uncaught_exception(exc_type, exc_value, exc_tb) -> None:
 def main() -> int:
     configure_logging()
     sys.excepthook = _log_uncaught_exception
-    logger.info("Starting Retrocheevos")
+    logger.info("Starting TrophyTracker")
 
     _set_windows_app_id()
 

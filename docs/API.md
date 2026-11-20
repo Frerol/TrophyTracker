@@ -1,4 +1,4 @@
-# RetroCheevos — API
+# TrophyTracker — API
 
 ## 1. Source of Truth
 

@@ -26,7 +26,7 @@ HEADER_GAP = 4
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Retrocheevos")
+        self.setWindowTitle("TrophyTracker")
         # No `setWindowIcon` here on purpose: `main.py::_build_app_icon`
         # builds the multi-resolution icon and sets it on both the
         # QApplication and this window. This used to set a single-pixmap

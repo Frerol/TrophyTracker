@@ -1,4 +1,4 @@
-# RetroCheevos — Handoff de sessão
+# TrophyTracker — Handoff de sessão
 
 Estado do projecto para retomar numa sessão nova sem contexto prévio.
 Última actualização: fim do Bloco 10.
@@ -729,7 +729,7 @@ Medido: 0 botões de seta, cabeçalho em `y=0` com 99px, página a começar em
 
 #### ⚠️ O QSS global anulava todos os `setFont()` (2026-08-07, décima primeira)
 
-Encontrado ao medir por que razão o "Retrocheevos" não crescia: **em Qt uma
+Encontrado ao medir por que razão o "TrophyTracker" não crescia: **em Qt uma
 declaração `font-size` num stylesheet sobrepõe-se a `setFont()`**. Como
 `gui/styles.py` põe `font-size` em `QWidget`, *todo* o dimensionamento de
 fonte feito por código nesta app estava a ser descartado em silêncio —
@@ -746,7 +746,7 @@ cartões.
 Estado medido (janela 1200px, conta com stats):
 ```
 logo(RC)      101x64  x=11   bottom=71
-Retrocheevos  267x42  x=112  bottom=71   <- mesma linha de base do logo
+TrophyTracker  267x42  x=112  bottom=71   <- mesma linha de base do logo
 12,132        169x43  x=930
 24,325         82x24  x=1017 bottom=71
 header height = 87px (inalterada)
@@ -978,7 +978,7 @@ aparece"; ficou só um. O `_build_app_icon` passou a registar em `logs/` o
 ficheiro, as dimensões e o AUMID — os dois relatos anteriores não foram
 reproduzíveis e sem esse rasto o próximo também não seria. **Nota:** o
 Windows guarda o ícone da barra de tarefas por AUMID, e o AUMID mudou nesta
-sessão (`RetroCheevos.App` → `Retrocheevos.App`), o que por si só faz o
+sessão (`TrophyTracker.App` → `TrophyTracker.App`), o que por si só faz o
 Windows tratar a app como nova até a cache actualizar.
 
 > ⚠️ **Espaçamento no Explorer: aumentar a constante não resolvia.** Os
@@ -997,9 +997,9 @@ Windows tratar a app como nova até a cache actualizar.
 2. **Pontos a azul outra vez** — `styles.POINTS_BLUE` (#4a90e2). O dourado
    fica reservado ao que é clicável (botões, links); usá-lo num número só de
    leitura fazia o ecrã inteiro parecer coberto de controlos.
-3. **App renomeada para "Retrocheevos"** — título da janela, cabeçalho,
-   `APP_USER_MODEL_ID`, logs. ⚠️ Um *replace* global de `RetroCheevos` →
-   `Retrocheevos` **parte todos os imports**, porque o pacote é
+3. **App renomeada para "TrophyTracker"** — título da janela, cabeçalho,
+   `APP_USER_MODEL_ID`, logs. ⚠️ Um *replace* global de `TrophyTracker` →
+   `TrophyTracker` **parte todos os imports**, porque o pacote é
    `retrocheevos` em minúsculas: só as strings visíveis devem mudar.
 4. **Continue Playing e Recent Activity esticam na vertical** — o
    `_center_column_filler` (widget vazio com `stretch=1`) era exactamente o
@@ -1277,7 +1277,7 @@ pedido por jogo, ~12k, ~1h. O diálogo deixa escolher.
 - **Faz `VACUUM` a seguir.** Um `UPDATE` limpa o *valor*, não os bytes:
   o SQLite deixa o conteúdo antigo em páginas libertadas, legível com um
   editor hexadecimal. Sem o VACUUM esta mudança era cosmética.
-- **`Retrocheevos.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
+- **`TrophyTracker.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
   `win32ctypes.core`). O backend é resolvido por entry points, portanto a
   análise estática do PyInstaller não o vê — sem isto o `.exe` cai
   silenciosamente no caminho "sem cofre" e as chaves voltam à base de dados.
@@ -1302,10 +1302,10 @@ vez de por a nossa reimplementação ser cuidadosa que baste.
 **Licença — ler antes de distribuir.** RAHasher é compilado do RALibretro,
 que é **GPL-3.0** (o `rcheevos` por baixo é MIT, mas o binário distribuído
 não). Chamá-lo como processo separado é agregação, não linkagem: **não** torna
-o Retrocheevos GPL. Redistribuir o binário é que traz deveres — texto da
+o TrophyTracker GPL. Redistribuir o binário é que traz deveres — texto da
 licença e fonte correspondente (ou oferta escrita). Estão cumpridos em
 `tools/`: `RAHasher-COPYING.txt` e `RAHasher-SOURCE.txt`, e o
-`Retrocheevos.spec` **recusa-se a construir** um bundle com o .exe se algum
+`TrophyTracker.spec` **recusa-se a construir** um bundle com o .exe se algum
 deles faltar. Ao atualizar o binário, atualizar a versão e o SHA-256 no
 `RAHasher-SOURCE.txt` — deixá-los desatualizados é que é o problema de
 licença, não o .exe ser antigo.

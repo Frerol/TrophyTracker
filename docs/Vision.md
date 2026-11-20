@@ -1,13 +1,13 @@
-# RetroCheevos — Vision
+# TrophyTracker — Vision
 
 ## Project Name
 
-**RetroCheevos**
+**TrophyTracker**
 Tagline: *The ultimate desktop companion for RetroAchievements.*
 
 ## Project Goal
 
-RetroCheevos is **not** a RetroAchievements scraper. It is intended to become
+TrophyTracker is **not** a RetroAchievements scraper. It is intended to become
 the desktop application that RetroAchievements should have had.
 
 Focus areas:

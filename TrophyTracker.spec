@@ -1,6 +1,6 @@
-# PyInstaller build spec for Retrocheevos.
+# PyInstaller build spec for TrophyTracker.
 #
-# Build with:   .venv\Scripts\pyinstaller.exe Retrocheevos.spec
+# Build with:   .venv\Scripts\pyinstaller.exe TrophyTracker.spec
 #
 # What ships and what does not
 # ----------------------------
@@ -64,11 +64,11 @@ if _RAHASHER.is_file():
         )
     rahasher_binaries = [(str(_RAHASHER), "tools")]
     rahasher_datas = [(str(_TOOLS_DIR / name), "tools") for name in _RAHASHER_LICENSE_FILES]
-    print(f"Retrocheevos.spec: bundling {_RAHASHER} and its licence files")
+    print(f"TrophyTracker.spec: bundling {_RAHASHER} and its licence files")
 else:
     rahasher_binaries = []
     rahasher_datas = []
-    print(f"Retrocheevos.spec: no {_RAHASHER} — building without it")
+    print(f"TrophyTracker.spec: no {_RAHASHER} — building without it")
 
 analysis = Analysis(
     ["src/retrocheevos/main.py"],
@@ -115,7 +115,7 @@ exe = EXE(
     analysis.scripts,
     [],
     exclude_binaries=True,
-    name="Retrocheevos",
+    name="TrophyTracker",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -139,5 +139,5 @@ COLLECT(
     analysis.datas,
     strip=False,
     upx=False,
-    name="Retrocheevos",
+    name="TrophyTracker",
 )

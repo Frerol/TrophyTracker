@@ -1,4 +1,6 @@
-# Retrocheevos
+# TrophyTracker
+
+Version **0.1.0**.
 
 A desktop companion for [RetroAchievements](https://retroachievements.org), for organizing your ROM library, tracking your progress, and launching games directly from the app.
 
@@ -6,9 +8,17 @@ A desktop companion for [RetroAchievements](https://retroachievements.org), for 
 
 ---
 
+## Project origin and compatibility
+
+TrophyTracker is a continuation of [Retrocheevos](https://github.com/Gmendes223/Retrocheevos), with independent development.
+The Python package remains `retrocheevos`; existing data directories, database
+filenames and credential-vault identifiers are retained for compatibility.
+Run from source with `PYTHONPATH=src .venv/bin/python -m retrocheevos.main`.
+Build Windows bundles with `pyinstaller TrophyTracker.spec`.
+
 ## What it is
 
-Retrocheevos is a Windows desktop app that connects to your RetroAchievements account to:
+TrophyTracker is a Windows desktop app that connects to your RetroAchievements account to:
 
 - Sync your game catalog, stats, and progress
 - Organize your installed library in a "Library" view with clickable covers
@@ -20,7 +30,7 @@ Retrocheevos is a Windows desktop app that connects to your RetroAchievements ac
 ## Getting started
 
 1. Download and extract this release's `.zip` — **the whole folder**, not just the `.exe`.
-2. Run `Retrocheevos.exe` from inside the extracted folder.
+2. Run `TrophyTracker.exe` from inside the extracted folder.
 3. The first time you open it, no session is active — you'll need your RetroAchievements **API key**:
    - Log in at [retroachievements.org](https://retroachievements.org)
    - Go to your account control panel
@@ -63,7 +73,7 @@ APPIMAGETOOL=/absolute/path/to/squashfs-root/AppRun \
 APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 tools/build_appimage.sh
 ```
 
-The result is `dist/Retrocheevos-1.1.0-x86_64.AppImage` (version comes from
+The result is `dist/TrophyTracker-0.1.0-x86_64.AppImage` (version comes from
 `src/retrocheevos/version.py`). Build on the oldest Linux distribution you
 intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
 is omitted; provide a native `tools/RAHasher` with its license/source files
@@ -111,7 +121,7 @@ not include the separate hash and median-time backfills.
 
 ## Updates
 
-The app automatically checks whether a newer version has been published on GitHub and shows a small notice — it never downloads or installs anything on its own. You'll need to manually grab the new version when you want to update.
+Automatic update checks are disabled for private TrophyTracker development. Install new builds manually; the app does not query the original project for updates.
 
 ## Known limitations
 

@@ -1,4 +1,4 @@
-# RetroCheevos — Architecture
+# TrophyTracker — Architecture
 
 ## 1. Technology Stack
 
@@ -54,7 +54,7 @@ logic testable without a running UI.
 ## 3. Folder Structure
 
 ```
-RetroCheevos/
+TrophyTracker/
 ├── assets/
 ├── cache/
 ├── database/

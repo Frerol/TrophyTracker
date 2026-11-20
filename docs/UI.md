@@ -1,4 +1,4 @@
-# RetroCheevos — UI
+# TrophyTracker — UI
 
 ## 1. Design Direction
 

@@ -349,7 +349,7 @@ class HomePage(Page):
                 Qt.TransformationMode.SmoothTransformation,
             ))
         logo_label.setFixedSize(LOGO_HEIGHT, LOGO_HEIGHT)
-        app_name_label = QLabel("Retrocheevos")
+        app_name_label = QLabel("TrophyTracker")
         app_name_label.setObjectName("brandName")
         tagline = QLabel("Your games. Your achievements.")
         tagline.setObjectName("brandTagline")

@@ -41,7 +41,7 @@ REQUEST_TIMEOUT_SECONDS = 5
 # reject requests without one.
 REQUEST_HEADERS = {
     "Accept": "application/vnd.github+json",
-    "User-Agent": f"Retrocheevos/{APP_VERSION}",
+    "User-Agent": f"TrophyTracker/{APP_VERSION}",
 }
 
 _VERSION_PART = re.compile(r"\d+")
@@ -126,6 +126,9 @@ def check_for_update(current_version: str = APP_VERSION) -> Optional[AvailableUp
     `/releases/latest` rather than `/releases` because it already excludes
     drafts and pre-releases, so an unfinished tag can't advertise itself.
     """
+    if not GITHUB_OWNER or not GITHUB_REPO:
+        return None
+
     try:
         response = requests.get(
             LATEST_RELEASE_URL,

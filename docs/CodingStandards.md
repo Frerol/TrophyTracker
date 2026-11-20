@@ -1,4 +1,4 @@
-# RetroCheevos — Coding Standards
+# TrophyTracker — Coding Standards
 
 ## Development Rules
 

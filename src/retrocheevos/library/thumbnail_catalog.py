@@ -138,7 +138,7 @@ def select_cover(title: str, filenames: list[str]) -> Optional[str]:
 
 def _api_get(url: str) -> Any:
     with requests.get(url, timeout=(3, 8), stream=True,
-                      headers={'User-Agent': f'Retrocheevos/{APP_VERSION}',
+                      headers={'User-Agent': f'TrophyTracker/{APP_VERSION}',
                                'Accept': 'application/vnd.github+json'}) as response:
         response.raise_for_status()
         content = bytearray()

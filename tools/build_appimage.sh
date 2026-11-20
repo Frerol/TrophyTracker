@@ -10,8 +10,8 @@ if [[ ! -x "$tool" || ! -f "$runtime" ]]; then
     exit 1
 fi
 
-.venv/bin/pyinstaller --noconfirm Retrocheevos.spec
-appdir="$PWD/build/Retrocheevos.AppDir"
+.venv/bin/pyinstaller --noconfirm TrophyTracker.spec
+appdir="$PWD/build/TrophyTracker.AppDir"
 mkdir -p "$appdir/usr"
 # Replace the previous payload so removed dependencies do not linger.
 .venv/bin/python - "$appdir" <<'PY'
@@ -20,30 +20,30 @@ import sys
 from pathlib import Path
 
 appdir = Path(sys.argv[1])
-target = appdir / "usr" / "Retrocheevos"
+target = appdir / "usr" / "TrophyTracker"
 if target.exists():
     shutil.rmtree(target)
-shutil.copytree("dist/Retrocheevos", target)
-shutil.copy2("assets/icon.png", appdir / "retrocheevos.png")
+shutil.copytree("dist/TrophyTracker", target)
+shutil.copy2("assets/icon.png", appdir / "trophytracker.png")
 PY
 cat > "$appdir/AppRun" <<'EOF'
 #!/bin/sh
 APPDIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec "$APPDIR/usr/Retrocheevos/Retrocheevos" "$@"
+exec "$APPDIR/usr/TrophyTracker/TrophyTracker" "$@"
 EOF
 chmod +x "$appdir/AppRun"
-cat > "$appdir/retrocheevos.desktop" <<'EOF'
+cat > "$appdir/trophytracker.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Retrocheevos
+Name=TrophyTracker
 Comment=RetroAchievements desktop companion
-Exec=Retrocheevos
-Icon=retrocheevos
+Exec=TrophyTracker
+Icon=trophytracker
 Categories=Game;Utility;
 Terminal=false
 EOF
 version="$(PYTHONPATH=src .venv/bin/python -c 'from retrocheevos.version import APP_VERSION; print(APP_VERSION)')"
-output="dist/Retrocheevos-${version}-x86_64.AppImage"
+output="dist/TrophyTracker-${version}-x86_64.AppImage"
 temporary_output="${output%.AppImage}.build-$$.AppImage"
 trap 'rm -f -- "$temporary_output"' EXIT
 ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "$temporary_output"
