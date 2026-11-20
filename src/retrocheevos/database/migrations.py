@@ -15,6 +15,7 @@ from retrocheevos.database.schema import (
     ALTER_TABLES_V14,
     CREATE_INDICES,
     CREATE_TABLES,
+    CREATE_METADATA_FETCHES_V28,
     CREATE_TABLES_V3,
     CREATE_TABLES_V4,
     CREATE_TABLES_V5,
@@ -95,6 +96,7 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     (25, ADD_FLATPAK_CONFIG_V25),
     (26, ADD_ROM_FINGERPRINT_V26),
     (27, ["CREATE TABLE IF NOT EXISTS pending_credential_deletions (username TEXT PRIMARY KEY, created_at TEXT NOT NULL)"]),
+    (28, CREATE_METADATA_FETCHES_V28),
 ]
 
 

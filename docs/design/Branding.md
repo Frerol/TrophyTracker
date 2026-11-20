@@ -1,10 +1,16 @@
 # TrophyTracker visual identity
 
+This document describes the current runtime artwork. The planned replacement
+is defined by the [UI proposal](ui-proposal.html) and
+[desktop revamp roadmap](../planning/DevelopmentRoadmap.md#desktop-interface-revamp--proposed-r16r27).
+The preferred A/C concepts have not yet replaced the shipped icon/logo.
+
 The application is now named TrophyTracker. The existing R-shaped controller,
 achievement check and coral sparkle are retained from the Retrocheevos artwork. The shared header pairs
 the emblem with a text wordmark, keeping the name sharp at different scales.
 
 - `assets/logo.png`: header emblem.
+- `assets/reference/retrocheevos-logo.jpeg`: historical source reference; not bundled.
 - `assets/icon.png`: square desktop and AppImage icon, also resampled by Qt.
 - Ink background: `#0b1120`; raised surfaces: `#111b2b`.
 - Mint accent: `#6ce7c4`; coral accent: `#ff957f`.

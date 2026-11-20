@@ -1,5 +1,7 @@
 """Explorer read path (UI.md 3.2) — cache-only, never triggers a sync (API.md §4)."""
 
+from dataclasses import dataclass
+
 from retrocheevos.core.explorer import (
     ExplorerFilters,
     GameWithCompletion,
@@ -30,3 +32,26 @@ def get_games(account_id: int, filters: ExplorerFilters) -> list[GameWithComplet
 def get_total_game_count() -> int:
     with get_connection() as connection:
         return total_game_count(game_repository=GameRepository(connection))
+
+
+@dataclass
+class ExplorerSnapshot:
+    results: list[GameWithCompletion]
+    total_count: int
+    installed_game_ids: set[int]
+
+
+def get_snapshot(account_id: int, filters: ExplorerFilters) -> ExplorerSnapshot:
+    """One read transaction for the results and counters; safe on a worker."""
+    with get_connection() as connection:
+        connection.execute("BEGIN")
+        games = GameRepository(connection)
+        library = LibraryRepository(connection, account_id)
+        results = search_games_with_completion(
+            account_id, filters,
+            game_repository=games,
+            list_repository=ListRepository(connection),
+            library_repository=library,
+            game_completion_repository=GameCompletionRepository(connection),
+        )
+        return ExplorerSnapshot(results, games.count_all(), library.get_installed_game_ids())

@@ -463,6 +463,9 @@ class LibraryPage(Page):
         library_service.remove_rom_folder(item.data(ROM_FOLDER_ID_ROLE))
         self._refresh_rom_folders()
 
+    def _on_scan_progress(self, discovered: int, path: str) -> None:
+        self._scan_status_label.setText(f"Discovered {discovered} entries — {path}")
+
     def _on_scan_folder(self) -> None:
         from retrocheevos.services.job_coordinator import try_acquire, JOB_SCAN_FOLDER
 
@@ -486,10 +489,10 @@ class LibraryPage(Page):
         worker = ServiceWorker(
             library_service.scan_rom_folder,
             item.data(ROM_FOLDER_ID_ROLE),
-            report_progress=False,
+            report_scan_progress=True,
             cancellable=True,
         )
-        # report_progress not supported by scan signature? It has progress_callback. Add report_progress? ServiceWorker report_progress injects progress_callback(current,total). But scan callback signature is (scanned_count, current_path), not (int,int). So no. Use default.
+        worker.scan_progress.connect(self._on_scan_progress)
         worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
         worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
         worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
@@ -517,7 +520,10 @@ class LibraryPage(Page):
         self._set_scan_buttons_enabled(False)
         self._scan_all_button.setText("Scanning...")
         self._scan_status_label.setText("")
-        worker = ServiceWorker(library_service.scan_all_rom_folders, cancellable=True)
+        worker = ServiceWorker(
+            library_service.scan_all_rom_folders, report_scan_progress=True, cancellable=True
+        )
+        worker.scan_progress.connect(self._on_scan_progress)
         worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
         worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
         worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))

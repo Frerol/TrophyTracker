@@ -15,15 +15,16 @@ fall back to `hashing.compute_rom_hash`.
 
 Where the binary comes from
 ---------------------------
-Not vendored into this repository. RAHasher is GPL-3.0 (RALibretro's COPYING),
-while `rcheevos` underneath it is MIT — shipping the built binary is a
-licensing decision with conditions attached (see `docs/HANDOFF.md`), so this
-module *finds* the executable rather than assuming it was bundled:
+RAHasher is GPL-3.0 (RALibretro's COPYING); the optional Windows binary and
+its license/source notice live under `tools/rahasher/`. `rcheevos` underneath
+it is MIT. See `tools/rahasher/RAHasher-SOURCE.txt` for redistribution details.
+This module finds the executable rather than assuming it was bundled:
 
 1. `RETROCHEEVOS_RAHASHER` in the environment — an explicit override, and
    what the tests use.
-2. `tools/` inside the frozen bundle, or next to the running .exe.
-3. `tools/` beside the project root, when running from source.
+2. `tools/rahasher/` inside the frozen bundle, or next to the running .exe.
+3. `tools/rahasher/` under the project root, when running from source.
+   Legacy `tools/` locations remain supported.
 4. Anywhere on `PATH`.
 
 Nothing here downloads it. An absent binary is a supported state, not an
@@ -54,7 +55,8 @@ logger = logging.getLogger(__name__)
 
 ENV_OVERRIDE = "RETROCHEEVOS_RAHASHER"
 EXECUTABLE_NAME = "RAHasher.exe" if sys.platform == "win32" else "RAHasher"
-BUNDLED_SUBDIRECTORY = "tools"
+BUNDLED_SUBDIRECTORY = "tools/rahasher"
+LEGACY_SUBDIRECTORY = "tools"
 
 _HASH_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 # A CHD or a dual-layer disc image is gigabytes of decompression before a hash
@@ -82,13 +84,16 @@ def _candidate_paths() -> list[Path]:
     bundled = getattr(sys, "_MEIPASS", None)
     if bundled:
         candidates.append(Path(bundled) / BUNDLED_SUBDIRECTORY / EXECUTABLE_NAME)
+        candidates.append(Path(bundled) / LEGACY_SUBDIRECTORY / EXECUTABLE_NAME)
         # A onedir build puts `_internal/` beside the .exe; someone dropping
         # the binary in by hand will put it next to the .exe, not inside it.
         candidates.append(Path(sys.executable).parent / BUNDLED_SUBDIRECTORY / EXECUTABLE_NAME)
+        candidates.append(Path(sys.executable).parent / LEGACY_SUBDIRECTORY / EXECUTABLE_NAME)
         candidates.append(Path(sys.executable).parent / EXECUTABLE_NAME)
     else:
         project_root = Path(__file__).resolve().parents[3]
         candidates.append(project_root / BUNDLED_SUBDIRECTORY / EXECUTABLE_NAME)
+        candidates.append(project_root / LEGACY_SUBDIRECTORY / EXECUTABLE_NAME)
 
     found_on_path = shutil.which(EXECUTABLE_NAME)
     if found_on_path:

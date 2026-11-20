@@ -3,7 +3,7 @@
 Layout matches RetroAchievements' own game list: a pill filter bar
 (`widgets/explorer_filter_bar.py`) above a sortable data table, rather than
 a collapsible side panel over a card grid. The table is a plain
-`QTableView` + `QSortFilterProxyModel` over `gui/models/explorer_table_model.py`
+`QTableView` over `gui/models/explorer_table_model.py`
 — `QTableView` only ever paints *visible* rows via delegates
 (`gui/delegates/explorer_delegates.py`), including the actions column
 (Play/+), which is painted by `ActionsDelegate` rather than backed
@@ -21,9 +21,10 @@ NOT the full `refresh()` — `refresh()` also reloads the console checklist
 visible or after a Sync Consoles action, not on every keystroke/checkbox.
 """
 
+import logging
 from typing import Optional
 
-from PySide6.QtCore import QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -45,7 +46,6 @@ from retrocheevos.gui.delegates.explorer_delegates import (
     ProgressDelegate,
     TitleDelegate,
 )
-from retrocheevos.gui.image_loader import ImageLoader
 from retrocheevos.gui.models.explorer_table_model import (
     COLUMN_ACTIONS,
     COLUMN_CONSOLE,
@@ -68,7 +68,13 @@ from retrocheevos.services import (
 )
 from retrocheevos.widgets.explorer_filter_bar import ExplorerFilterBar
 
+logger = logging.getLogger(__name__)
+
 ROW_HEIGHT = 48
+
+
+SEARCH_DEBOUNCE_MS = 150
+RESIZE_SAMPLE_ROWS = 100
 
 
 class ExplorerPage(Page):
@@ -90,7 +96,16 @@ class ExplorerPage(Page):
         self._sync_phase = ""
         self._current_results: list[GameWithCompletion] = []
         self._console_names: dict[int, str] = {}
-        self._image_loader = ImageLoader()
+        self._image_loader = self.app_context.create_image_loader()
+        self._read_generation = 0
+        self._read_worker: Optional[ServiceWorker] = None
+        self._queued_read: Optional[tuple[int, int, ExplorerFilters]] = None
+        # Debounce search-driven refreshes so typing doesn't re-query the
+        # whole catalog on every keystroke.
+        self._search_debounce_timer = QTimer(self)
+        self._search_debounce_timer.setSingleShot(True)
+        self._search_debounce_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_debounce_timer.timeout.connect(self._refresh_results)
 
         # One button instead of the four this replaced (consoles, games for
         # console, full catalog, and the profile sync that used to live in
@@ -148,6 +163,7 @@ class ExplorerPage(Page):
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search games...")
         self._search_input.returnPressed.connect(self._refresh_results)
+        self._search_input.textChanged.connect(self._search_debounce_timer.start)
 
         self._results_count_label = QLabel()
 
@@ -159,12 +175,9 @@ class ExplorerPage(Page):
         search_row.addWidget(self._results_count_label)
 
         self._table_model = ExplorerTableModel(self._image_loader)
-        self._proxy_model = QSortFilterProxyModel()
-        self._proxy_model.setSourceModel(self._table_model)
-        self._proxy_model.setSortRole(Qt.ItemDataRole.EditRole)
 
         self._table = QTableView()
-        self._table.setModel(self._proxy_model)
+        self._table.setModel(self._table_model)
         self._table.setItemDelegateForColumn(COLUMN_TITLE, TitleDelegate(self._table))
         self._table.setItemDelegateForColumn(COLUMN_PROGRESS, ProgressDelegate(self._table))
         self._actions_delegate = ActionsDelegate(self._table)
@@ -182,6 +195,9 @@ class ExplorerPage(Page):
         self._table.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
 
         header = self._table.horizontalHeader()
+        # Size content columns from a bounded sample, rather than walking the
+        # whole catalog on each model reset. Title already stretches.
+        header.setResizeContentsPrecision(RESIZE_SAMPLE_ROWS)
         header.setSectionResizeMode(COLUMN_TITLE, QHeaderView.ResizeMode.Stretch)
         for column in (
             COLUMN_CONSOLE,
@@ -228,13 +244,8 @@ class ExplorerPage(Page):
         self._table.setVisible(visible)
 
     def set_search_text(self, text: str) -> None:
-        """Lets an owning page (`gui/pages/home_page.py`'s embedded instance)
-        drive this page's own search field and trigger results immediately —
-        bypasses the `returnPressed`-only trigger this field normally uses
-        when this page's own search box is typed into directly.
-        """
+        """Drive either Explorer instance through the same debounced search path."""
         self._search_input.setText(text)
-        self._refresh_results()
 
     def _on_filters_changed(self) -> None:
         self._refresh_results()
@@ -250,24 +261,58 @@ class ExplorerPage(Page):
         self._filter_bar.set_available_consoles(consoles)
 
     def _refresh_results(self) -> None:
-        """Cache-only (UI.md §5: must feel instant) — re-queries games for the
-        current filters and hands the results to the table model.
-        """
+        """Coalesce reads and discard results superseded by newer view state."""
+        self._search_debounce_timer.stop()
+        self._read_generation += 1
         account = self.app_context.active_account
         if account is None:
+            self._queued_read = None
             self._current_results = []
             self._table_model.set_data([], self._console_names, set())
             self._results_count_label.setText("0 of 0 games")
             return
+        filters = self._filter_bar.apply_to(
+            ExplorerFilters(search_text=self._search_input.text().strip() or None)
+        )
+        self._queued_read = (self._read_generation, account.id, filters)
+        if self._read_worker is None:
+            self._start_read()
 
-        base_filters = ExplorerFilters(search_text=self._search_input.text().strip() or None)
-        filters = self._filter_bar.apply_to(base_filters)
-        self._current_results = explorer_service.get_games(account.id, filters)
-        total_count = explorer_service.get_total_game_count()
-        installed_game_ids = library_service.get_installed_game_ids()
+    def _start_read(self) -> None:
+        if self._queued_read is None:
+            return
+        generation, account_id, filters = self._queued_read
+        self._queued_read = None
+        worker = ServiceWorker(explorer_service.get_snapshot, account_id, filters)
+        self._read_worker = worker
+        worker.finished_ok.connect(
+            lambda snapshot: self._apply_snapshot(generation, account_id, snapshot)
+        )
+        worker.failed.connect(lambda error: self._read_failed(generation, error))
+        worker.finished.connect(self._read_finished)
+        self.app_context.workers.start(worker)
 
-        self._table_model.set_data(self._current_results, self._console_names, installed_game_ids)
-        self._results_count_label.setText(f"{len(self._current_results)} of {total_count} games")
+    def _apply_snapshot(
+        self, generation: int, account_id: int, snapshot: explorer_service.ExplorerSnapshot
+    ) -> None:
+        account = self.app_context.active_account
+        if generation != self._read_generation or account is None or account.id != account_id:
+            return
+        # A newer keystroke may still be waiting for the debounce timeout.
+        if self._search_debounce_timer.isActive():
+            return
+        self._current_results = snapshot.results
+        self._table_model.set_data(snapshot.results, self._console_names, snapshot.installed_game_ids)
+        self._results_count_label.setText(f"{len(snapshot.results)} of {snapshot.total_count} games")
+
+    def _read_failed(self, generation: int, error: str) -> None:
+        logger.warning("Explorer read failed: %s", error)
+        if generation == self._read_generation:
+            self._results_count_label.setText("Could not refresh games")
+
+    def _read_finished(self) -> None:
+        self._read_worker = None
+        self._start_read()
 
     def _on_list_action(self, game_id: int, list_id: int) -> None:
         account = self.app_context.active_account

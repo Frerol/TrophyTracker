@@ -30,6 +30,7 @@ from retrocheevos.database.repositories.library_repository import LibraryReposit
 from retrocheevos.database.repositories.list_repository import ListRepository
 from retrocheevos.library.console_detection import detect_console
 from retrocheevos.library.hashing import compute_rom_hash
+from retrocheevos.library.rom_traversal import iter_rom_files
 from retrocheevos.library.launcher import launch_emulator
 from retrocheevos.library.rom_title import (
     COVER_MATCH_CUTOFF,
@@ -118,7 +119,7 @@ class InstalledRomNotFoundError(Exception):
 
 
 def _normalize_path_for_comparison(path: str) -> str:
-    """Folder scanning discovers files via `Path.rglob`, which yields
+    """Folder scanning discovers files via streaming traversal, which yields
     OS-native separators; `installed_roms.file_path` may hold whatever
     separator style the manual Scan file dialog produced. Comparing raw
     strings would let already-scanned files slip through as "new" and get
@@ -607,9 +608,9 @@ def scan_rom_folder(
     several consoles, so before this a correctly configured PS1 or PS2 folder
     came back entirely "ambiguous".
 
-    `progress_callback(scanned_count, current_path)` is called before each
-    file is hashed — a folder of disc images takes minutes, so the caller
-    needs something to show. It runs on this thread, so it must not touch
+    `progress_callback(discovered_entries, current_path)` reports directories
+    and files as they are discovered, before detection or hashing. The total
+    is unknown until traversal finishes. It runs on this thread, so it must not touch
     widgets directly (`gui/workers.py` marshals it).
 
     Runs file I/O — call from a background thread, not the UI thread
@@ -647,15 +648,19 @@ def _scan_rom_folder_for_account(
     changed_paths: list[str] = []
     preserved_manual_matches: list[str] = []
     already_known_count = 0
-    scanned = 0
 
     folder_path = Path(rom_folder.path).expanduser().resolve()
     if not folder_path.is_dir():
         raise FileNotFoundError(f"ROM folder is not accessible: {folder_path}")
-    for file_path in sorted(folder_path.rglob("*")):
+    def traversal_failed(path: Path, error: OSError) -> None:
+        logger.warning("Could not traverse %s: %s", path, error)
+        failed_paths.append(str(path))
+
+    for file_path in iter_rom_files(
+        folder_path, SKIPPED_DIR_NAMES, progress_callback, should_cancel,
+        on_error=traversal_failed,
+    ):
         raise_if_cancelled(should_cancel)
-        if not file_path.is_file():
-            continue
         if _is_not_a_rom(file_path.relative_to(folder_path)):
             continue
 
@@ -676,9 +681,6 @@ def _scan_rom_folder_for_account(
             # fingerprint yet). Rehash it — this is the R04 gap a plain rescan
             # left open: the path was known, so it was skipped forever even
             # though the bytes underneath it were different.
-            scanned += 1
-            if progress_callback is not None:
-                progress_callback(scanned, str(file_path))
             try:
                 new_hash = _hash_recorded_rom(file_path, existing.console_id)
             except (OSError, ValueError):
@@ -711,10 +713,6 @@ def _scan_rom_folder_for_account(
             else:
                 unrecognized_paths.append(str(file_path))
             continue
-
-        scanned += 1
-        if progress_callback is not None:
-            progress_callback(scanned, str(file_path))
 
         try:
             rom_hash = _hash_in_place(file_path, detection.console_id, detection.inner_member)

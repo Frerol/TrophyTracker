@@ -37,3 +37,14 @@ class NotificationType(str, Enum):
     BADGE = "badge"
     EVENT = "event"
     FOLLOWED_GAME_UPDATE = "followed_game_update"
+
+
+class MetadataKind(str, Enum):
+    HASHES = "hashes"
+    MEDIAN_TIME = "median_time"
+
+
+class MetadataFetchOutcome(str, Enum):
+    VALUE = "value"
+    EMPTY = "empty"
+    FAILED = "failed"

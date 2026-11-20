@@ -32,13 +32,14 @@ import logging
 from typing import Callable, Optional
 
 from retrocheevos.api.client import REQUEST_MIN_INTERVAL_SECONDS
+from retrocheevos.api.exceptions import AuthenticationError, RateLimitError
 from retrocheevos.api.games import GamesClient
 from retrocheevos.api.profile import ProfileClient
 from retrocheevos.core.activity_feed import build_activity_feed
 from retrocheevos.models.account import Account
-from retrocheevos.models.activity_feed import ActivityEntry
+from retrocheevos.models.activity_feed import ActivityEntry, ActivityFeedResult
 from retrocheevos.services import image_service, session_service
-from retrocheevos.utils.cancellation import raise_if_cancelled
+from retrocheevos.utils.cancellation import OperationCancelled, raise_if_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +52,14 @@ def get_recent_activity_feed(
     account: Account,
     result_callback: Optional[Callable[[ActivityEntry], None]] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
-) -> list[ActivityEntry]:
+) -> ActivityFeedResult:
     """`result_callback`, if given, is called with each `ActivityEntry` as
     soon as it's built — this fetch is 3 real API calls deep per user and
     takes several seconds end to end (DevelopmentRoadmap.md), so letting
     the caller render entries as they arrive (see `gui/workers.py`'s
     `stream_results`) makes it feel far faster than waiting for the whole
-    batch, even though the total time is the same. The returned list is
-    still the complete, correctly-sorted final result either way.
+    batch, even though the total time is the same. The final result includes sorted entries and explicit partial-failure
+    diagnostics. Authentication, rate limiting and cancellation propagate.
     """
     raise_if_cancelled(should_cancel)
     client = session_service.build_api_client(account)
@@ -66,23 +67,41 @@ def get_recent_activity_feed(
     games_client = GamesClient(client)
 
     usernames = [account.username]
-    for followed in profile_client.get_users_i_follow(FOLLOWED_USERS_LIMIT):
-        usernames.append(followed.username)
+    following_unavailable = False
+    try:
+        usernames.extend(user.username for user in profile_client.get_users_i_follow(FOLLOWED_USERS_LIMIT))
+    except (AuthenticationError, RateLimitError, OperationCancelled):
+        raise
+    except Exception:
+        logger.warning("Could not fetch followed users", exc_info=True)
+        following_unavailable = True
 
     entries = []
+    failed_usernames = []
+    seen = set()
     for username in usernames:
         raise_if_cancelled(should_cancel)
-        entry = _build_entry(
-            profile_client,
-            games_client,
-            username,
-            is_self=(username == account.username),
-            should_cancel=should_cancel,
-        )
+        if username.casefold() in seen:
+            continue
+        seen.add(username.casefold())
+        try:
+            entry = _build_entry(
+                profile_client, games_client, username,
+                is_self=(username.casefold() == account.username.casefold()),
+                should_cancel=should_cancel,
+            )
+        except (AuthenticationError, RateLimitError, OperationCancelled):
+            raise
+        except Exception:
+            logger.warning("Could not fetch activity for %s", username, exc_info=True)
+            failed_usernames.append(username)
+            continue
+        if entry.progress_unavailable:
+            failed_usernames.append(username)
         entries.append(entry)
         if result_callback is not None:
             result_callback(entry)
-    return build_activity_feed(entries)
+    return ActivityFeedResult(build_activity_feed(entries), failed_usernames, following_unavailable)
 
 
 def _build_entry(
@@ -114,7 +133,7 @@ def _build_entry(
     game_icon_path = image_service.ensure_activity_icon_cached(
         summary.last_game_id, summary.last_game_icon_path
     )
-    unlocked, total, playtime_seconds = _get_game_progress(
+    unlocked, total, playtime_seconds, progress_unavailable = _get_game_progress(
         games_client, username, summary.last_game_id, should_cancel=should_cancel
     )
 
@@ -130,6 +149,7 @@ def _build_entry(
         achievements_unlocked=unlocked,
         achievements_total=total,
         playtime_seconds=playtime_seconds,
+        progress_unavailable=progress_unavailable,
     )
 
 
@@ -138,13 +158,15 @@ def _get_game_progress(
     username: str,
     game_id: int,
     should_cancel: Optional[Callable[[], bool]] = None,
-) -> tuple[Optional[int], Optional[int], Optional[int]]:
+) -> tuple[Optional[int], Optional[int], Optional[int], bool]:
     raise_if_cancelled(should_cancel)
     try:
         progress = games_client.get_user_game_progress(username, game_id)
+    except (AuthenticationError, RateLimitError, OperationCancelled):
+        raise
     except Exception:
         logger.warning(
             "Could not fetch game progress for %s in game %d", username, game_id
         )
-        return None, None, None
-    return progress.achievements_unlocked, progress.achievements_total, progress.playtime_seconds
+        return None, None, None, True
+    return progress.achievements_unlocked, progress.achievements_total, progress.playtime_seconds, False

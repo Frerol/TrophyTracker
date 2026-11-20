@@ -112,7 +112,10 @@ was used, and no application behavior was changed.
 
 ### P2 — performance and resilience
 
-- [ ] **R05 — Restore indexed ROM hash lookup.**
+R05–R10 implementation evidence and reproducible measurements are recorded in
+[PerformanceValidation.md](../validation/PerformanceValidation.md).
+
+- [x] **R05 — Restore indexed ROM hash lookup.**
   `database/repositories/game_repository.py::find_game_id_by_hash` always
   uses `LOWER(hash) = LOWER(?)`. The v23 normalization migration does not
   make this expression use the ordinary `idx_game_hashes_hash` index,
@@ -124,7 +127,7 @@ was used, and no application behavior was changed.
   **Done when:** mixed-case compatibility tests pass, the normal query uses
   an index, and a representative bulk-match benchmark records the effect.
 
-- [ ] **R06 — Reduce synchronous Explorer refresh work.**
+- [x] **R06 — Reduce synchronous Explorer refresh work.**
   `gui/pages/explorer_page.py::set_search_text` immediately runs
   `_refresh_results` on Home search changes. That path queries and converts
   all matching games, filters them in Python in `core/explorer.py`, reads
@@ -136,7 +139,7 @@ was used, and no application behavior was changed.
   against a representative catalog, reduce redundant refreshes, and retain
   blocked/completed/list/installed filter semantics and sorting behavior.
 
-- [ ] **R07 — Make artwork caching atomic, retryable and bounded.**
+- [x] **R07 — Make artwork caching atomic, retryable and bounded.**
   `library/game_images.py::download_image` writes directly to the final
   shared cache path; `gui/image_loader.py` deduplicates only within one
   loader. Concurrent page instances can request/write the same cover.
@@ -150,7 +153,7 @@ was used, and no application behavior was changed.
   downloads leave no partial final file, exceptions release pending entries,
   offline-to-online retries recover covers, and long browsing stays bounded.
 
-- [ ] **R08 — Isolate activity failures and avoid repeated full rebuilds.**
+- [x] **R08 — Isolate activity failures and avoid repeated full rebuilds.**
   `services/activity_feed_service.py::get_recent_activity_feed` aborts the
   entire user loop if a summary fetch fails; only the progress subrequest
   has per-user recovery. Each streamed result also rebuilds every activity
@@ -162,7 +165,7 @@ was used, and no application behavior was changed.
   partial failure is distinguishable from complete success, and initial
   streaming avoids repeated teardown of unchanged cards.
 
-- [ ] **R09 — Stream folder traversal and expose progress sooner.**
+- [x] **R09 — Stream folder traversal and expose progress sooner.**
   `services/library_service.py::scan_rom_folder` uses
   `sorted(folder_path.rglob("*"))`, materializing the whole directory tree
   before scanning the first file. It also traverses directories later
@@ -172,7 +175,7 @@ was used, and no application behavior was changed.
   folders begin reporting work before enumeration ends, use bounded
   traversal memory, and retain current supported-format discovery.
 
-- [ ] **R10 — Remember completed empty metadata fetches.**
+- [x] **R10 — Remember completed empty metadata fetches.**
   `GameRepository.list_ids_missing_hashes` explicitly treats a successful
   empty hash response as never fetched; `list_ids_missing_median_time`
   similarly selects every NULL median. Repeated backfills can spend API
@@ -218,198 +221,266 @@ additional P1 work and precede P2 despite their later review IDs.
 
 ## Desktop interface revamp — proposed R16–R27
 
-**Status:** proposals only; no UI implementation is implied by this section.
-These items cover the entire desktop experience, including secondary pages,
-menus and dialogs. Android retains its separate roadmap. The technical backlog
-above keeps priority; visual work must preserve R01–R04 and R13–R15 and address
-R06/R07/R08 before increasing catalog, artwork or activity rendering work.
+**Status:** planned; no UI implementation is implied by this section.
+The primary design reference is the checked-in
+[RetroAchievements Tracker — Proposta de UI.html](../design/ui-proposal.html),
+reviewed on 2026-11-20. It contains four 1240×780 boards: **Painel** (Dashboard),
+**Biblioteca** (Library), **Detalhe do jogo** (Game detail) and **Marca** (Brand).
+Their layouts and visual language supersede the earlier exploratory revamp
+proposal. The reference uses Portuguese labels and synthetic values; it is a
+visual specification, not a working integration or a localization commitment.
+
+The revamp covers the desktop application, including existing actions absent
+from the mockups. Android retains its separate roadmap. Preserve the account,
+credential, launch and matching safeguards from R01–R04/R13–R15 and the completed
+R05–R10 performance/resilience work. Compare new rendering against the recorded
+[performance validation](../validation/PerformanceValidation.md). Keep PySide6 Widgets and
+model/view; the HTML/React preview does not imply a framework migration.
 
 ### Visual direction and scope
 
-Aim for a modern achievement companion with the familiarity of RetroAchievements:
-clear game identity, prominent achievement badges and progress, compact catalog
-browsing, and a readable social feed. Reference the public
-[RetroAchievements home](https://retroachievements.org/) and
-[game catalog](https://retroachievements.org/gameList.php) during design;
-record dated screenshots of the relevant pages in R16. Public references do not
-establish the appearance of authenticated pages. No login is needed for planning.
+Adopt the proposal's dark purple surfaces, gold achievement/progress accents,
+turquoise secondary highlights, rounded panels and restrained typography.
+Preserve the **TrophyTracker** name. The board's light outer document background
+is presentation chrome, not the application's theme.
 
-Proposed direction to explore: graphite/charcoal surfaces, restrained amber/gold
-accents for achievement milestones, a distinct primary-action color, larger
-covers where they aid recognition, quieter borders, and stronger typography and
-spacing hierarchy. Treat this as a candidate palette to compare against the
-current ink/mint theme in `gui/styles.py`, rather than a claim about exact site
-colors. Preserve TrophyTracker's name and identity. Use existing/licensed artwork
-and a consistent icon set; do not depend on emoji for navigation or status.
+| Role | Reference value |
+| --- | --- |
+| Application background | `#14121C` |
+| Sidebar background | `#0F0D16` |
+| Panel surface | `#1E1B2B` |
+| Selected navigation / secondary controls | `#2A2540` |
+| Progress track | `#2E2A44` |
+| Muted badge / outline example | `#3A3555` |
+| Primary text | `#ECE9F5` |
+| Secondary text | `#A9A4BD` |
+| Gold: achievements, progress and primary actions | `#F5B83D` |
+| Turquoise: secondary highlights | `#3DD6C3` |
 
-A complete revamp includes Home, embedded Explorer, Library, Lists, Settings,
-account menus, ROM matching/emulator dialogs and update feedback. It does not
-promise new leaderboards, event calendars, chat, recommendations or website-only
-features without their own data/feasibility work. Use existing services and
-cached data first; represent unavailable information honestly. Keep PySide6
-Widgets/model-view as the baseline; a framework rewrite is outside this scope.
+Use **Inter** for interface text and **Space Grotesk** for headings, prominent
+numbers and branding. The reference uses 28 px page headings, 16 px section
+headings, 32 px metrics, 14 px body/control text and 13 px secondary text;
+12 px panel radii, 8 px control/cover radii and pill-shaped filters. Standard
+buttons are 44 px high, compact Play buttons 40 px and filter chips 36 px.
+Treat these as design baselines to scale and validate, not fixed pixel limits.
+The 220 px sidebar, 28×32 px main padding and 16 px card gaps establish the
+reference proportions. Colored initial-letter covers are mockup placeholders;
+use real cached artwork with deliberate fallbacks in production.
+
+The reference sidebar contains **Painel, Biblioteca, Conquistas, Sistemas,
+Configurações**, with account/avatar controls anchored at the bottom. The
+Library board specifies a cover-card grid, not the current Explorer table.
+Game detail includes achievement rows, locked/unlocked filters and rarity
+sorting. These are target features: R16 must map their data requirements and
+R18/R21/R22 must deliver functional destinations. Lists, Explorer, manual
+matching, Now Playing, event badges and recovery flows remain reachable even
+though the four boards do not draw every existing feature.
 
 ### Foundation
 
-- [ ] **R16 — Audit the current experience and define the target layouts.**
-  Inventory current screens, shared widgets, inline styles, duplicated controls
-  and navigation flows in `gui/main_window.py`, `gui/pages/` and `widgets/`.
-  Capture baseline screenshots and representative tasks: sign in, search,
-  filter, launch, assign a ROM, manage a list and switch accounts. Produce
-  annotated desktop layouts for every destination and a before/after comparison
-  for Home and Explorer, including empty/offline examples. Document what is
-  reused versus replaced and reconcile the proposed navigation with `UI.md`.
-  **Done when:** one design specification maps every current action to its new
-  location, contains a candidate palette/type scale and small-window variants,
-  and identifies API/data gaps separately from visual changes.
+- [ ] **R16 — Reconcile the four reference boards with application flows/data.**
+  Inventory the current screens/actions and annotate the local HTML boards,
+  mapping each proposed element to existing widgets, services and stored fields.
+  Record the changes from the current Home/Explorer/Library structure, including
+  the Library grid versus Explorer's suggestion table and the new Conquistas/
+  Sistemas destinations. Specify where Lists, global/Home search, Now Playing,
+  badges, account switching and management dialogs remain accessible; the
+  reference's Library search is local, so a global search is not assumed.
+  Distinguish catalog eligibility from local-ROM visibility: Library's
+  Mastered/No achievements filters must not inherit Explorer's unconditional
+  completed/no-achievement exclusions. Identify missing support for ranking,
+  achievement totals/rarity/unlock states, release year, near-mastery counts,
+  system counts and the unlock/mastery activity shown in the mockup. Specify
+  data sources, freshness, failure states and any required API/schema work;
+  sample names, numbers, paths and emulator choices must never become defaults.
+  **Done when:** an annotated mapping covers all four boards and every current
+  action, resolves navigation/search semantics, defines metric denominators and
+  achievement modes, and supplies small-window/state variants plus explicit
+  implementation dependencies for fields not currently available.
 
-- [ ] **R17 — Build a shared visual system and reusable primitives.**
-  Expand `gui/styles.py` into semantic tokens for surfaces, text, accents,
-  borders, spacing, typography, radii, icon sizes and progress states. Standardize
-  page/section headers, buttons, search fields, filter chips, status labels,
-  panels, menus and dialogs. Migrate inline styles as each screen is converted;
-  include hover, pressed, selected, disabled, focus and error states. Use bundled
-  or dependable system fonts with a defined fallback and license any new assets.
-  **Done when:** a component preview demonstrates all states and the same
-  controls look consistent on Windows/Linux, without adding page-specific color
-  literals or replacing meaningful labels with icons alone.
+- [ ] **R17 — Implement the proposed visual system and develop the brand.**
+  Translate the palette, Inter/Space Grotesk type scale, spacing and proportions
+  above into semantic tokens in `gui/styles.py`. Standardize sidebar items,
+  metric cards, game cards, achievement rows, progress bars, search, chips,
+  primary/secondary buttons, menus and dialogs, including interactive states.
+  Bundle licensed fonts with fallbacks so packaging works offline. The Marca
+  board offers A (pixel trophy), B (trophy with D-pad) and C (cartridge with
+  pixel trophy); the user's expressed preference is **A and C**, with no final
+  icon selection yet. Prioritize comparisons of those two. Evaluate A as the
+  compact application/taskbar icon and C as a larger illustrative variant,
+  sharing the same trophy geometry; this is a recommendation to validate, not
+  a selected asset. Retain the proposed italic Space Grotesk Bold wordmark,
+  trophy, turquoise progress underline and gold achievement star in the brand
+  exploration. B remains a documented alternative, not the leading direction.
+  **Done when:** a component preview covers all states; A/C are compared at
+  16/24/32 px and larger sizes on Windows/Linux; the selected icon/variant rules,
+  wordmark, licenses and packaging assets are documented without silently
+  choosing a concept or using emoji in place of consistent icons.
 
-- [ ] **R18 — Unify the application shell, navigation and search.**
-  Consolidate the brand header, account controls and page navigation in
-  `gui/main_window.py` and `home_page.py`. Prototype a persistent compact sidebar
-  with a collapsible narrow-window variant and one global search entry. Preserve
-  Home's embedded Explorer as the default search/results flow unless R16
-  explicitly documents a replacement; do not introduce a second independent
-  search/filter state. Show account identity and sync state consistently, with
-  direct access to Library, Lists and Settings. Avoid placeholder destinations.
-  **Done when:** navigation, back-to-Home, logout and account switching remain
-  synchronized; returning from a game or another page restores filters,
-  selection and scroll, and the shell fits at 1024×720 without clipped actions.
+- [ ] **R18 — Build the sidebar shell and reconcile navigation/search.**
+  Implement the reference sidebar with TrophyTracker branding, the five named
+  destinations, selected-item treatment and bottom account/avatar area. Map
+  Painel to the redesigned Home, Biblioteca to local-game browsing, Conquistas
+  to achievement browsing in R21, Sistemas to console/library management in
+  R22 and Configurações to R24. Preserve direct access to existing Lists and
+  Explorer through the secondary routes specified in R16. Retain account
+  switching, logout and sync visibility. Support a compact sidebar at narrower
+  widths and contextual Library search without duplicating a single flow's
+  filter state. No visible navigation item may be a nonfunctional placeholder.
+  **Done when:** every destination has working navigation and useful empty
+  states; back navigation restores search, filters, selection and scroll;
+  account controls remain synchronized; and the shell adapts from the reference
+  1240×780 canvas to 1024×720 without clipping actions.
 
 ### Main screens
 
-- [ ] **R19 — Redesign Home around play, progress and activity.**
-  Give Now Playing a clear primary position when a session is active; otherwise
-  prioritize Continue Playing and a useful first action. Design a compact player
-  summary with avatar, points and distinctly labeled Beaten/Mastered/Completion
-  values, a coherent badge gallery and a readable activity column. Use covers
-  and typographic hierarchy instead of a stack of equally prominent group boxes.
-  Reflow secondary content below the main column in smaller windows; cap artwork
-  loading to visible content. Reuse `now_playing_panel.py`,
-  `continue_playing_game_row.py` and `activity_entry_card.py` where practical.
-  **Done when:** no-account, no-history, active-session, partial-activity-error
-  and offline states all have intentional layouts; late account-bound results
-  cannot repopulate another account's screen, and refresh preserves good data.
+- [ ] **R19 — Rebuild the Dashboard from the Painel board.**
+  Use a page heading with last-sync freshness and a Sync now action, followed
+  by four metric cards: Points/ranking, Achievements/available total, Mastered
+  games/near-mastery count and Played games/system count. Define the scope of
+  every denominator and the near-mastery rule through R16; show unknown or
+  unavailable states when a source is missing. Below, reproduce the roughly
+  2:1 Continue Playing/recent activity split: compact cover, game/console,
+  achievement count, gold progress bar and explicit Play button on the left;
+  compact unlock/mastery entries with game and points on the right. Scope the
+  service/data work for that event feed separately from the current live
+  followed-user presence feed; preserve access to useful social activity
+  rather than presenting presence as an achievement event. Integrate active
+  Now Playing and the existing badge gallery into the same hierarchy.
+  **Done when:** the four metrics and both content sections use real data or
+  honest unavailable states; no-account, no-history, active-session, offline
+  and partial-feed examples work; smaller windows reflow the columns; and R08
+  card reuse, backoff and last-good/account-isolation behavior are preserved.
 
-- [ ] **R20 — Modernize Explorer while retaining fast catalog browsing.**
-  Refresh `explorer_filter_bar.py`, `explorer_table_model.py` and
-  `explorer_delegates.py`: a clear search/results header, legible active-filter
-  chips, reset action, result count, consistent cover sizing, aligned metadata
-  and obvious Play/list actions. Retain a compact sortable table as the default.
-  A richer cover view is optional only after R06/R07 measurements demonstrate
-  acceptable responsiveness and bounded memory; implement it using model/view
-  virtualization rather than one widget per game. Preserve existing filtering,
-  blocked/completed behavior, manual matching and sort semantics.
-  **Done when:** typing and filtering retain the measured R06 responsiveness,
-  keyboard selection survives refresh, all actions are discoverable without
-  hover alone, and fullscreen/resize do not reintroduce the `setIndexWidget()`
-  native-crash path. No catalog-wide eager artwork fetch is introduced.
+- [ ] **R20 — Adapt Explorer to the visual system and Library handoff.**
+  Restyle Explorer's table, filter chips, result count, reset action, metadata
+  and Play/list controls to match the new system while retaining its efficient
+  catalog/suggestion role. The proposal's cover grid belongs to Library (R22);
+  do not treat Explorer's current table as the target layout for that board.
+  Follow R16's mapping for the existing Home search/embedded Explorer and
+  provide consistent entry into game detail. Preserve blocked/completed rules,
+  numeric sorting, keyboard selection and return-state restoration.
+  **Done when:** all current catalog actions remain discoverable; the R06
+  worker/debounce/sorting behavior and R07 artwork budget remain intact;
+  search/catalog scope is clearly distinct from installed Library browsing;
+  and resizing/fullscreen avoids the `setIndexWidget()` native-crash path.
 
-- [ ] **R21 — Add a coherent game-detail presentation.**
-  Design a focused detail panel or page reached consistently from Home,
-  Explorer, Library and Lists. Show cover, title, console, available progress,
-  local-ROM status and the relevant Play, match, list and open-on-RA actions.
-  Start with existing cached fields; expose achievement-level content only
-  where existing services support it, with a separately scoped fetch if needed.
-  Distinguish unknown duration/progress from zero. Keep a clear return path;
-  do not change which catalog games are eligible merely to populate the panel.
-  **Done when:** matched, unmatched, uninstalled and offline examples work;
-  missing artwork has a stable fallback, launching uses the existing guarded
-  flow, and returning restores the originating view rather than resetting it.
+- [ ] **R21 — Deliver the proposed game detail and achievement browsing.**
+  Implement the Detalhe do jogo board: a roughly 300 px summary column with
+  return-to-Library affordance, large cover, game/system/year, unlocked/total
+  achievements, earned/available points, progress, Play, configured emulator
+  and local-ROM path. On the right, provide All/Unlocked/Missing count chips,
+  rarity sorting and achievement rows with badge, title, description, points
+  and percentage of players. Distinguish locked/unlocked states with labels
+  as well as gold/muted treatments. Add the functional Conquistas destination
+  using the same components and account-specific achievement data; its overall
+  layout/scope is an R16 extension because the HTML only draws per-game detail.
+  Implement the explicit data dependencies from R16 before enabling rarity,
+  release year or unlock-state controls; missing data must stay distinguishable
+  from zero. Reuse guarded Play/match/list/open-on-RA actions and consistent
+  detail entry points from Dashboard, Explorer, Library and Lists.
+  **Done when:** filters/counts and rarity ordering use verified data; matched,
+  unmatched, uninstalled, achievement-free and offline games have usable states;
+  image loading remains bounded; and returning restores the originating view.
 
-- [ ] **R22 — Rework Library and ROM-management interactions.**
-  Unify console selection, installed-game presentation, unmatched-ROM handling,
-  cover customization and scan controls in `library_page.py` and its widgets.
-  Use coherent cover proportions and an explicit matched/unmatched/missing-file
-  status with contextual actions. Separate routine play from file-management
-  actions. Redesign `match_rom_dialog.py` and `find_emulator_dialog.py` using the
-  shared components, with helpful explanations when no candidate/config exists.
-  **Done when:** scanning shows progress/cancellation without freezing the page,
-  manual matches and account isolation are preserved, and empty folders, missing
-  emulators, ambiguous matches and failed launches each offer a useful next step.
+- [ ] **R22 — Implement the Library grid and Systems management.**
+  Follow the Biblioteca board: heading with indexed-game count/folder context,
+  Reindex folder action, game-name search, All/In progress/Mastered/No
+  achievements chips and System filter. Build the reference four-column cover
+  grid at 1240×780, with adaptive columns, game title, console, unlocked/total
+  count, gold progress and an explicit full-width Play action on each card.
+  Use model/view virtualization and visible-item artwork requests; preserve
+  R07's bounded cache rather than allocating widgets for the entire catalog.
+  Library includes playable local ROMs with no RA achievement set and mastered
+  games; keep those cases distinct from an unmatched or unknown-progress ROM.
+  Provide the Sistemas destination for console-level library/folder/emulator
+  management, with its layout defined in R16 because no separate Systems board
+  exists. Integrate unmatched/missing-file status, manual matching, cover
+  customization and the existing emulator/matching dialogs into these flows.
+  **Done when:** search and all five reference filters work with account-scoped
+  data; reindexing retains R09 discovery progress/cancellation; Play retains
+  existing recovery behavior; and empty libraries, unsupported achievements,
+  missing emulators, ambiguous matches and failed scans offer useful next steps.
 
-- [ ] **R23 — Give Lists a consistent collection experience.**
-  Redesign `lists_page.py` and `list_entry_row.py` with clear list selection,
-  item counts, covers, console labels and available progress. Make switching,
-  renaming, removing an entry and deleting an entire list visually distinct;
-  keep destructive actions explicit. Reuse the same game actions/detail entry
-  points as Explorer and Library. Only add sorting/filter controls supported by
-  existing data, retaining selection and scroll during updates.
-  **Done when:** predefined/custom/empty lists all have usable layouts, existing
-  memberships and blocked-game rules remain intact, and deleting a list cannot
-  be confused with deleting a ROM or removing an account.
+- [ ] **R23 — Extend the collection language to Lists.**
+  Lists have no standalone reference board; extend Library's cover, console,
+  progress and shared game-action components to `lists_page.py`, with an R16
+  layout defining their secondary navigation entry. Keep list selection and
+  counts clear, and distinguish renaming, removing a membership and deleting
+  a list. Reuse the game-detail destination and support predefined/custom/empty
+  collections. Add sorting/filter controls only where real data supports them.
+  **Done when:** existing memberships and blocked-game rules are preserved,
+  selection/scroll survive updates, and deleting a list is not confused with
+  deleting a ROM or removing an account.
 
-- [ ] **R24 — Organize Settings, onboarding and account management.**
-  Replace a long undifferentiated settings surface with clear groups or
-  subnavigation for Accounts, Library/Folders, Emulators, Appearance and About/
-  Updates as supported by the application. Give first-run setup a short guided
-  path: add RA credentials, choose a folder, configure an emulator; keep optional
-  steps skippable and settings reachable afterward. Use readable form labels,
-  inline validation and explicit save/outcome feedback; mask API keys. Bring
-  menus, confirmations and `update_banner.py` into the shared visual system.
-  **Done when:** a first-time user can reach a playable matched game without
-  guessing where configuration lives, multiple accounts remain distinguishable,
-  and credential/backend failures retain the existing recovery behavior.
+- [ ] **R24 — Extend the proposal to Settings, onboarding and account controls.**
+  Provide Configurações with coherent groups for Accounts, Library/Folders,
+  Emulators, Appearance and About/Updates as supported by the app. Extend the
+  proposed surfaces/type/control system to settings, menus, dialogs and
+  `update_banner.py`; their detailed layouts are not supplied by the HTML.
+  Keep first-run setup short and skippable: add RA credentials, choose a folder
+  and configure an emulator. Use the sidebar account area as the consistent
+  entry to account management, with readable labels, inline validation, masked
+  API keys and explicit save/outcome feedback. Carry the selected R17 brand
+  assets into About and packaged application identity.
+  **Done when:** first-run users can reach a playable game, all existing
+  configuration remains reachable, accounts remain distinguishable, fonts/assets
+  work offline and credential/backend failures retain existing recovery.
 
 ### Cross-cutting quality and delivery
 
-- [ ] **R25 — Standardize feedback, loading and recovery states.**
-  Define shared presentations for initial loading, refreshing cached content,
-  empty results, no account, offline, partial success, retryable error and
-  destructive confirmations. Use stable placeholders rather than layout jumps,
-  show freshness where useful, and reserve blocking dialogs for decisions that
-  need them. Consolidate background job progress so it stays understandable
-  across page changes. Preserve cancellation and shared API pacing.
-  **Done when:** every redesigned page has documented state examples; retries
-  respect backoff, errors preserve useful cached content, and a started emulator
-  with failed recency persistence is never reported as a failed launch.
+- [ ] **R25 — Define states and feedback beyond the static boards.**
+  Complete the reference layouts with initial loading, cached refresh, empty,
+  no-account, offline, partial-success, retryable-error and destructive-action
+  states. Show sync freshness in the Dashboard header and clear scan/job
+  progress across navigation. Distinguish no achievements, locked achievements,
+  missing metadata and zero progress. Use stable placeholders rather than layout
+  jumps and reserve blocking dialogs for decisions that need them. Preserve
+  cancellation, shared API pacing and R10 empty-fetch/expiry behavior.
+  **Done when:** every destination has state examples; retries respect backoff,
+  failures preserve useful cached content, and an emulator that started with
+  failed recency persistence is never reported as a failed launch.
 
-- [ ] **R26 — Validate accessibility, scaling and interaction polish.**
+- [ ] **R26 — Validate the proposed palette, scaling and interactions.**
   Audit keyboard order, shortcuts, visible focus, accessible names, text contrast
-  and status labels across the shell, tables, menus and dialogs. Target at least
-  4.5:1 contrast for normal text and 3:1 for large text and meaningful UI
-  boundaries; do not encode completion, selection or errors by color alone.
-  Check 100/125/150/200% scaling, long game titles, missing fonts and layouts
-  from 1024×720 through 1920×1080. Keep optional motion short and disableable;
-  avoid expensive shadows/animations in lists. Compact/comfortable density is
-  optional only if both modes can be maintained consistently.
-  **Done when:** search → select → details → launch and account/settings flows
-  work entirely by keyboard; enlarged text does not hide actions, icons remain
-  legible, and animation does not block input or trigger extra network work.
+  and status labels across the new sidebar, cards, achievement rows, tables,
+  menus and dialogs. Validate the reference colors against at least 4.5:1 for
+  normal text and 3:1 for large text/meaningful boundaries; document necessary
+  token adjustments instead of assuming the mockup already passes. Locked,
+  mastered, selected and error states must not rely on color alone. Check
+  100/125/150/200% scaling, long titles, missing fonts and layouts from 1024×720
+  through 1920×1080, using 1240×780 for reference comparisons. Keep optional
+  motion short/disableable and avoid costly shadows/animations in large grids.
+  **Done when:** search → select → detail → Play and account/settings flows
+  work by keyboard; scaled text leaves actions visible; A/C icon comparisons
+  remain legible at small sizes; and animation creates no extra network work.
 
-- [ ] **R27 — Deliver the revamp incrementally with visual regression checks.**
-  Convert one complete flow at a time using the shared components; keep account,
-  list and ROM data compatible, without a destructive reset. Add deterministic
-  screenshot fixtures with synthetic data and focused interaction tests for
-  navigation, selection and loading/error states. Repeat fullscreen, resize,
-  active-worker close and account-switch scenarios; measure refresh latency,
-  artwork memory and activity rendering against the technical-backlog baselines.
-  Review Windows packaging and Linux AppImage with the bundled fonts/icons and
-  no developer cache. Reconcile `UI.md`, `Branding.md` and README screenshots
-  after the final layouts land; remove superseded styles/widgets.
-  **Done when:** all destinations and dialogs use the new system, both packaged
-  platforms pass startup/navigation smoke checks, and the measured revamp has
-  no unexplained performance or worker-lifetime regression.
+- [ ] **R27 — Deliver and verify the reference-driven revamp incrementally.**
+  Convert complete flows using the shared components and preserve account,
+  list and ROM data without a destructive reset. Add deterministic screenshots
+  with synthetic fixtures comparing Dashboard, Library, Game detail and the
+  selected brand treatment against the four HTML boards. Document intended
+  differences caused by real data, accessibility and responsive layouts, plus
+  the extensions for Conquistas, Sistemas, Lists, Settings and secondary dialogs.
+  Repeat fullscreen, resize, active-worker close and account-switch scenarios;
+  measure catalog/grid latency, artwork memory and activity rendering against
+  R05–R10 baselines. Smoke-test Windows packaging and Linux AppImage with bundled
+  fonts/icons and no developer cache. Reconcile `UI.md`, `Branding.md` and README
+  screenshots after layouts land; remove superseded styles/widgets.
+  **Done when:** all destinations/actions work in the new system; the four-board
+  comparison and documented extensions pass review; both packaged platforms
+  start/navigate correctly; and performance/lifetime differences are explained.
 
 ### Suggested implementation order
 
-1. R16 defines layouts and navigation; R17 establishes shared components.
-2. R18 establishes the shell; R19 and R20 convert the main browsing/play flow,
-   coordinated with R06/R07/R08; R21 unifies its game-detail destination.
-3. R22–R24 convert Library, Lists, Settings, onboarding and secondary dialogs.
-4. Apply R25/R26 to each converted flow, rather than postponing state handling
-   and accessibility until the end. R27 consolidates regression/release checks
-   and documentation throughout delivery, with a final full-interface review.
+1. R16 maps the four boards, retained flows and missing data. R17 establishes
+   tokens, components and A/C brand comparisons before committing icon assets.
+2. R18 builds the shell; R19 delivers the Dashboard and R22 the Library grid/
+   Systems flow. Coordinate R20's Explorer/search handoff with those screens.
+3. R21 completes Game detail/Conquistas with its verified data dependencies;
+   R23/R24 extend the design to Lists, Settings, onboarding and dialogs.
+4. Apply R25/R26 to each converted flow. R27 maintains screenshot/performance
+   evidence throughout and finishes with the complete desktop/package review.
 
 ## Current Status
 
@@ -683,7 +754,7 @@ before emulator process creation. Recency persistence/rollback failures after
 creation preserve the running session and return the started process.
 
 Recovery/retention and portable-export procedures are documented in
-[Database.md](Database.md#9-upgrade-recovery-backups-and-portable-exports).
+[Database.md](../Database.md#9-upgrade-recovery-backups-and-portable-exports).
 Regression coverage lives in `tests/database/test_recovery.py`,
 `tests/services/test_account_recovery.py` and `tests/services/test_launch_recovery.py`.
 Validation: 197 non-GUI tests passed, including 23 new recovery tests. The eight

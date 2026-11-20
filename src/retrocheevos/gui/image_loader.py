@@ -62,18 +62,16 @@ class _ImageLoadTask(QRunnable):
         try:
             path = ensure_game_image_cached(self._game)
             if path is not None:
-                # QImage, not QPixmap: this runs on a QThreadPool worker
-                # thread, and QPixmap wraps a native platform paint surface
-                # that Qt only allows the GUI thread to touch — constructing
-                # one here is a real (if intermittent) crash risk. QImage has
-                # no such restriction; `_on_finished` converts it to a QPixmap
-                # back on the GUI thread once it arrives via the queued signal.
                 candidate = QImage(str(path))
                 if not candidate.isNull():
                     image = candidate
         except Exception:  # noqa: BLE001 — a failed cover must not kill the pool thread
             logger.exception("Could not load artwork for game %s", self._game.id)
-        self._signals.finished.emit(self._game.id, self._epoch, image)
+        finally:
+            try:
+                self._signals.finished.emit(self._game.id, self._epoch, image)
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not emit artwork result for game %s", self._game.id)
 
 
 class _RomImageLoadTask(QRunnable):
@@ -100,7 +98,11 @@ class _RomImageLoadTask(QRunnable):
                     image = candidate
         except Exception:  # noqa: BLE001 — a failed cover must not kill the pool thread
             logger.exception("Could not load artwork for ROM %s", self._rom.id)
-        self._signals.finished.emit(self._rom.id, self._epoch, image)
+        finally:
+            try:
+                self._signals.finished.emit(self._rom.id, self._epoch, image)
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not emit artwork result for ROM %s", self._rom.id)
 
 
 class ImageLoader(QObject):

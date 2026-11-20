@@ -1,11 +1,12 @@
 """Data access for `games` and `game_hashes` (Database.md 2.3, 2.4)."""
 
 import sqlite3
+from datetime import datetime, timedelta
 from typing import Optional
 
 from retrocheevos.database.serialization import datetime_from_sql, datetime_to_sql
 from retrocheevos.models.game import Game
-from retrocheevos.utils.enums import GameType
+from retrocheevos.utils.enums import GameType, MetadataKind, MetadataFetchOutcome
 
 # RetroAchievements models community events as "games" on their own console,
 # and ships achievement subsets ("Sonic [Subset - Bonus]") as separate
@@ -15,6 +16,8 @@ from retrocheevos.utils.enums import GameType
 # title that is already listed. Excluding all three brings the catalog count
 # to ~11.3k, matching what retroachievements.org itself reports; counting
 # them inflated it to ~12k.
+EMPTY_METADATA_TTL = timedelta(days=30)
+
 EVENTS_CONSOLE_ID = 101
 STANDALONE_CONSOLE_ID = 102
 _BROWSABLE_GAME_CLAUSES = [
@@ -91,75 +94,65 @@ class GameRepository:
             (seconds, sample_size, game_id),
         )
 
-    def list_ids_missing_median_time(self) -> list[int]:
-        """Browsable games still needing a median-time fetch, most useful
-        first — lets the backfill resume where it left off instead of
-        re-requesting everything after an interruption.
+    def record_metadata_fetch(
+        self,
+        game_id: int,
+        kind: MetadataKind,
+        outcome: MetadataFetchOutcome,
+        checked_at: Optional[datetime] = None,
+    ) -> None:
+        """Record the outcome in the same transaction that persists its value."""
+        self._connection.execute(
+            "INSERT INTO game_metadata_fetches(game_id, metadata_kind, outcome, checked_at) "
+            "VALUES(?, ?, ?, ?) ON CONFLICT(game_id, metadata_kind) DO UPDATE SET "
+            "outcome = excluded.outcome, checked_at = excluded.checked_at",
+            (game_id, kind.value, outcome.value, datetime_to_sql(checked_at or datetime.now())),
+        )
 
-        Ordered by relevance rather than by id, because the fetch is one API
-        request per game and the pacing plus the round trip works out at
-        ~0.5s each (measured — see `sync_service.sync_all_game_hashes`), so a
-        full catalog is ~1h40 no matter what. This ordering is what makes
-        that bearable: the prefix covering consoles the user owns ROMs for
-        was ~5k games, about 45 minutes, after which the run can be stopped
-        with nothing relevant left undone. Without it the useful answers
-        would arrive only when the whole run finished:
-          1. games with a ROM installed
-          2. games on a console you have ROMs for
-          3. everything else
+    def list_ids_missing_median_time(
+        self, force_refresh: bool = False, now: Optional[datetime] = None
+    ) -> list[int]:
+        """Prioritize installed games; successful empty responses expire in 30 days."""
+        return self._list_ids_for_metadata(
+            MetadataKind.MEDIAN_TIME, "median_time_to_beat_hardcore_seconds IS NULL",
+            force_refresh, now,
+        )
 
-        Scoped to the browsable catalog so the backfill doesn't spend
-        requests on events/subsets the Explorer never shows anyway.
-        """
+    def list_ids_missing_hashes(
+        self, force_refresh: bool = False, now: Optional[datetime] = None
+    ) -> list[int]:
+        """Skip fresh empty responses, retry failures and preserve installed priority."""
+        return self._list_ids_for_metadata(
+            MetadataKind.HASHES, "id NOT IN (SELECT DISTINCT game_id FROM game_hashes)",
+            force_refresh, now,
+        )
+
+    def _list_ids_for_metadata(
+        self, kind: MetadataKind, missing_value_clause: str,
+        force_refresh: bool, now: Optional[datetime],
+    ) -> list[int]:
+        clauses = list(_BROWSABLE_GAME_CLAUSES)
+        parameters = []
+        if not force_refresh:
+            # Populated historical values are already complete. Empty/unknown
+            # values need a request only if never checked, expired or failed.
+            clauses.append(
+                f"(({missing_value_clause}) OR EXISTS (SELECT 1 FROM game_metadata_fetches f "
+                "WHERE f.game_id = games.id AND f.metadata_kind = ? AND f.outcome = 'failed'))"
+            )
+            clauses.append(
+                "NOT EXISTS (SELECT 1 FROM game_metadata_fetches f WHERE f.game_id = games.id "
+                "AND f.metadata_kind = ? AND f.outcome <> 'failed' AND f.checked_at > ?)"
+            )
+            cutoff = (now or datetime.now()) - EMPTY_METADATA_TTL
+            parameters = [kind.value, kind.value, datetime_to_sql(cutoff)]
         rows = self._connection.execute(
-            "SELECT id FROM games WHERE "
-            + " AND ".join(_BROWSABLE_GAME_CLAUSES)
-            + """ AND median_time_to_beat_hardcore_seconds IS NULL
-            ORDER BY
-                CASE
-                    WHEN id IN (
-                        SELECT game_id FROM installed_roms WHERE game_id IS NOT NULL
-                    ) THEN 0
-                    WHEN console_id IN (SELECT DISTINCT console_id FROM installed_roms)
-                        THEN 1
-                    ELSE 2
-                END,
-                id
-            """
-        ).fetchall()
-        return [row["id"] for row in rows]
-
-    def list_ids_missing_hashes(self) -> list[int]:
-        """Browsable games with no ROM hash stored yet, ordered like
-        `list_ids_missing_median_time` — installed first, then your consoles,
-        then the rest.
-
-        Resumability is the point. The hash backfill is one request per game
-        across ~12k games; without a "what's still missing" query, an
-        interruption means starting over, and at ~1h40 that is the difference
-        between a job you can stop and one you cannot.
-
-        A game that genuinely has no hashes on RetroAchievements comes back
-        every time, since "fetched and empty" and "never fetched" look
-        identical here. That costs a repeat request on a re-run and is worth
-        it: the alternative is a `hashes_synced_at` column whose only job is
-        remembering an empty answer.
-        """
-        rows = self._connection.execute(
-            "SELECT id FROM games WHERE "
-            + " AND ".join(_BROWSABLE_GAME_CLAUSES)
-            + """ AND id NOT IN (SELECT DISTINCT game_id FROM game_hashes)
-            ORDER BY
-                CASE
-                    WHEN id IN (
-                        SELECT game_id FROM installed_roms WHERE game_id IS NOT NULL
-                    ) THEN 0
-                    WHEN console_id IN (SELECT DISTINCT console_id FROM installed_roms)
-                        THEN 1
-                    ELSE 2
-                END,
-                id
-            """
+            "SELECT id FROM games WHERE " + " AND ".join(clauses) + """
+            ORDER BY CASE
+                WHEN id IN (SELECT game_id FROM installed_roms WHERE game_id IS NOT NULL) THEN 0
+                WHEN console_id IN (SELECT DISTINCT console_id FROM installed_roms) THEN 1
+                ELSE 2 END, id
+            """, parameters,
         ).fetchall()
         return [row["id"] for row in rows]
 
@@ -255,13 +248,23 @@ class GameRepository:
         hash that was character-for-character right apart from its case.
 
         `LOWER(hash)` on the left defeats `idx_game_hashes_hash`, so this is
-        a scan of a table with a few tens of thousands of rows. `store_hashes`
+        a scan only after indexed equality misses. `replace_hashes`
         lowercases on the way in specifically so that stays the fallback path
         rather than the normal one; the function-side LOWER is what covers
         rows written before that existed.
         """
+        normalized = (rom_hash or "").lower()
         row = self._connection.execute(
-            "SELECT game_id FROM game_hashes WHERE LOWER(hash) = LOWER(?)", (rom_hash,)
+            "SELECT game_id FROM game_hashes WHERE hash = ?", (normalized,)
+        ).fetchone()
+        if row is not None:
+            return row["game_id"]
+
+        # Compatibility fallback for legacy/mixed-case rows. This cannot use
+        # the ordinary index, but it only runs when the normalized lookup misses.
+        row = self._connection.execute(
+            "SELECT game_id FROM game_hashes WHERE LOWER(hash) = LOWER(?)",
+            (rom_hash,),
         ).fetchone()
         return row["game_id"] if row else None
 

@@ -487,10 +487,9 @@ DROP_ORPHAN_TABLES_V22 = [
 # never be matched: Pokémon Snap sat in "Unmatched ROMs" with a hash that was
 # right in every character but its case.
 #
-# `find_game_id_by_hash` now compares with LOWER() on both sides so it works
-# regardless, and `replace_hashes` lowercases on the way in. This normalizes
-# the rows already stored, so that LOWER() on the column stops defeating
-# `idx_game_hashes_hash` for everyone who synced before the fix.
+# Normalize historical rows for indexed equality in `find_game_id_by_hash`.
+# Applying LOWER() to the column still prevents use of the ordinary index;
+# that expression is used only as a compatibility fallback after a miss.
 NORMALIZE_GAME_HASH_CASE_V23 = [
     "UPDATE game_hashes SET hash = LOWER(hash) WHERE hash <> LOWER(hash)",
 ]
@@ -548,5 +547,19 @@ DELETE_DEFAULT_LISTS_V16 = [
     DELETE FROM user_list_definitions
     WHERE is_predefined = 1
       AND slug IN ('library', 'want_to_play', 'playing', 'completed', 'abandoned')
+    """,
+]
+
+
+# Successful empty responses need a freshness clock independent of the value.
+CREATE_METADATA_FETCHES_V28 = [
+    """
+    CREATE TABLE game_metadata_fetches (
+        game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+        metadata_kind TEXT NOT NULL CHECK(metadata_kind IN ('hashes', 'median_time')),
+        outcome TEXT NOT NULL CHECK(outcome IN ('value', 'empty', 'failed')),
+        checked_at TEXT NOT NULL,
+        PRIMARY KEY (game_id, metadata_kind)
+    )
     """,
 ]

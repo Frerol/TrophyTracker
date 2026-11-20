@@ -107,6 +107,27 @@ class GameHashCaseTests(unittest.TestCase):
                 GameRepository(conn).find_game_id_by_hash("0" * 32)
             )
 
+    def test_legacy_mixed_case_row_matches_without_migration(self) -> None:
+        with connection_module.get_connection() as conn:
+            conn.execute("INSERT INTO game_hashes(game_id, hash) VALUES(?, ?)",
+                         (10155, SNAP_UPPER))
+            self.assertEqual(GameRepository(conn).find_game_id_by_hash(SNAP_LOWER), 10155)
+
+    def test_normal_lookup_uses_index_and_skips_compatibility_scan(self) -> None:
+        with connection_module.get_connection() as conn:
+            repository = GameRepository(conn)
+            repository.replace_hashes(10155, [SNAP_LOWER])
+            plan = conn.execute(
+                "EXPLAIN QUERY PLAN SELECT game_id FROM game_hashes WHERE hash = ?",
+                (SNAP_LOWER,),
+            ).fetchone()[3]
+            self.assertIn("USING INDEX idx_game_hashes_hash", plan)
+            statements = []
+            conn.set_trace_callback(statements.append)
+            self.assertEqual(repository.find_game_id_by_hash(SNAP_UPPER), 10155)
+            self.assertEqual(len(statements), 1)
+            self.assertNotIn("LOWER(", statements[0])
+
     def test_migration_23_lowercases_rows_written_before_the_fix(self) -> None:
         """Rows already in the database bypassed `replace_hashes` — they were
         inserted by the version that stored whatever the API sent.

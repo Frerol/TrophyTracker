@@ -10,6 +10,8 @@ API's `ImageIcon` fragment (e.g. `/Images/012345.png`).
 """
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 import requests
@@ -33,12 +35,34 @@ def build_image_url(image_path_fragment: str) -> str:
 
 
 def download_image(url: str, destination: Path) -> None:
-    """Blocking fetch — call off the UI thread. Raises on failure; caller decides fallback."""
+    """Blocking fetch — call off the UI thread. Raises on failure; caller decides fallback.
+
+    Writes to a temporary file in the same directory and atomically replaces
+    the destination, so an interrupted download can never leave a partial
+    file behind at the shared cache path.
+    """
+    destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
     try:
         response = requests.get(url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
         response.raise_for_status()
-        destination.write_bytes(response.content)
-    except requests.RequestException:
+        fd, raw_temp = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
+        )
+        temp_path = Path(raw_temp)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(response.content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, destination)
+        temp_path = None
+    except Exception:
         logger.exception("Failed to download game image from %s", url)
         raise
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove temporary artwork %s", temp_path)

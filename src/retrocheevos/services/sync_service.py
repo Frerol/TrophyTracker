@@ -47,6 +47,7 @@ from retrocheevos.database.repositories.profile_repository import ProfileReposit
 from retrocheevos.models.account import Account
 from retrocheevos.models.game_completion import GameCompletion
 from retrocheevos.services import library_service
+from retrocheevos.utils.enums import MetadataKind, MetadataFetchOutcome
 from retrocheevos.utils.cancellation import (
     OperationCancelled,
     interruptible_sleep,
@@ -353,6 +354,7 @@ def sync_median_times(
     client: RetroAchievementsClient,
     progress_callback: Optional[ProgressCallback] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
+    force_refresh: bool = False,
 ) -> int:
     """Backfills median time-to-beat across the whole browsable catalog.
 
@@ -364,10 +366,11 @@ def sync_median_times(
 
     Only fetches games still missing the value, so an interrupted run resumes
     where it stopped and a second run over an already-filled catalog is
-    nearly instant. Returns how many were filled in.
+    nearly instant. Empty results expire after 30 days; force_refresh bypasses
+    the selection cache. Failures are eligible immediately. Returns values filled.
     """
     with get_connection() as connection:
-        game_ids = GameRepository(connection).list_ids_missing_median_time()
+        game_ids = GameRepository(connection).list_ids_missing_median_time(force_refresh=force_refresh)
 
     games_client = GamesClient(client)
     total = len(game_ids)
@@ -377,14 +380,19 @@ def sync_median_times(
         progression = _fetch_median_time_with_retry(
             games_client, game_id, should_cancel=should_cancel
         )
-        if progression is not None and progression.median_time_to_beat_hardcore_seconds is not None:
-            with get_connection() as connection:
-                GameRepository(connection).set_median_time(
-                    game_id,
-                    progression.median_time_to_beat_hardcore_seconds,
-                    progression.times_used_in_hardcore_beat_median,
+        with get_connection() as connection:
+            repository = GameRepository(connection)
+            if progression is None:
+                repository.record_metadata_fetch(game_id, MetadataKind.MEDIAN_TIME, MetadataFetchOutcome.FAILED)
+            else:
+                seconds = progression.median_time_to_beat_hardcore_seconds
+                repository.set_median_time(game_id, seconds, progression.times_used_in_hardcore_beat_median)
+                repository.record_metadata_fetch(
+                    game_id, MetadataKind.MEDIAN_TIME,
+                    MetadataFetchOutcome.VALUE if seconds is not None else MetadataFetchOutcome.EMPTY,
                 )
-            filled += 1
+                if seconds is not None:
+                    filled += 1
         if progress_callback:
             progress_callback(index, total)
 
@@ -476,7 +484,7 @@ def sync_game_details(
     client: RetroAchievementsClient,
     game_id: int,
     should_cancel: Optional[Callable[[], bool]] = None,
-) -> None:
+) -> bool:
     """Full sync for one game: metadata, achievements, hashes, median time to beat.
 
     Skips the upsert entirely if the game turns out to have zero achievements
@@ -499,7 +507,7 @@ def sync_game_details(
 
     if raw_game.num_achievements <= 0:
         logger.info("Skipped syncing game %d: no achievement set", game_id)
-        return
+        return False
 
     raise_if_cancelled(should_cancel)
     progression = _with_rate_limit_retry(
@@ -526,10 +534,23 @@ def sync_game_details(
         # constraint on `(game_id, hash)`, so re-running this over a game
         # already synced used to append a second copy of every hash.
         game_repository.replace_hashes(game_id, hashes)
+        game_repository.record_metadata_fetch(
+            game_id, MetadataKind.HASHES,
+            MetadataFetchOutcome.VALUE if hashes else MetadataFetchOutcome.EMPTY,
+        )
+        if progression is not None:
+            seconds = progression.median_time_to_beat_hardcore_seconds
+            game_repository.set_median_time(game_id, seconds, progression.times_used_in_hardcore_beat_median)
+            game_repository.record_metadata_fetch(
+                game_id, MetadataKind.MEDIAN_TIME,
+                MetadataFetchOutcome.VALUE if seconds is not None else MetadataFetchOutcome.EMPTY,
+            )
 
     logger.info(
         "Synced game %d: %d achievements, %d hashes", game_id, len(raw_achievements), len(hashes)
     )
+
+    return bool(hashes)
 
 
 def sync_all_game_hashes(
@@ -537,6 +558,7 @@ def sync_all_game_hashes(
     progress_callback: Optional[ProgressCallback] = None,
     full_details: bool = False,
     should_cancel: Optional[Callable[[], bool]] = None,
+    force_refresh: bool = False,
 ) -> int:
     """Backfill ROM hashes across the catalog, so scanning a folder can match
     files to games by hash instead of leaving them unmatched.
@@ -577,12 +599,15 @@ def sync_all_game_hashes(
     re-running picks up where it left off rather than starting over — the
     whole reason that query exists.
 
+    Empty responses are remembered for 30 days; force_refresh re-fetches all
+    browsable games. Failed attempts remain immediately retryable.
+
     Returns the number of games that got at least one hash. Games that fail
     are skipped, not fatal: over 12k requests something will go wrong, and
     losing hours of progress to one bad game would be absurd.
     """
     with get_connection() as connection:
-        game_ids = GameRepository(connection).list_ids_missing_hashes()
+        game_ids = GameRepository(connection).list_ids_missing_hashes(force_refresh=force_refresh)
 
     games_client = GamesClient(client)
     total = len(game_ids)
@@ -597,22 +622,31 @@ def sync_all_game_hashes(
         raise_if_cancelled(should_cancel)
         try:
             if full_details:
-                sync_game_details(client, game_id, should_cancel=should_cancel)
-                synced += 1
+                if sync_game_details(client, game_id, should_cancel=should_cancel):
+                    synced += 1
             else:
                 hashes = _with_rate_limit_retry(
                     f"hashes for game {game_id}",
                     lambda: games_client.get_game_hashes(game_id),
                     should_cancel=should_cancel,
                 )
+                with get_connection() as connection:
+                    repository = GameRepository(connection)
+                    repository.replace_hashes(game_id, hashes)
+                    repository.record_metadata_fetch(
+                        game_id, MetadataKind.HASHES,
+                        MetadataFetchOutcome.VALUE if hashes else MetadataFetchOutcome.EMPTY,
+                    )
                 if hashes:
-                    with get_connection() as connection:
-                        GameRepository(connection).replace_hashes(game_id, hashes)
                     synced += 1
         except OperationCancelled:
             raise
         except Exception as error:  # noqa: BLE001 — one bad game mustn't kill the run
             logger.info("Skipped hashes for game %d: %s", game_id, error)
+            with get_connection() as connection:
+                GameRepository(connection).record_metadata_fetch(
+                    game_id, MetadataKind.HASHES, MetadataFetchOutcome.FAILED
+                )
 
         if progress_callback:
             progress_callback(index, total)

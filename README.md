@@ -16,12 +16,12 @@ TrophyTracker preserves its origins as a fork of [RetroCheevos](https://github.c
 The Python package remains `retrocheevos`; existing data directories, database
 filenames and credential-vault identifiers are retained for compatibility.
 Run from source with `PYTHONPATH=src .venv/bin/python -m retrocheevos.main`.
-Build Windows bundles with `pyinstaller TrophyTracker.spec`.
+Build Windows bundles with `pyinstaller packaging/TrophyTracker.spec`.
 
 ## What it is
 
 An Android achievement-tracking companion is planned. See the
-[Android roadmap](docs/AndroidRoadmap.md) for scope, phases and release criteria.
+[Android roadmap](docs/planning/AndroidRoadmap.md) for scope, phases and release criteria.
 
 TrophyTracker is a desktop app for Windows and Linux that connects to your RetroAchievements account to:
 
@@ -65,6 +65,26 @@ In Settings, per console, configure:
 - **Executable**: path to the emulator's `.exe`.
 - **Core** (optional): if you use **RetroArch**, you also need to specify the core for that console (e.g. `snes9x_libretro.dll`). RetroArch doesn't have one exe per console — it uses a single exe with multiple cores.
 
+## Repository organization
+
+- `src/retrocheevos/`: application code, organized by layer.
+- `tests/`: automated tests mirroring application modules.
+- `docs/`: [documentation index](docs/README.md), technical reference, planning,
+  design, validation and historical handoffs.
+- `assets/`: runtime icon/logo; historical source art is under `assets/reference/`.
+- `packaging/`: [build inputs and instructions](packaging/README.md).
+- `tools/`: [benchmarks and the optional RAHasher helper](tools/README.md).
+
+Local `.venv/`, `database/`, `cache/`, `logs/`, `build/` and `dist/` directories
+retain their existing purposes and are ignored by Git. Installed/frozen builds
+continue using the existing per-user data paths.
+
+Run tests from the repository root:
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -t .
+```
+
 ## Building an AppImage (Linux x86_64)
 
 Create `.venv` with `python3 -m venv .venv`, then install dependencies with
@@ -75,13 +95,13 @@ Extract appimagetool with `--appimage-extract` if FUSE is unavailable, then run:
 
 ```sh
 APPIMAGETOOL=/absolute/path/to/squashfs-root/AppRun \
-APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 tools/build_appimage.sh
+APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 packaging/build_appimage.sh
 ```
 
 The result is `dist/TrophyTracker-0.1.0-x86_64.AppImage` (version comes from
 `src/retrocheevos/version.py`). Build on the oldest Linux distribution you
 intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
-is omitted; provide a native `tools/RAHasher` with its license/source files
+is omitted; provide a native `tools/rahasher/RAHasher` with its license/source files
 to bundle that optional helper, or use the app's built-in hashing.
 
 ## ROMs, artwork and live achievement tracking

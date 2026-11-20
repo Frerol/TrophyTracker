@@ -49,6 +49,33 @@ class WiiRvzScanTests(unittest.TestCase):
         self.assertEqual(library.scan_rom_folder(folder.id).already_known_count, 2)
         self.assertIn('not yet matched', _describe_scan(result))
 
+    def test_discovery_progress_precedes_hashing_and_can_cancel(self) -> None:
+        from retrocheevos.utils.cancellation import OperationCancelled
+
+        rom = self.romdir / 'game.rvz'
+        rom.write_bytes(rvz_header(2))
+        folder = library.add_rom_folder(str(self.romdir), 19)
+        progress = []
+
+        def hash_file(path, *_args):
+            self.assertTrue(any(current == str(path) for _, current in progress))
+            return ''
+
+        with patch.object(library, '_hash_in_place', side_effect=hash_file):
+            result = library.scan_rom_folder(folder.id, lambda *args: progress.append(args))
+        self.assertEqual(len(result.recorded), 1)
+        self.assertEqual(progress[0], (0, str(self.romdir)))
+        cancelled = False
+
+        def cancel_on_discovery(count, _path):
+            nonlocal cancelled
+            cancelled = count > 0
+
+        with patch.object(library, '_hash_in_place') as hash_rom:
+            with self.assertRaises(OperationCancelled):
+                library.scan_rom_folder(folder.id, cancel_on_discovery, lambda: cancelled)
+            hash_rom.assert_not_called()
+
     def test_content_detects_wii_and_gamecube_before_folder_hint(self) -> None:
         path = self.romdir / 'game.rvz'
         for disc_type, expected, incorrect_hint in ((2, 19, 16), (1, 16, 19)):

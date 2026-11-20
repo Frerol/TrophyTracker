@@ -10,7 +10,7 @@ if [[ ! -x "$tool" || ! -f "$runtime" ]]; then
     exit 1
 fi
 
-.venv/bin/pyinstaller --noconfirm TrophyTracker.spec
+.venv/bin/pyinstaller --noconfirm packaging/TrophyTracker.spec
 appdir="$PWD/build/TrophyTracker.AppDir"
 mkdir -p "$appdir/usr"
 # Replace the previous payload so removed dependencies do not linger.

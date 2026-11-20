@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # a fraction of a second. Kept below the request timeout so a wedged request
 # cannot hold the window open indefinitely.
 SHUTDOWN_TIMEOUT_MS = 5_000
+SCAN_PROGRESS_INTERVAL_SECONDS = 0.1
 
 
 class ServiceWorker(QThread):
@@ -48,6 +49,7 @@ class ServiceWorker(QThread):
     # because "the user closed the window" is not an error to show in a dialog.
     cancelled = Signal()
     progress = Signal(int, int)
+    scan_progress = Signal(int, str)
     # For calls that produce results incrementally (e.g. one item fetched
     # at a time from several API calls) rather than all at once — lets the
     # GUI render items as they arrive instead of showing nothing until the
@@ -67,6 +69,7 @@ class ServiceWorker(QThread):
         func: Callable[..., Any],
         *args: Any,
         report_progress: bool = False,
+        report_scan_progress: bool = False,
         stream_results: bool = False,
         report_phase: bool = False,
         cancellable: bool = False,
@@ -78,6 +81,9 @@ class ServiceWorker(QThread):
         self._kwargs = kwargs
         self._cancel_requested = Event()
         self._cancellable = cancellable
+        self._last_scan_progress_at: Optional[float] = None
+        if report_scan_progress:
+            self._kwargs["progress_callback"] = self._emit_scan_progress
         if report_progress:
             self._kwargs["progress_callback"] = self._emit_progress
         if stream_results:
@@ -89,6 +95,12 @@ class ServiceWorker(QThread):
 
     def _emit_progress(self, current: int, total: int) -> None:
         self.progress.emit(current, total)
+
+    def _emit_scan_progress(self, discovered: int, path: str) -> None:
+        now = time.monotonic()
+        if self._last_scan_progress_at is None or now - self._last_scan_progress_at >= SCAN_PROGRESS_INTERVAL_SECONDS:
+            self._last_scan_progress_at = now
+            self.scan_progress.emit(discovered, path)
 
     def _emit_partial_result(self, item: Any) -> None:
         self.partial_result.emit(item)

@@ -93,7 +93,7 @@ def _format_timestamp(moment: datetime) -> str:
     shows an hour ago in UTC+1. That is intended: the app is meant to match
     the numbers on the RA site, which also renders UTC, and matching the site
     was chosen over matching the wall clock. Converting to local time here
-    reopens a mismatch that took three rounds to settle (docs/HANDOFF.md §2.2).
+    reopens a mismatch that took three rounds to settle (docs/archive/HANDOFF.md §2.2).
     """
     return f"{moment:%Y-%m-%d %H:%M}"
 

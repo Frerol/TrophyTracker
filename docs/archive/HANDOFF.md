@@ -1,3 +1,7 @@
+> Historical implementation handoff. Descriptions and examples may refer to
+> earlier application behavior. Use the [current roadmap](../planning/DevelopmentRoadmap.md)
+> and [documentation index](../README.md) for active work and file locations.
+
 # TrophyTracker — Handoff de sessão
 
 Estado do projecto para retomar numa sessão nova sem contexto prévio.
@@ -1277,7 +1281,7 @@ pedido por jogo, ~12k, ~1h. O diálogo deixa escolher.
 - **Faz `VACUUM` a seguir.** Um `UPDATE` limpa o *valor*, não os bytes:
   o SQLite deixa o conteúdo antigo em páginas libertadas, legível com um
   editor hexadecimal. Sem o VACUUM esta mudança era cosmética.
-- **`TrophyTracker.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
+- **`packaging/TrophyTracker.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
   `win32ctypes.core`). O backend é resolvido por entry points, portanto a
   análise estática do PyInstaller não o vê — sem isto o `.exe` cai
   silenciosamente no caminho "sem cofre" e as chaves voltam à base de dados.
@@ -1305,7 +1309,7 @@ não). Chamá-lo como processo separado é agregação, não linkagem: **não** 
 o TrophyTracker GPL. Redistribuir o binário é que traz deveres — texto da
 licença e fonte correspondente (ou oferta escrita). Estão cumpridos em
 `tools/`: `RAHasher-COPYING.txt` e `RAHasher-SOURCE.txt`, e o
-`TrophyTracker.spec` **recusa-se a construir** um bundle com o .exe se algum
+`packaging/TrophyTracker.spec` **recusa-se a construir** um bundle com o .exe se algum
 deles faltar. Ao atualizar o binário, atualizar a versão e o SHA-256 no
 `RAHasher-SOURCE.txt` — deixá-los desatualizados é que é o problema de
 licença, não o .exe ser antigo.

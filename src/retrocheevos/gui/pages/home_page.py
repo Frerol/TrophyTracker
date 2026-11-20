@@ -54,6 +54,7 @@ change only affects how Home's field drives it). Clearing the field, or
 "Back to Home", collapses back to Continue Playing/Recent Activity.
 """
 
+from dataclasses import replace
 import logging
 import sys
 import time
@@ -85,7 +86,7 @@ from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.pages.explorer_page import ExplorerPage
 from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.library.rom_title import derive_title_from_filename
-from retrocheevos.models.activity_feed import ActivityEntry
+from retrocheevos.models.activity_feed import ActivityEntry, ActivityFeedResult
 from retrocheevos.models.library import InstalledRom
 from retrocheevos.services import (
     activity_feed_service,
@@ -315,6 +316,7 @@ class HomePage(Page):
         super().__init__(app_context)
         self._user_menu: Optional[QMenu] = None
         self._activity_entries: list[ActivityEntry] = []
+        self._activity_cards: dict[str, tuple[ActivityEntry, ActivityEntryCard]] = {}
         # See `_refresh_activity_feed`: only an initial load renders entries
         # as they stream in; a background refresh swaps the finished list in
         # one go, so the section never blanks out mid-update.
@@ -1078,10 +1080,6 @@ class HomePage(Page):
             stream_results=True,
             cancellable=True,
         )
-        # pass should_cancel via kwargs? ServiceWorker cancellable=True injects should_cancel automatically.
-        # Need result_callback for streaming handled by stream_results=True.
-        # Also pass should_cancel? cancellable True injects self.is_cancelled. Good.
-        # But activity service signature now includes should_cancel; worker injects it. Good.
 
         def handle_partial(entry):
             if gen != self._account_generation or request_gen != self._activity_request_generation:
@@ -1095,7 +1093,6 @@ class HomePage(Page):
                 return
             if self.app_context.active_account is None or self.app_context.active_account.id != account_id:
                 return
-            self._activity_cache = entries
             self._activity_cache_account_id = account_id
             self._on_activity_feed_ready(entries)
 
@@ -1123,6 +1120,7 @@ class HomePage(Page):
                 item.widget().deleteLater()
 
     def _clear_activity_feed(self) -> None:
+        self._activity_cards.clear()
         while self._activity_feed_layout.count():
             item = self._activity_feed_layout.takeAt(0)
             if item.widget():
@@ -1189,18 +1187,33 @@ class HomePage(Page):
             return
         self._render_activity_entries(build_activity_feed(self._activity_entries))
 
-    def _on_activity_feed_ready(self, entries: list[ActivityEntry]) -> None:
-        # Authoritative final state — already-sorted, from `finished_ok`.
-        # Normally identical to what streaming in via `partial_result`
-        # already built up, but this is what actually wins if the two ever
-        # disagree (e.g. zero entries: no `partial_result` ever fired, so
-        # this is the only thing that clears the loading label).
-        self._activity_entries = entries
-        # Survives across navigations so returning to Home can paint
-        # immediately instead of waiting out another fetch — see `refresh()`.
-        self._activity_cache = entries
-        self._reset_activity_refresh_interval()
-        self._render_activity_entries(entries)
+    def _on_activity_feed_ready(self, result: ActivityFeedResult) -> None:
+        entries = {entry.username.casefold(): entry for entry in result.entries}
+        failed = {username.casefold() for username in result.failed_usernames}
+        for entry in self._activity_cache:
+            key = entry.username.casefold()
+            if key not in entries and (key in failed or result.following_unavailable):
+                entries[key] = entry
+            elif key in entries and entries[key].progress_unavailable:
+                fresh = entries[key]
+                if (fresh.game_title, fresh.game_console) == (entry.game_title, entry.game_console):
+                    entries[key] = replace(
+                        fresh, achievements_unlocked=entry.achievements_unlocked,
+                        achievements_total=entry.achievements_total,
+                        playtime_seconds=entry.playtime_seconds,
+                    )
+        merged = build_activity_feed(list(entries.values()))
+        self._activity_entries = merged
+        self._activity_cache = merged
+        if result.partial:
+            self._back_off_activity_refresh()
+            self._recent_activity_group.setTitle("Recent Activity — partially updated")
+        else:
+            self._reset_activity_refresh_interval()
+            self._recent_activity_group.setTitle("Recent Activity")
+        self._render_activity_entries(merged)
+        if not merged and result.partial:
+            self._activity_feed_layout.addWidget(QLabel(ACTIVITY_ERROR_TEXT))
 
     def _render_activity_entries(self, entries: list[ActivityEntry]) -> None:
         # Repaints suppressed across the teardown/rebuild: without it Qt
@@ -1213,17 +1226,36 @@ class HomePage(Page):
             self._activity_feed_container.setUpdatesEnabled(True)
 
     def _render_activity_entries_now(self, entries: list[ActivityEntry]) -> None:
-        self._clear_activity_feed()
-        for entry in entries:
-            self._activity_feed_layout.addWidget(ActivityEntryCard(entry))
+        desired = {entry.username.casefold(): entry for entry in entries}
+        # Keep unchanged cards alive, including when streaming reorders them.
+        for key, (previous, card) in list(self._activity_cards.items()):
+            if key not in desired or desired[key] != previous:
+                self._activity_feed_layout.removeWidget(card)
+                card.deleteLater()
+                del self._activity_cards[key]
+        # Remove loading/error labels without tearing down cards.
+        for index in range(self._activity_feed_layout.count() - 1, -1, -1):
+            widget = self._activity_feed_layout.itemAt(index).widget()
+            if isinstance(widget, QLabel):
+                self._activity_feed_layout.takeAt(index)
+                widget.deleteLater()
+        for index, entry in enumerate(entries):
+            key = entry.username.casefold()
+            if key not in self._activity_cards:
+                self._activity_cards[key] = (entry, ActivityEntryCard(entry))
+            self._activity_feed_layout.insertWidget(index, self._activity_cards[key][1])
 
     def _on_activity_feed_failed(self, message: str) -> None:
-        # Without this, a failure (e.g. the API's own rate limit — see
-        # `activity_feed_service.py`) left the loading label showing
-        # forever with no feedback, since nothing ever replaced it.
         logger.warning("Recent activity fetch failed: %s", message)
         self._back_off_activity_refresh()
-        if not self._activity_entries:
+        self._recent_activity_group.setTitle("Recent Activity — could not refresh")
+        # A silent refresh starts with an empty streamed list. Preserve the
+        # last good feed rather than replacing it with an error label.
+        entries = self._activity_cache or self._activity_entries
+        if entries:
+            self._activity_entries = list(entries)
+            self._render_activity_entries(entries)
+        else:
             self._clear_activity_feed()
             self._activity_feed_layout.addWidget(QLabel(ACTIVITY_ERROR_TEXT))
 

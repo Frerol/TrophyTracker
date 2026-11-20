@@ -1,10 +1,10 @@
 # PyInstaller build spec for TrophyTracker.
 #
-# Build with:   .venv\Scripts\pyinstaller.exe TrophyTracker.spec
+# Build with:   .venv\Scripts\pyinstaller.exe packaging/TrophyTracker.spec
 #
 # What ships and what does not
 # ----------------------------
-# SHIPPED: `assets/` (the window icon and the header logo), loaded at runtime
+# SHIPPED: `assets/icon.png` and `assets/logo.png`, loaded at runtime
 # through `gui/pages/home_page.py::_assets_dir`, which reads `sys._MEIPASS`
 # when frozen. Without them bundled the app runs but has no icon or logo.
 #
@@ -17,7 +17,8 @@
 #                developer's account and everyone they follow.
 #
 # Neither is excluded by a rule below: PyInstaller only bundles what a spec
-# names, and this one names `assets` and nothing else. The `excludes` entry
+# names; this spec names runtime artwork and the optional licensed helper.
+# Historical reference artwork is not bundled. The `excludes` entry
 # exists so an accidental `--add-data .` or a future edit that sweeps the
 # project root can't pull them in silently.
 #
@@ -35,20 +36,24 @@ from PyInstaller.building.build_main import Analysis
 BLOCK_CIPHER = None
 
 # RAHasher — RetroAchievements' own hasher, used by `library/rahasher.py` when
-# present. Bundled only if it has been placed in `tools/` first; the build
+# present. Bundled only if placed in `tools/rahasher/`; the build
 # works either way and the app degrades to its built-in hashing without it.
 #
-# Not committed to this repository, and shipping it is a licensing decision
-# rather than an oversight. RAHasher is built from RALibretro, which is
+# RAHasher is kept with its license/source notice under tools/rahasher/.
+# It is built from RALibretro, which is
 # GPL-3.0 (the `rcheevos` hashing code inside it is MIT, but the binary as
 # distributed is not). Invoking it as a separate process is aggregation, not
 # linking, so it does not make this app GPL — but *redistributing* the binary
 # carries GPL-3.0 obligations: ship its license text and either the
-# corresponding source or a written offer for it. `tools/` is therefore
+# corresponding source or a written offer for it. `tools/rahasher/` is therefore
 # expected to hold `RAHasher.exe` alongside `RAHasher-COPYING.txt` and a
 # `RAHasher-SOURCE.txt` naming the exact upstream tag the binary came from,
 # and all three ship together or none do.
-_TOOLS_DIR = Path("tools")
+# SPECPATH is provided by PyInstaller and points to this spec's directory.
+# Resolve input files independently of the directory from which it was invoked.
+_PROJECT_ROOT = Path(SPECPATH).resolve().parent
+_TOOLS_DIR = _PROJECT_ROOT / "tools" / "rahasher"
+_BUNDLE_TOOLS_DIR = "tools/rahasher"
 _RAHASHER = _TOOLS_DIR / ("RAHasher.exe" if sys.platform == "win32" else "RAHasher")
 _RAHASHER_LICENSE_FILES = ("RAHasher-COPYING.txt", "RAHasher-SOURCE.txt")
 
@@ -62,20 +67,24 @@ if _RAHASHER.is_file():
             "violation. Add the missing file(s), or remove RAHasher.exe to build "
             "without it."
         )
-    rahasher_binaries = [(str(_RAHASHER), "tools")]
-    rahasher_datas = [(str(_TOOLS_DIR / name), "tools") for name in _RAHASHER_LICENSE_FILES]
-    print(f"TrophyTracker.spec: bundling {_RAHASHER} and its licence files")
+    rahasher_binaries = [(str(_RAHASHER), _BUNDLE_TOOLS_DIR)]
+    rahasher_datas = [(str(_TOOLS_DIR / name), _BUNDLE_TOOLS_DIR) for name in _RAHASHER_LICENSE_FILES]
+    print(f"packaging/TrophyTracker.spec: bundling {_RAHASHER} and its licence files")
 else:
     rahasher_binaries = []
     rahasher_datas = []
-    print(f"TrophyTracker.spec: no {_RAHASHER} — building without it")
+    print(f"packaging/TrophyTracker.spec: no {_RAHASHER} — building without it")
 
 analysis = Analysis(
-    ["src/retrocheevos/main.py"],
-    pathex=["src"],
+    [str(_PROJECT_ROOT / "src" / "retrocheevos" / "main.py")],
+    pathex=[str(_PROJECT_ROOT / "src")],
     binaries=rahasher_binaries,
     # (source, destination-inside-the-bundle)
-    datas=[("assets", "assets"), *rahasher_datas],
+    datas=[
+        (str(_PROJECT_ROOT / "assets" / "icon.png"), "assets"),
+        (str(_PROJECT_ROOT / "assets" / "logo.png"), "assets"),
+        *rahasher_datas,
+    ],
     # `keyring` picks its backend at runtime through entry points, so nothing
     # in the source ever names `keyring.backends.Windows` — PyInstaller's
     # static analysis cannot see it and the frozen app would fall back to the
@@ -125,7 +134,7 @@ exe = EXE(
     # crash handler in `main.py` also writes one to
     # %LOCALAPPDATA%\Retrocheevos\logs\crash.log either way.
     console=False,
-    icon="assets/icon.png",
+    icon=str(_PROJECT_ROOT / "assets" / "icon.png"),
 )
 
 # One folder, not one file. A one-file build re-extracts the whole bundle to

@@ -30,3 +30,16 @@ class ActivityEntry:
     achievements_unlocked: Optional[int]
     achievements_total: Optional[int]
     playtime_seconds: Optional[int]
+    # A summary can still be shown when its optional progress lookup fails.
+    progress_unavailable: bool = False
+
+
+@dataclass
+class ActivityFeedResult:
+    entries: list[ActivityEntry]
+    failed_usernames: list[str]
+    following_unavailable: bool = False
+
+    @property
+    def partial(self) -> bool:
+        return bool(self.failed_usernames or self.following_unavailable)

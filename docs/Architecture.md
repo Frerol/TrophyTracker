@@ -55,13 +55,22 @@ logic testable without a running UI.
 
 ```
 TrophyTracker/
-├── assets/
-├── cache/
-├── database/
+├── assets/                  # Runtime icon.png and logo.png
+│   └── reference/           # Historical source artwork (not bundled)
 ├── docs/
-├── exports/
-├── logs/
-├── scripts/
+│   ├── README.md            # Documentation index
+│   ├── Architecture.md      # Technical references remain directly in docs/
+│   ├── API.md
+│   ├── Database.md
+│   ├── CodingStandards.md
+│   ├── planning/            # Desktop/Android roadmaps, vision and ideas
+│   ├── design/              # UI/branding specs, HTML proposal and previews
+│   ├── validation/          # Performance and resilience evidence
+│   └── archive/             # Historical implementation handoffs
+├── packaging/               # PyInstaller spec and AppImage build script
+├── tools/
+│   ├── benchmarks/          # Repeatable development probes
+│   └── rahasher/            # Optional binary and license/source notices
 ├── src/
 │   └── retrocheevos/
 │       ├── api/
@@ -74,11 +83,17 @@ TrophyTracker/
 │       ├── utils/
 │       ├── widgets/
 │       └── main.py
-├── tests/
+├── tests/                   # Mirrors the source layers
 ├── README.md
 ├── CHANGELOG.md
 └── requirements.txt
 ```
+
+Local `.venv/`, `database/`, `cache/`, `logs/`, `exports/`, `build/` and `dist/`
+are generated or user-specific and remain ignored. This organization does not
+change runtime data locations. Use the [documentation index](README.md) to find
+specifications; build commands are in [packaging](../packaging/README.md).
+
 
 ### 3.1 `src/retrocheevos/` Module Guide
 

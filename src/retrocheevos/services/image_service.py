@@ -3,7 +3,9 @@
 relevant id/path to decide whether a download is needed.
 """
 
+from concurrent.futures import Future
 import logging
+from threading import Lock
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -26,7 +28,36 @@ from retrocheevos.database.repositories.console_repository import ConsoleReposit
 logger = logging.getLogger(__name__)
 
 
+# All page instances share the same disk destination. Only the owner does I/O;
+# concurrent callers receive its result (including failure), then may retry.
+_game_image_lock = Lock()
+_game_image_flights: dict[Path, Future[Optional[Path]]] = {}
+
+
 def ensure_game_image_cached(game: Game) -> Optional[Path]:
+    """Cache artwork off the GUI thread, sharing work across concurrent callers."""
+    destination = cached_image_path(game.id)
+    with _game_image_lock:
+        future = _game_image_flights.get(destination)
+        owner = future is None
+        if owner:
+            future = Future()
+            _game_image_flights[destination] = future
+    if not owner:
+        return future.result()
+    try:
+        result = _ensure_game_image_cached(game)
+        future.set_result(result)
+        return result
+    except BaseException as error:
+        future.set_exception(error)
+        raise
+    finally:
+        with _game_image_lock:
+            _game_image_flights.pop(destination, None)
+
+
+def _ensure_game_image_cached(game: Game) -> Optional[Path]:
     """Local path to `game`'s cover art, downloading it first if not cached yet.
 
     Runs network I/O when the image isn't cached — call from a background

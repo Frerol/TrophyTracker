@@ -9,8 +9,9 @@ from unittest import mock
 from retrocheevos.library import hashing, rahasher
 from retrocheevos.library.rahasher import RaHasherError
 
-# A real RAHasher.exe is not in this repository (GPL-3.0, see TrophyTracker.spec),
-# so these drive a stand-in that reproduces its documented contract: hash on
+# The optional Windows binary lives under tools/rahasher/ (GPL-3.0; see
+# packaging/TrophyTracker.spec); tests use a platform-native fake executable.
+# These drive a stand-in that reproduces its documented contract: hash on
 # stdout, exit 0; reason on stderr, exit 1. The point under test is this
 # module's half of that contract — argument order, output validation, failure
 # handling — none of which needs the real binary, and all of which would
@@ -79,6 +80,33 @@ class FindExecutableTests(unittest.TestCase):
             with _StubHasher(tmpdir) as stub:
                 self.assertEqual(rahasher.find_executable(), stub.path)
                 self.assertTrue(rahasher.is_available())
+
+    def test_source_lookup_prefers_organized_helper_and_keeps_legacy_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            modern = root / 'tools' / 'rahasher' / rahasher.EXECUTABLE_NAME
+            legacy = root / 'tools' / rahasher.EXECUTABLE_NAME
+            modern.parent.mkdir(parents=True)
+            modern.touch()
+            legacy.touch()
+            with mock.patch.object(rahasher, '__file__', str(root / 'src/retrocheevos/library/rahasher.py')), \
+                 mock.patch.object(sys, '_MEIPASS', None, create=True), \
+                 mock.patch.dict(os.environ, {rahasher.ENV_OVERRIDE: ''}), \
+                 mock.patch('shutil.which', return_value=None):
+                self.assertEqual(rahasher.find_executable(), modern)
+                modern.unlink()
+                self.assertEqual(rahasher.find_executable(), legacy)
+
+    def test_frozen_lookup_finds_organized_bundled_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'tools' / 'rahasher' / rahasher.EXECUTABLE_NAME
+            binary.parent.mkdir(parents=True)
+            binary.touch()
+            with mock.patch.object(sys, '_MEIPASS', str(root), create=True), \
+                 mock.patch.dict(os.environ, {rahasher.ENV_OVERRIDE: ''}), \
+                 mock.patch('shutil.which', return_value=None):
+                self.assertEqual(rahasher.find_executable(), binary)
 
     def test_lookup_is_not_cached_so_a_dropped_in_binary_is_noticed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
