@@ -4,6 +4,7 @@ relevant id/path to decide whether a download is needed.
 """
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,16 @@ from retrocheevos.library.activity_icons import cached_activity_icon_path
 from retrocheevos.library.game_images import build_image_url, cached_image_path, download_image
 from retrocheevos.library.user_pics import cached_user_pic_path
 from retrocheevos.models.game import Game
+from retrocheevos.models.library import InstalledRom
+from retrocheevos.library.local_covers import cached_local_cover_path
+from retrocheevos.library.rom_artwork import (
+    ensure_disc_cover_cached, find_local_artwork, is_readable_image,
+)
+from retrocheevos.library.thumbnail_catalog import ensure_named_cover_cached
+from retrocheevos.library.rom_title import derive_title_from_filename
+from retrocheevos.core.console_reference import CONSOLE_NAMES
+from retrocheevos.database.connection import get_connection
+from retrocheevos.database.repositories.console_repository import ConsoleRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,19 +35,53 @@ def ensure_game_image_cached(game: Game) -> Optional[Path]:
     show a placeholder in that case, never crash.
     """
     destination = cached_image_path(game.id)
-    if destination.exists():
+    if destination.is_file() and is_readable_image(destination):
         return destination
 
-    if not game.image_path:
-        return None
+    if game.image_path:
+        try:
+            download_image(build_image_url(game.image_path), destination)
+        except Exception:
+            logger.warning("No cached RA image available for game %d", game.id)
+        if is_readable_image(destination):
+            return destination
+    return _named_rom_cover(game.title, game.console_id)
 
-    try:
-        download_image(build_image_url(game.image_path), destination)
-    except Exception:
-        logger.warning("No cached image available for game %d", game.id)
-        return None
 
-    return destination
+def _named_rom_cover(title: str, console_id: int) -> Optional[Path]:
+    console_name = CONSOLE_NAMES.get(console_id)
+    if console_name is None:
+        # Newly added platforms can use the synced console's name without
+        # requiring a release containing another hardcoded ID mapping.
+        try:
+            with get_connection() as connection:
+                console = ConsoleRepository(connection).get_by_id(console_id)
+                console_name = console.name if console else None
+        except sqlite3.Error:
+            logger.warning("Could not read the console name for artwork lookup")
+    if not console_name:
+        return None
+    return ensure_named_cover_cached(title, console_id, console_name)
+
+
+def ensure_rom_image_cached(rom: InstalledRom, cover_game: Optional[Game] = None) -> Optional[Path]:
+    """Artwork independently of RA matching; user-picked covers always win.
+
+    All disk/network work runs on the image loader's background pool.
+    """
+    manual = cached_local_cover_path(rom.id)
+    if manual.is_file() and is_readable_image(manual):
+        return manual
+    local = find_local_artwork(Path(rom.file_path))
+    if local is not None:
+        return local
+    disc_cover = ensure_disc_cover_cached(Path(rom.file_path), rom.console_id)
+    if disc_cover is not None:
+        return disc_cover
+    named_cover = _named_rom_cover(derive_title_from_filename(rom.file_path), rom.console_id)
+    if named_cover is not None:
+        return named_cover
+    return ensure_game_image_cached(cover_game) if cover_game is not None else None
 
 
 def ensure_user_pic_cached(username: str, user_pic_path: Optional[str]) -> Optional[Path]:

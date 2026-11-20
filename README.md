@@ -69,7 +69,7 @@ intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
 is omitted; provide a native `tools/RAHasher` with its license/source files
 to bundle that optional helper, or use the app's built-in hashing.
 
-## Wii ROMs and live achievement tracking
+## ROMs, artwork and live achievement tracking
 
 Wii folders can contain RVZ files, including nested folders. RVZ/WIA disc
 headers distinguish Wii from GameCube; a configured console is used when
@@ -78,12 +78,36 @@ These ROMs appear in the library even when no compatible achievement hash
 can be computed. Use **Match to Game** when a catalog entry is available;
 compressed-file MD5s are not used as substitutes for RetroAchievements hashes.
 
+ROM thumbnails load automatically in Library and Home. User-picked covers
+take priority, followed by nearby images (including `covers/` and `images/`),
+Wii/GameCube covers identified by the disc ID, a **platform and game-name**
+lookup in [Libretro Thumbnails](https://github.com/libretro-thumbnails), and
+available RetroAchievements catalog artwork. Platform discovery and name
+lookup work independently of an achievement match and include newly synced
+console names. The index is cached for seven days and downloaded artwork
+remains available offline. Wii/GameCube disc covers come from
+[GameTDB](https://www.gametdb.com/).
+If no published artwork is available, a console thumbnail is shown. Right-click
+the ROM and choose **Choose cover…** to supply your own image.
+
 Home's **Now Playing** panel follows locally launched games and recent
 RetroAchievements activity. It refreshes achievement counts, points, locked
 and unlocked achievements every minute while visible, highlights new unlocks,
 and offers **Refresh progress**. Progress reflects updates published by
 RetroAchievements; it does not read the emulator's memory. Network failures
 keep the last result visible and back off retries.
+
+## Sync buttons
+
+| Button | Purpose |
+| --- | --- |
+| Sync Everything | Refresh consoles, the game catalog, your profile and event progress. |
+| Sync ROM Hashes | Download identification hashes and recheck unmatched ROMs with compatible hashes. The optional detailed mode also fetches achievement definitions and median times. |
+| Sync Median Times | Fill in median hardcore completion times for catalog games. Optional and potentially lengthy. |
+| Sync Profile | Refresh your points, completion progress and awards. |
+
+Artwork loads automatically when cards are displayed. Sync Everything does
+not include the separate hash and median-time backfills.
 
 ## Updates
 

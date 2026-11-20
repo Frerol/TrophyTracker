@@ -5,13 +5,9 @@ simpler: no `game_id` means no list-membership menu and no "Open on
 RetroAchievements", and Play launches by `installed_rom.id`
 (`services/library_service.py::launch_installed_rom`) instead of a game id.
 
-The cover slot is a single button doing double duty as both the "+" add
-affordance (nothing cached yet) and the display of whatever's cached — click
-always reopens the file picker, so replacing a wrong pick needs no separate
-control. Saving is synchronous on the UI thread: it's local file I/O
-triggered by a single user click, not a background/bulk operation, so it
-doesn't need `ServiceWorker` (contrast `gui/image_loader.py`, which exists
-because RA cover downloads are per-row and go through the network).
+Artwork loads in the background from local files, GameTDB disc IDs or a
+catalog artwork guess. User-picked covers take precedence. Clicking plays;
+the context menu lets the user replace the cover by hand.
 """
 
 from typing import Optional
@@ -33,7 +29,7 @@ from PySide6.QtWidgets import (
 from retrocheevos.library.local_covers import cached_local_cover_path
 from retrocheevos.library.console_names import abbreviate_console
 from retrocheevos.library.rom_title import derive_title_from_filename
-from retrocheevos.widgets.cover_art import fill_square
+from retrocheevos.widgets.cover_art import console_placeholder, fill_square
 from retrocheevos.widgets.text_layout import wrap_lines
 from retrocheevos.models.library import InstalledRom
 
@@ -110,6 +106,7 @@ class UnmatchedRomCard(QFrame):
         self._cover_button.clicked.connect(
             lambda: self.play_requested.emit(self.installed_rom.id)
         )
+        self._console_short = abbreviate_console(console_name or f"Console #{installed_rom.console_id}")
         self._refresh_cover()
 
         console_text = console_name or f"Console #{installed_rom.console_id}"
@@ -152,25 +149,18 @@ class UnmatchedRomCard(QFrame):
             progress_bar.setFormat("" if edge < CAPTION_MIN_COVER else "No progress")
             layout.addWidget(progress_bar, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        # Requested last, so `_refresh_cover` above has already had its say:
-        # `_on_guessed_cover_ready` refuses to overwrite a hand-picked cover.
-        self._cover_game = cover_game
-        if cover_game is not None and image_loader is not None:
-            image_loader.image_ready.connect(self._on_guessed_cover_ready)
-            image_loader.request(cover_game)
+        # Independent of a catalog match: RVZ/WIA can supply artwork by disc ID.
+        if image_loader is not None:
+            image_loader.rom_image_ready.connect(self._on_rom_cover_ready)
+            image_loader.request_rom(installed_rom, cover_game)
 
-    def _on_guessed_cover_ready(self, game_id: int, pixmap) -> None:
-        if self._cover_game is None or game_id != self._cover_game.id:
+    def _on_rom_cover_ready(self, rom_id: int, pixmap) -> None:
+        if rom_id != self.installed_rom.id:
             return
         if pixmap is None or pixmap.isNull():
             return
-        # A cover the user chose by hand is a decision; the guess is not, so
-        # it never overwrites one. `.exists()`, **not** `is not None`:
-        # `cached_local_cover_path` returns where the file *would* live
-        # whether or not it's there, so the `is not None` this used to say
-        # was always true and the guessed cover was silently dropped every
-        # time — which is why no images appeared.
-        if cached_local_cover_path(self.installed_rom.id).exists():
+        # A manual choice made while the background request was pending wins.
+        if not QPixmap(str(cached_local_cover_path(self.installed_rom.id))).isNull():
             return
         # Cropped to the square like the other cards — a QPushButton icon is
         # letterboxed inside its icon size otherwise, so a 4:3 cover would
@@ -196,14 +186,15 @@ class UnmatchedRomCard(QFrame):
 
     def _refresh_cover(self) -> None:
         cover_path = cached_local_cover_path(self.installed_rom.id)
-        if cover_path.exists():
+        pixmap = QPixmap(str(cover_path)) if cover_path.is_file() else QPixmap()
+        if not pixmap.isNull():
             self._cover_button.setIcon(
-                QIcon(fill_square(QPixmap(str(cover_path)), self._cover_size))
+                QIcon(fill_square(pixmap, self._cover_size))
             )
             self._cover_button.setText("")
         else:
-            self._cover_button.setIcon(QIcon())
-            self._cover_button.setText("+")
+            self._cover_button.setIcon(QIcon(console_placeholder(self._cover_size, self._console_short)))
+            self._cover_button.setText("")
 
     def _on_pick_cover(self) -> None:
         source_path, _ = QFileDialog.getOpenFileName(

@@ -9,12 +9,16 @@ connection (same cross-thread signal pattern as `gui/workers.py`'s
 """
 
 from typing import Optional
+import logging
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtGui import QImage, QPixmap
 
 from retrocheevos.models.game import Game
-from retrocheevos.services.image_service import ensure_game_image_cached
+from retrocheevos.models.library import InstalledRom
+from retrocheevos.services.image_service import ensure_game_image_cached, ensure_rom_image_cached
+
+logger = logging.getLogger(__name__)
 
 
 class _ImageLoadSignals(QObject):
@@ -45,8 +49,29 @@ class _ImageLoadTask(QRunnable):
         self._signals.finished.emit(self._game.id, image)
 
 
+class _RomImageLoadTask(QRunnable):
+    def __init__(self, rom: InstalledRom, cover_game: Optional[Game], signals: _ImageLoadSignals) -> None:
+        super().__init__()
+        self._rom = rom
+        self._cover_game = cover_game
+        self._signals = signals
+
+    def run(self) -> None:
+        image: Optional[QImage] = None
+        try:
+            path = ensure_rom_image_cached(self._rom, self._cover_game)
+            if path is not None:
+                candidate = QImage(str(path))
+                if not candidate.isNull():
+                    image = candidate
+        except Exception:
+            logger.exception("Could not load artwork for ROM %s", self._rom.id)
+        self._signals.finished.emit(self._rom.id, image)
+
+
 class ImageLoader(QObject):
     image_ready = Signal(int, object)  # game_id, Optional[QPixmap]
+    rom_image_ready = Signal(int, object)  # installed_rom_id, Optional[QPixmap]
 
     def __init__(self) -> None:
         super().__init__()
@@ -54,6 +79,21 @@ class ImageLoader(QObject):
         # duration of the load — dropping the only Python reference before
         # the background thread finishes would be a use-after-free risk.
         self._pending: dict[int, _ImageLoadTask] = {}
+        self._rom_pending: dict[int, _RomImageLoadTask] = {}
+
+    def request_rom(self, rom: InstalledRom, cover_game: Optional[Game] = None) -> None:
+        if rom.id in self._rom_pending:
+            return
+        signals = _ImageLoadSignals()
+        signals.finished.connect(self._on_rom_finished)
+        task = _RomImageLoadTask(rom, cover_game, signals)
+        self._rom_pending[rom.id] = task
+        QThreadPool.globalInstance().start(task)
+
+    def _on_rom_finished(self, rom_id: int, image: Optional[QImage]) -> None:
+        self._rom_pending.pop(rom_id, None)
+        pixmap = QPixmap.fromImage(image) if image is not None else None
+        self.rom_image_ready.emit(rom_id, pixmap)
 
     def request(self, game: Game) -> None:
         """Fire-and-forget: starts a background load unless one for this

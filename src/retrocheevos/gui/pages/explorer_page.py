@@ -99,17 +99,26 @@ class ExplorerPage(Page):
         # catalog, which silently drops completion data. See
         # `sync_service.sync_everything`.
         self._sync_everything_button = QPushButton("Sync Everything")
+        self._sync_everything_button.setToolTip(
+            "Update the game catalog, your profile and event progress from RetroAchievements."
+        )
         self._sync_everything_button.clicked.connect(self._on_sync_everything)
         # Kept separate because it costs one API call per game (~1h for the
         # whole catalog vs ~3min for everything above), so it stays opt-in.
         # Resumable, so a second run is nearly instant.
         self._sync_median_times_button = QPushButton("Sync Median Times")
+        self._sync_median_times_button.setToolTip(
+            "Fetch median hardcore completion times for the catalog. Optional; may take a long time."
+        )
         self._sync_median_times_button.clicked.connect(self._on_sync_median_times)
 
         # Same shape and the same reason as the button above: one request per
         # game, opt-in, resumable. This one is what makes ROM scanning able
         # to match files to games at all — `game_hashes` has no other writer.
         self._sync_hashes_button = QPushButton("Sync ROM Hashes")
+        self._sync_hashes_button.setToolTip(
+            "Fetch RetroAchievements ROM hashes to identify compatible ROMs and recheck unmatched files."
+        )
         self._sync_hashes_button.clicked.connect(self._on_sync_game_hashes)
 
         self._catalog_sync_progress = QProgressBar()

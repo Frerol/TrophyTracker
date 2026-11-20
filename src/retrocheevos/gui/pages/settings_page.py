@@ -141,6 +141,9 @@ class SettingsPage(Page):
         # override for "refresh my points/badges right now", and the only
         # place a sync failure is surfaced rather than just logged.
         self._sync_profile_button = QPushButton("Sync Profile")
+        self._sync_profile_button.setToolTip(
+            "Update your points, game completion progress and awards from RetroAchievements."
+        )
         self._sync_profile_button.clicked.connect(self._on_sync_profile)
 
         content = QWidget()
