@@ -211,7 +211,19 @@ def main() -> int:
     # After the schema, before any page reads an account: moves API keys out
     # of the plaintext column and into the OS credential vault. Idempotent —
     # once moved there is nothing left to find.
-    credential_store.migrate_plaintext_keys()
+    try:
+        credential_store.migrate_plaintext_keys()
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Credential reconciliation deferred; database fallback retained"
+        )
+    # Retry any OS-vault deletions that could not be completed earlier (for
+    # example because the vault was temporarily unavailable). Best effort.
+    try:
+        from retrocheevos.services import session_service
+        session_service.cleanup_pending_credentials()
+    except Exception:  # noqa: BLE001
+        pass
 
     app = QApplication(sys.argv)
     # Installed before any window exists, so the very first query is caught.

@@ -1,4 +1,4 @@
-﻿"""SQLite connection management (Architecture.md — Database layer)."""
+"""SQLite connection management (Architecture.md — Database layer)."""
 
 import logging
 import sqlite3
@@ -18,6 +18,14 @@ default_data_dir = paths.data_dir
 DEFAULT_DATABASE_PATH = default_data_dir() / "database" / "retrocheevos.db"
 
 logger = logging.getLogger(__name__)
+
+def __getattr__(name: str):
+    # Lazy compatibility exports avoid the connection/backup import cycle.
+    if name in {"create_backup", "backup_database", "verify_backup", "restore_backup",
+                "restore_database", "export_database", "export_portable"}:
+        from retrocheevos.database import backup
+        return getattr(backup, name)
+    raise AttributeError(name)
 
 
 def create_connection(database_path: Path = DEFAULT_DATABASE_PATH) -> sqlite3.Connection:

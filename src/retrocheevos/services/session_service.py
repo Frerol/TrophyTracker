@@ -14,6 +14,7 @@ from retrocheevos.database.connection import get_connection
 from retrocheevos.database.repositories.account_repository import AccountRepository
 from retrocheevos.library.local_covers import cached_local_cover_path
 from retrocheevos.models.account import Account
+from retrocheevos.services import credential_store
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,12 @@ def add_account(username: str, api_key: str, activate: bool = True) -> Account:
         account = repository.add(Account(username=username, api_key=api_key, is_active=activate))
         if activate:
             repository.set_active(account.id)
-        return account
+    # The fallback and activation are durable before any vault change.
+    try:
+        credential_store.migrate_plaintext_keys()
+    except Exception:
+        logger.warning("Credential reconciliation deferred; database fallback retained")
+    return account
 
 
 def count_account_data(account_id: int) -> dict[str, int]:
@@ -81,6 +87,8 @@ def remove_account(account_id: int) -> None:
         ]
         AccountRepository(connection).remove(account_id)
 
+    cleanup_pending_credentials()
+
     for path in cover_paths:
         try:
             path.unlink(missing_ok=True)
@@ -108,6 +116,27 @@ def logout() -> None:
     Settings, reachable again via "Switch to Selected"."""
     with get_connection() as connection:
         AccountRepository(connection).deactivate_all()
+
+
+def cleanup_pending_credentials() -> int:
+    """Retry any OS-vault deletions that were deferred during account removal.
+
+    Returns the number of entries successfully cleaned up.
+    """
+    try:
+        with get_connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cleaned = AccountRepository._cleanup_pending(connection, credential_store)
+        return cleaned
+    except Exception:
+        logger.warning("Could not run deferred credential cleanup; retry retained")
+        return 0
+
+
+# Alternative names.
+retry_pending_credentials = cleanup_pending_credentials
+retry_credential_cleanup = cleanup_pending_credentials
+process_pending_credentials = cleanup_pending_credentials
 
 
 def build_api_client(account: Account) -> RetroAchievementsClient:

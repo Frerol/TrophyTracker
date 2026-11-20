@@ -70,15 +70,15 @@ def set_key(username: str, api_key: str) -> bool:
     try:
         keyring.set_password(SERVICE_NAME, username, api_key)
         return True
-    except KeyringError as error:
-        logger.warning("Could not store the key for %s in the vault: %s", username, error)
+    except KeyringError:
+        logger.warning("Could not store the key for %s in the vault", username)
         return False
 
 
 def migrate_plaintext_keys() -> int:
     """Move any keys still sitting in `accounts.api_key` into the vault.
 
-    Run once at startup. Not a schema migration: those are pure SQL and this
+    Run at startup and after account changes. Not a schema migration: those are pure SQL and this
     needs the OS vault, which can fail per-machine in ways `PRAGMA
     user_version` has no way to express — a database marked "migrated" on a
     machine where the vault was unavailable would never retry.
@@ -98,6 +98,7 @@ def migrate_plaintext_keys() -> int:
 
     moved = 0
     with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         rows = connection.execute(
             "SELECT id, username, api_key FROM accounts WHERE api_key IS NOT NULL AND api_key != ''"
         ).fetchall()
@@ -142,13 +143,18 @@ def _vacuum_away_freed_pages() -> None:
         connection.close()
 
 
-def delete_key(username: str) -> None:
-    """Best effort. A vault entry left behind when an account is removed is
-    untidy, but failing the removal over it would be worse — the database
-    rows are already gone by then."""
+def delete_key(username: str) -> bool:
+    """Return success only when deletion is confirmed; failures remain retryable.
+
+    Called after account removal commits. An absent entry is already clean.
+    Do not log backend exception text, which may contain credentials.
+    """
     if not is_available():
-        return
+        return False
     try:
-        keyring.delete_password(SERVICE_NAME, username)
-    except Exception as error:  # noqa: BLE001 — includes "no such entry"
-        logger.info("No vault entry to delete for %s (%s)", username, error)
+        if keyring.get_password(SERVICE_NAME, username) is not None:
+            keyring.delete_password(SERVICE_NAME, username)
+        return True
+    except Exception:
+        logger.warning("Could not delete vault entry for %s; cleanup deferred", username)
+        return False

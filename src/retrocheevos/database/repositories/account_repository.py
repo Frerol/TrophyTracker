@@ -25,12 +25,9 @@ class AccountRepository:
     def add(self, account: Account) -> Account:
         """Insert a new account, or update it in place if the username already exists.
 
-        The API key goes to the OS credential vault, and the database column
-        is written **empty** — but only once the vault has confirmed the
-        write. If it hasn't, the column keeps the key, because a key stored
-        nowhere is an account that can never authenticate again.
+        Store the fallback in the caller's transaction. Vault reconciliation
+        runs only after the entire account operation has committed.
         """
-        stored_in_vault = credential_store.set_key(account.username, account.api_key)
         self._connection.execute(
             """
             INSERT INTO accounts (username, api_key, is_active, last_synced_at)
@@ -42,11 +39,17 @@ class AccountRepository:
             """,
             (
                 account.username,
-                "" if stored_in_vault else account.api_key,
+                account.api_key,
                 account.is_active,
                 datetime_to_sql(account.last_synced_at),
             ),
         )
+        # Cancel an old deletion intent if this username is being re-added.
+        self._connection.execute(
+            "DELETE FROM pending_credential_deletions WHERE username = ?",
+            (account.username,),
+        )
+
         row = self._connection.execute(
             "SELECT id FROM accounts WHERE username = ?", (account.username,)
         ).fetchone()
@@ -121,10 +124,7 @@ class AccountRepository:
         NULL: those belong to nobody, and removing one person's account is
         not the moment to guess who they were meant for.
         """
-        # Read before the row goes: the vault is keyed by username, and
-        # removing the account without removing its credential would leave
-        # the key behind in Credential Manager after the user asked for
-        # everything to be deleted.
+        # Read before the row goes: the vault is keyed by username.
         row = self._connection.execute(
             "SELECT username FROM accounts WHERE id = ?", (account_id,)
         ).fetchone()
@@ -135,9 +135,47 @@ class AccountRepository:
             )
         self._connection.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
+        # The deletion intent and account removal commit together. A crash or
+        # unavailable vault cannot lose the retry, nor delete a rolled-back key.
         if row is not None:
-            credential_store.delete_key(row["username"])
+            self._connection.execute(
+                "INSERT OR REPLACE INTO pending_credential_deletions "
+                "(username, created_at) VALUES (?, ?)",
+                (row["username"], datetime.now().isoformat()),
+            )
         logger.info("Removed account id=%d and its data", account_id)
+
+    @staticmethod
+    def cleanup_pending_credentials(connection=None):
+        from retrocheevos.services.session_service import cleanup_pending_credentials
+        if connection is None:
+            return cleanup_pending_credentials()
+        if not connection.in_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+        return AccountRepository._cleanup_pending(connection, credential_store)
+
+    @staticmethod
+    def _cleanup_pending(connection, store):
+        """Caller must hold a write transaction to serialize account changes."""
+        cleaned = 0
+        rows = connection.execute("SELECT username FROM pending_credential_deletions").fetchall()
+        for row in rows:
+            username = row["username"]
+            # Never delete a credential now owned by a re-created account.
+            exists = connection.execute(
+                "SELECT 1 FROM accounts WHERE username = ?", (username,)
+            ).fetchone()
+            try:
+                if exists is None and store.delete_key(username) is False:
+                    continue
+            except Exception:
+                logger.warning("Deferred credential cleanup failed for %s", username)
+                continue
+            connection.execute(
+                "DELETE FROM pending_credential_deletions WHERE username = ?", (username,)
+            )
+            cleaned += 1
+        return cleaned
 
     @staticmethod
     def _row_to_account(row: sqlite3.Row) -> Account:

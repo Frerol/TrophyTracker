@@ -290,3 +290,48 @@ game_completion_repository.py::get_beaten_game_ids`), mirroring how
   matching during scans.
 
 Exact index definitions belong in the migration files, not this document.
+
+## 9. Upgrade recovery, backups and portable exports
+
+Schema upgrades run one explicit transaction per migration, including its
+`user_version` update. Failed initialization rolls back and closes its connection;
+a newer unsupported schema is rejected. Existing on-disk schemas must have a
+verified backup before any upgrade proceeds. If backup creation fails, resolve
+the storage/access problem and restart; the schema remains unchanged.
+
+Automatic backups live in `backups/` beside the database. Each has a unique name;
+the five newest are retained after a successful pre-upgrade backup. Local backups
+include fallback API keys and should remain private. Explicit destinations must
+not already exist. Backup operations require a connection with no pending write
+transaction.
+
+To restore, close TrophyTracker, retain the current database as a separate local
+backup if needed, then run this from the repository (substitute actual paths):
+
+```bash
+PYTHONPATH=src python3 - <<'PY'
+from pathlib import Path
+from retrocheevos.database.backup import restore_backup
+restore_backup(Path('/path/to/backups/selected.db'), Path('/path/to/retrocheevos.db'))
+PY
+```
+
+Restore verifies SQLite integrity and foreign keys before and after copying via
+the SQLite backup API. It replaces database contents without unlinking a WAL
+file. Restarting the application upgrades the restored schema if necessary.
+Lists, manual matches and preferences are included; OS-vault credentials are
+machine-local and cannot be recovered from a database backup that has empty
+credential columns. Re-enter the API key if the vault no longer has it.
+
+Use `export_database(database_path=..., destination=...)` to make a portable
+export. It sanitizes a private temporary snapshot before writing the destination:
+API-key columns, freed credential bytes and pending vault deletions are removed.
+With no destination, portable exports go to a separate `exports/` directory and
+are not pruned with automatic backups. Sign in again on the receiving machine.
+
+Account creation/key replacement and activation commit together before vault
+reconciliation. A failed vault write leaves the committed database fallback;
+a failed scrub commit also preserves it. Account removal records a deletion
+intent in the same transaction as row removal. Cleanup retries after commit and
+at startup; unavailable/locked vaults keep the intent. Re-adding a username
+cancels its old intent so cleanup cannot delete its replacement credential.

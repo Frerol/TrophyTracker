@@ -487,9 +487,8 @@ def _launch_installed_rom(
     closed by the caller, not this helper.
 
     Also stamps `last_played_at` (Continue Playing's recency ordering,
-    `core/dashboard.py`) once validation passes and a launch is actually
-    about to happen — this is the one intentional write on an otherwise
-    read-only connection (see `launch_game`'s docstring), so it's committed
+    `core/dashboard.py`) after process creation succeeds. This write uses
+    the otherwise read-only connection (see `launch_game`'s docstring), so it's committed
     explicitly here rather than relying on `get_connection`'s auto-commit.
     """
     rom_path = Path(installed_rom.file_path)
@@ -503,9 +502,10 @@ def _launch_installed_rom(
             "Set one in Settings > Emulators."
         )
 
-    LibraryRepository(connection, account_id).set_last_played(installed_rom.id, datetime.now())
-    connection.commit()
-
+    game = (
+        GameRepository(connection).get_by_id(installed_rom.game_id)
+        if installed_rom.game_id is not None else None
+    )
     process = launch_emulator(
         Path(emulator_config.executable_path),
         rom_path,
@@ -514,15 +514,27 @@ def _launch_installed_rom(
         flatpak_app_id=emulator_config.flatpak_app_id,
         flatpak_installation=emulator_config.flatpak_installation,
     )
-    game = (
-        GameRepository(connection).get_by_id(installed_rom.game_id)
-        if installed_rom.game_id is not None else None
-    )
     play_session_service.record_launch(
         account_id, installed_rom.game_id,
         game.title if game is not None else derive_title_from_filename(installed_rom.file_path),
         process,
     )
+
+    # Record recency only after the emulator process exists. A persistence
+    # failure here must not imply that the already-running emulator failed to
+    # start or invite a duplicate launch.
+    try:
+        LibraryRepository(connection, account_id).set_last_played(installed_rom.id, datetime.now())
+        connection.commit()
+    except Exception as error:  # noqa: BLE001
+        try:
+            connection.rollback()
+        except Exception:
+            logger.warning("Emulator started; recency rollback also failed")
+        logger.warning(
+            "Emulator started but failed to record last_played_at for installed ROM %s: %s",
+            installed_rom.id, error,
+        )
     return process
 
 

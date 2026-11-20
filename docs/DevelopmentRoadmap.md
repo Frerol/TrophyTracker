@@ -65,7 +65,7 @@ was used, and no application behavior was changed.
   unchanged rescan avoids hashing, a modified file is rematched, and manual
   matches have an explicit preservation/review policy.
 
-- [ ] **R13 — Make migrations atomic and recoverable; provide verified backups.**
+- [x] **R13 — Make migrations atomic and recoverable; provide verified backups.**
   Follow-up review: `database/migrations.py::apply_migrations` executes DDL
   without an explicit transaction boundary and only commits after the loop.
   With the current sqlite3 connection defaults, early DDL can survive a
@@ -85,7 +85,7 @@ was used, and no application behavior was changed.
   a second startup succeeds after recovery, and a restored backup passes
   integrity/foreign-key checks and retains lists, manual matches and settings.
 
-- [ ] **R14 — Reconcile credential-vault changes with database commits.**
+- [x] **R14 — Reconcile credential-vault changes with database commits.**
   `database/repositories/account_repository.py::add` writes to the OS vault
   before executing the account upsert; `remove` deletes the vault entry
   before its caller commits. A later SQL/commit failure can therefore leave
@@ -99,7 +99,7 @@ was used, and no application behavior was changed.
   credential or leave an unexplained mismatch; tests verify recovery and
   diagnostics without exposing keys.
 
-- [ ] **R15 — Record last-played time only after successful process creation.**
+- [x] **R15 — Record last-played time only after successful process creation.**
   `services/library_service.py::_launch_installed_rom` updates and commits
   `last_played_at` before calling `launch_emulator`. An invalid executable
   or permission error therefore moves an unlaunched game into recent play.
@@ -215,6 +215,201 @@ only an in-memory database and temporarily replaced the migration list in
 that Python process. R14 and R15 are code-inspection findings; their failure
 scenarios still require regression tests during implementation. R13–R15 are
 additional P1 work and precede P2 despite their later review IDs.
+
+## Desktop interface revamp — proposed R16–R27
+
+**Status:** proposals only; no UI implementation is implied by this section.
+These items cover the entire desktop experience, including secondary pages,
+menus and dialogs. Android retains its separate roadmap. The technical backlog
+above keeps priority; visual work must preserve R01–R04 and R13–R15 and address
+R06/R07/R08 before increasing catalog, artwork or activity rendering work.
+
+### Visual direction and scope
+
+Aim for a modern achievement companion with the familiarity of RetroAchievements:
+clear game identity, prominent achievement badges and progress, compact catalog
+browsing, and a readable social feed. Reference the public
+[RetroAchievements home](https://retroachievements.org/) and
+[game catalog](https://retroachievements.org/gameList.php) during design;
+record dated screenshots of the relevant pages in R16. Public references do not
+establish the appearance of authenticated pages. No login is needed for planning.
+
+Proposed direction to explore: graphite/charcoal surfaces, restrained amber/gold
+accents for achievement milestones, a distinct primary-action color, larger
+covers where they aid recognition, quieter borders, and stronger typography and
+spacing hierarchy. Treat this as a candidate palette to compare against the
+current ink/mint theme in `gui/styles.py`, rather than a claim about exact site
+colors. Preserve TrophyTracker's name and identity. Use existing/licensed artwork
+and a consistent icon set; do not depend on emoji for navigation or status.
+
+A complete revamp includes Home, embedded Explorer, Library, Lists, Settings,
+account menus, ROM matching/emulator dialogs and update feedback. It does not
+promise new leaderboards, event calendars, chat, recommendations or website-only
+features without their own data/feasibility work. Use existing services and
+cached data first; represent unavailable information honestly. Keep PySide6
+Widgets/model-view as the baseline; a framework rewrite is outside this scope.
+
+### Foundation
+
+- [ ] **R16 — Audit the current experience and define the target layouts.**
+  Inventory current screens, shared widgets, inline styles, duplicated controls
+  and navigation flows in `gui/main_window.py`, `gui/pages/` and `widgets/`.
+  Capture baseline screenshots and representative tasks: sign in, search,
+  filter, launch, assign a ROM, manage a list and switch accounts. Produce
+  annotated desktop layouts for every destination and a before/after comparison
+  for Home and Explorer, including empty/offline examples. Document what is
+  reused versus replaced and reconcile the proposed navigation with `UI.md`.
+  **Done when:** one design specification maps every current action to its new
+  location, contains a candidate palette/type scale and small-window variants,
+  and identifies API/data gaps separately from visual changes.
+
+- [ ] **R17 — Build a shared visual system and reusable primitives.**
+  Expand `gui/styles.py` into semantic tokens for surfaces, text, accents,
+  borders, spacing, typography, radii, icon sizes and progress states. Standardize
+  page/section headers, buttons, search fields, filter chips, status labels,
+  panels, menus and dialogs. Migrate inline styles as each screen is converted;
+  include hover, pressed, selected, disabled, focus and error states. Use bundled
+  or dependable system fonts with a defined fallback and license any new assets.
+  **Done when:** a component preview demonstrates all states and the same
+  controls look consistent on Windows/Linux, without adding page-specific color
+  literals or replacing meaningful labels with icons alone.
+
+- [ ] **R18 — Unify the application shell, navigation and search.**
+  Consolidate the brand header, account controls and page navigation in
+  `gui/main_window.py` and `home_page.py`. Prototype a persistent compact sidebar
+  with a collapsible narrow-window variant and one global search entry. Preserve
+  Home's embedded Explorer as the default search/results flow unless R16
+  explicitly documents a replacement; do not introduce a second independent
+  search/filter state. Show account identity and sync state consistently, with
+  direct access to Library, Lists and Settings. Avoid placeholder destinations.
+  **Done when:** navigation, back-to-Home, logout and account switching remain
+  synchronized; returning from a game or another page restores filters,
+  selection and scroll, and the shell fits at 1024×720 without clipped actions.
+
+### Main screens
+
+- [ ] **R19 — Redesign Home around play, progress and activity.**
+  Give Now Playing a clear primary position when a session is active; otherwise
+  prioritize Continue Playing and a useful first action. Design a compact player
+  summary with avatar, points and distinctly labeled Beaten/Mastered/Completion
+  values, a coherent badge gallery and a readable activity column. Use covers
+  and typographic hierarchy instead of a stack of equally prominent group boxes.
+  Reflow secondary content below the main column in smaller windows; cap artwork
+  loading to visible content. Reuse `now_playing_panel.py`,
+  `continue_playing_game_row.py` and `activity_entry_card.py` where practical.
+  **Done when:** no-account, no-history, active-session, partial-activity-error
+  and offline states all have intentional layouts; late account-bound results
+  cannot repopulate another account's screen, and refresh preserves good data.
+
+- [ ] **R20 — Modernize Explorer while retaining fast catalog browsing.**
+  Refresh `explorer_filter_bar.py`, `explorer_table_model.py` and
+  `explorer_delegates.py`: a clear search/results header, legible active-filter
+  chips, reset action, result count, consistent cover sizing, aligned metadata
+  and obvious Play/list actions. Retain a compact sortable table as the default.
+  A richer cover view is optional only after R06/R07 measurements demonstrate
+  acceptable responsiveness and bounded memory; implement it using model/view
+  virtualization rather than one widget per game. Preserve existing filtering,
+  blocked/completed behavior, manual matching and sort semantics.
+  **Done when:** typing and filtering retain the measured R06 responsiveness,
+  keyboard selection survives refresh, all actions are discoverable without
+  hover alone, and fullscreen/resize do not reintroduce the `setIndexWidget()`
+  native-crash path. No catalog-wide eager artwork fetch is introduced.
+
+- [ ] **R21 — Add a coherent game-detail presentation.**
+  Design a focused detail panel or page reached consistently from Home,
+  Explorer, Library and Lists. Show cover, title, console, available progress,
+  local-ROM status and the relevant Play, match, list and open-on-RA actions.
+  Start with existing cached fields; expose achievement-level content only
+  where existing services support it, with a separately scoped fetch if needed.
+  Distinguish unknown duration/progress from zero. Keep a clear return path;
+  do not change which catalog games are eligible merely to populate the panel.
+  **Done when:** matched, unmatched, uninstalled and offline examples work;
+  missing artwork has a stable fallback, launching uses the existing guarded
+  flow, and returning restores the originating view rather than resetting it.
+
+- [ ] **R22 — Rework Library and ROM-management interactions.**
+  Unify console selection, installed-game presentation, unmatched-ROM handling,
+  cover customization and scan controls in `library_page.py` and its widgets.
+  Use coherent cover proportions and an explicit matched/unmatched/missing-file
+  status with contextual actions. Separate routine play from file-management
+  actions. Redesign `match_rom_dialog.py` and `find_emulator_dialog.py` using the
+  shared components, with helpful explanations when no candidate/config exists.
+  **Done when:** scanning shows progress/cancellation without freezing the page,
+  manual matches and account isolation are preserved, and empty folders, missing
+  emulators, ambiguous matches and failed launches each offer a useful next step.
+
+- [ ] **R23 — Give Lists a consistent collection experience.**
+  Redesign `lists_page.py` and `list_entry_row.py` with clear list selection,
+  item counts, covers, console labels and available progress. Make switching,
+  renaming, removing an entry and deleting an entire list visually distinct;
+  keep destructive actions explicit. Reuse the same game actions/detail entry
+  points as Explorer and Library. Only add sorting/filter controls supported by
+  existing data, retaining selection and scroll during updates.
+  **Done when:** predefined/custom/empty lists all have usable layouts, existing
+  memberships and blocked-game rules remain intact, and deleting a list cannot
+  be confused with deleting a ROM or removing an account.
+
+- [ ] **R24 — Organize Settings, onboarding and account management.**
+  Replace a long undifferentiated settings surface with clear groups or
+  subnavigation for Accounts, Library/Folders, Emulators, Appearance and About/
+  Updates as supported by the application. Give first-run setup a short guided
+  path: add RA credentials, choose a folder, configure an emulator; keep optional
+  steps skippable and settings reachable afterward. Use readable form labels,
+  inline validation and explicit save/outcome feedback; mask API keys. Bring
+  menus, confirmations and `update_banner.py` into the shared visual system.
+  **Done when:** a first-time user can reach a playable matched game without
+  guessing where configuration lives, multiple accounts remain distinguishable,
+  and credential/backend failures retain the existing recovery behavior.
+
+### Cross-cutting quality and delivery
+
+- [ ] **R25 — Standardize feedback, loading and recovery states.**
+  Define shared presentations for initial loading, refreshing cached content,
+  empty results, no account, offline, partial success, retryable error and
+  destructive confirmations. Use stable placeholders rather than layout jumps,
+  show freshness where useful, and reserve blocking dialogs for decisions that
+  need them. Consolidate background job progress so it stays understandable
+  across page changes. Preserve cancellation and shared API pacing.
+  **Done when:** every redesigned page has documented state examples; retries
+  respect backoff, errors preserve useful cached content, and a started emulator
+  with failed recency persistence is never reported as a failed launch.
+
+- [ ] **R26 — Validate accessibility, scaling and interaction polish.**
+  Audit keyboard order, shortcuts, visible focus, accessible names, text contrast
+  and status labels across the shell, tables, menus and dialogs. Target at least
+  4.5:1 contrast for normal text and 3:1 for large text and meaningful UI
+  boundaries; do not encode completion, selection or errors by color alone.
+  Check 100/125/150/200% scaling, long game titles, missing fonts and layouts
+  from 1024×720 through 1920×1080. Keep optional motion short and disableable;
+  avoid expensive shadows/animations in lists. Compact/comfortable density is
+  optional only if both modes can be maintained consistently.
+  **Done when:** search → select → details → launch and account/settings flows
+  work entirely by keyboard; enlarged text does not hide actions, icons remain
+  legible, and animation does not block input or trigger extra network work.
+
+- [ ] **R27 — Deliver the revamp incrementally with visual regression checks.**
+  Convert one complete flow at a time using the shared components; keep account,
+  list and ROM data compatible, without a destructive reset. Add deterministic
+  screenshot fixtures with synthetic data and focused interaction tests for
+  navigation, selection and loading/error states. Repeat fullscreen, resize,
+  active-worker close and account-switch scenarios; measure refresh latency,
+  artwork memory and activity rendering against the technical-backlog baselines.
+  Review Windows packaging and Linux AppImage with the bundled fonts/icons and
+  no developer cache. Reconcile `UI.md`, `Branding.md` and README screenshots
+  after the final layouts land; remove superseded styles/widgets.
+  **Done when:** all destinations and dialogs use the new system, both packaged
+  platforms pass startup/navigation smoke checks, and the measured revamp has
+  no unexplained performance or worker-lifetime regression.
+
+### Suggested implementation order
+
+1. R16 defines layouts and navigation; R17 establishes shared components.
+2. R18 establishes the shell; R19 and R20 convert the main browsing/play flow,
+   coordinated with R06/R07/R08; R21 unifies its game-detail destination.
+3. R22–R24 convert Library, Lists, Settings, onboarding and secondary dialogs.
+4. Apply R25/R26 to each converted flow, rather than postponing state handling
+   and accessibility until the end. R27 consolidates regression/release checks
+   and documentation throughout delivery, with a final full-interface review.
 
 ## Current Status
 
@@ -478,3 +673,20 @@ Per `Vision.md` (Development Workflow):
 - Recommended order of operations: review/confirm this documentation set →
   scaffold folder structure → implement module by module (Database → API →
   Core → Services → GUI), MVP scope first.
+
+### R13–R15 recovery follow-up (2026-11-20)
+
+Implemented the review corrections: mandatory verified pre-upgrade backups,
+collision-free backup names, account-service transaction boundaries, durable
+vault-deletion intents with retry and re-add protection, and metadata reads
+before emulator process creation. Recency persistence/rollback failures after
+creation preserve the running session and return the started process.
+
+Recovery/retention and portable-export procedures are documented in
+[Database.md](Database.md#9-upgrade-recovery-backups-and-portable-exports).
+Regression coverage lives in `tests/database/test_recovery.py`,
+`tests/services/test_account_recovery.py` and `tests/services/test_launch_recovery.py`.
+Validation: 197 non-GUI tests passed, including 23 new recovery tests. The eight
+GUI test modules and `test_wii_rvz_scan.py` require PySide6, unavailable in this
+environment, and were excluded from this run. No live API, real vault or user
+database was used.
