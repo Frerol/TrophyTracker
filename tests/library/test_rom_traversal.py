@@ -39,8 +39,8 @@ class RomTraversalTests(unittest.TestCase):
                                                 lambda *args: progress.append(args))
             self.assertEqual(next(files), Path('/roms/game1.nes'))
             self.assertEqual(entries.pulled, 1)
-            self.assertEqual(progress[0], (0, '/roms'))
-            self.assertEqual(progress[-1], (1, '/roms/game1.nes'))
+            self.assertEqual(progress[0], (0, str(Path('/roms'))))
+            self.assertEqual(progress[-1], (1, str(Path('/roms/game1.nes'))))
             files.close()
         self.assertTrue(entries.closed)
 

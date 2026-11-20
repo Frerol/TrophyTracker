@@ -33,6 +33,7 @@ records the proposed A/C brand options; the runtime artwork remains under
 
 ## Validation and history
 
+- [Testing, CI and dependency policy](validation/Testing.md)
 - [R05–R10 performance and resilience evidence](validation/PerformanceValidation.md)
 - [Historical implementation handoff](archive/HANDOFF.md)
 

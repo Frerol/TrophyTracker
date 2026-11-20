@@ -1,5 +1,13 @@
 ## 0.1.0 — TrophyTracker
 
+- Add CI for the full offscreen suite on Windows/Linux, packaging smoke builds and a non-blocking dependency-upgrade probe.
+- Separate reproducible release constraints, development tools and deliberate upgrade testing into `requirements.txt`, `requirements-dev.txt` and `requirements-upgrade.txt`.
+- Add GUI lifecycle regressions with populated Explorer results, repeated fullscreen rendering, navigation and worker lifetime.
+- Lock release/build dependencies with SHA-256 hashes and universal platform markers.
+- Fix Windows cache publication contention and make existing tests portable across Windows/Linux.
+- Prepare the Linux 0.1.0 AppImage and an experimental Windows portable build helper.
+- Document test commands, CI jobs and the dependency policy.
+- Reconcile the roadmap's current status with the shipped code and label the historical record.
 - Rename the application, build outputs and documentation to TrophyTracker.
 - Preserve existing data and credential identifiers for compatibility.
 - Disable automatic update checks against the original project's releases.

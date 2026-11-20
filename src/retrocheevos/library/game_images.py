@@ -11,6 +11,8 @@ API's `ImageIcon` fragment (e.g. `/Images/012345.png`).
 
 import logging
 import os
+import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -55,7 +57,18 @@ def download_image(url: str, destination: Path) -> None:
             handle.write(response.content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_path, destination)
+        # Windows can briefly deny replacement while another writer or a
+        # reader holds the target. Keep publication atomic and bound retries;
+        # real permission failures still propagate and clean the temp file.
+        for attempt in range(5):
+            try:
+                os.replace(temp_path, destination)
+                break
+            except PermissionError as error:
+                if (sys.platform != "win32" or getattr(error, "winerror", None) not in (5, 32, 33)
+                        or attempt == 4):
+                    raise
+                time.sleep(0.01 * (attempt + 1))
         temp_path = None
     except Exception:
         logger.exception("Failed to download game image from %s", url)

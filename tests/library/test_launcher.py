@@ -16,8 +16,8 @@ class LaunchArgumentTests(unittest.TestCase):
             flatpak_app_id='org.libretro.RetroArch', flatpak_installation='user',
         )
         self.assertEqual(popen.call_args.args[0], [
-            '/usr/bin/flatpak', 'run', '--user', 'org.libretro.RetroArch',
-            '-L', '/app/lib/core.so', '/roms/some game.nes',
+            str(Path('/usr/bin/flatpak')), 'run', '--user', 'org.libretro.RetroArch',
+            '-L', str(Path('/app/lib/core.so')), str(Path('/roms/some game.nes')),
         ])
 
     @patch('retrocheevos.library.launcher.subprocess.Popen')
@@ -29,14 +29,14 @@ class LaunchArgumentTests(unittest.TestCase):
                 flatpak_installation=installation,
             )
             self.assertEqual(popen.call_args.args[0], [
-                '/usr/bin/flatpak', 'run', flag, 'org.ppsspp.PPSSPP',
-                '--fullscreen', '/roms/game with spaces.iso',
+                str(Path('/usr/bin/flatpak')), 'run', flag, 'org.ppsspp.PPSSPP',
+                '--fullscreen', str(Path('/roms/game with spaces.iso')),
             ])
 
     @patch('retrocheevos.library.launcher.subprocess.Popen')
     def test_native_launch_does_not_get_flatpak_prefix(self, popen):
         launch_emulator(Path('/usr/bin/mgba'), Path('/roms/game.gba'))
-        self.assertEqual(popen.call_args.args[0], ['/usr/bin/mgba', '/roms/game.gba'])
+        self.assertEqual(popen.call_args.args[0], [str(Path('/usr/bin/mgba')), str(Path('/roms/game.gba'))])
 
     @patch('retrocheevos.library.launcher.subprocess.Popen')
     def test_invalid_flatpak_id_is_rejected(self, popen):

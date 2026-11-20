@@ -1,0 +1,11 @@
+# Keep the release Qt pin until the Windows/Linux upgrade probe passes.
+PySide6==6.10.1
+requests>=2.31
+beautifulsoup4>=4.12
+Pillow>=10.3
+# API keys live in the OS credential vault (Windows Credential Manager) via
+# `services/credential_store.py`, not in the database. Pulls in
+# pywin32-ctypes on Windows, which the Windows backend calls into — both need
+# a `hiddenimports` entry in packaging/TrophyTracker.spec, because keyring resolves its
+# backend through entry points and PyInstaller cannot see that statically.
+keyring>=25.0

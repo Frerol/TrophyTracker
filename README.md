@@ -1,6 +1,7 @@
 # TrophyTracker
 
-Version **0.1.0**.
+Version **0.1.0**. The current release package targets Linux x86_64; Windows
+builds remain experimental pending native Windows validation.
 
 TrophyTracker is a desktop companion for [RetroAchievements](https://retroachievements.org) on Windows and Linux. It brings your local ROM library, achievement progress, account statistics and custom game lists into one place, with cover artwork and shortcuts to launch games through your configured emulators, including RetroArch.
 
@@ -73,22 +74,37 @@ In Settings, per console, configure:
   design, validation and historical handoffs.
 - `assets/`: runtime icon/logo; historical source art is under `assets/reference/`.
 - `packaging/`: [build inputs and instructions](packaging/README.md).
-- `tools/`: [benchmarks and the optional RAHasher helper](tools/README.md).
+- `tools/`: [checks, benchmarks and the optional RAHasher helper](tools/README.md).
+- `.github/workflows/ci.yml`: CI for the full offscreen suite on Windows/Linux,
+  packaging smoke builds and the deliberate dependency-upgrade probe.
 
 Local `.venv/`, `database/`, `cache/`, `logs/`, `build/` and `dist/` directories
 retain their existing purposes and are ignored by Git. Installed/frozen builds
 continue using the existing per-user data paths.
 
-Run tests from the repository root:
+Run tests from the repository root with the project's environment active:
 
 ```bash
 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -t .
 ```
 
+`requirements.txt` locks release dependencies and their hashes, including transitive packages; `requirements-dev.txt` locks the same set plus
+development-only tools (PyInstaller), and `requirements-upgrade.txt` is the
+deliberate upgrade probe CI installs over the release set. A fresh environment
+only needs the first two:
+
+```bash
+.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+```
+
+Full command reference, CI jobs, the supported-platform matrix and the
+dependency/upgrade policy are in
+[docs/validation/Testing.md](docs/validation/Testing.md).
+
 ## Building an AppImage (Linux x86_64)
 
 Create `.venv` with `python3 -m venv .venv`, then install dependencies with
-`.venv/bin/pip install -r requirements.txt pyinstaller`.
+`.venv/bin/pip install --require-hashes -r requirements.txt -r requirements-dev.txt`.
 Download the official [appimagetool](https://github.com/AppImage/appimagetool/releases)
 and [x86_64 runtime](https://github.com/AppImage/type2-runtime/releases).
 Extract appimagetool with `--appimage-extract` if FUSE is unavailable, then run:

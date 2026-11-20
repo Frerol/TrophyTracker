@@ -162,7 +162,7 @@ class EmulatorSettingsTests(unittest.TestCase):
         with patch.object(library_service, 'create_connection', side_effect=lambda: db.create_connection()), patch('retrocheevos.library.launcher.subprocess.Popen') as popen:
             library_service.launch_installed_rom(rom.id)
         self.assertEqual(popen.call_args.args[0], [
-            '/usr/bin/flatpak', 'run', '--user', 'org.ppsspp.PPSSPP',
+            str(Path('/usr/bin/flatpak')), 'run', '--user', 'org.ppsspp.PPSSPP',
             '--fullscreen', str(path),
         ])
 

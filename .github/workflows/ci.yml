@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly dependency-upgrade probe, independent of the release pin.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install Linux Qt runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
+      - name: Install release and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+
+      - name: Run the full offscreen suite (core, services, database, GUI)
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -t .
+
+  packaging:
+    name: Packaging smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Linux Qt runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
+      - name: Install release and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+
+      - name: Build the frozen application
+        shell: bash
+        run: python -m PyInstaller --noconfirm packaging/TrophyTracker.spec
+
+      - name: Start the bundle and verify it initializes
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            binary="dist/TrophyTracker/TrophyTracker.exe"
+          else
+            binary="dist/TrophyTracker/TrophyTracker"
+          fi
+          python tools/checks/packaging_smoke.py "$binary"
+
+  dependency-upgrade:
+    # Deliberate upgrade testing: the newest GUI framework, installed over the
+    # release constraints, with the crash regressions repeated. This job does
+    # not change requirements.txt; the pin is updated only after it passes.
+    # `continue-on-error` keeps a broken upstream release from blocking the
+    # reproducible release set while still reporting the probe result.
+    name: Dependency upgrade probe (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Linux Qt runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
+      - name: Install release, development and deliberately newer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+          python -m pip install --upgrade -r requirements-upgrade.txt
+
+      - name: Report the probed GUI framework version
+        run: python -c "import PySide6; print('PySide6', PySide6.__version__)"
+
+      - name: Repeat fullscreen, navigation and worker-lifetime regressions
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests/gui -t .

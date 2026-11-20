@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Run after installing requirements.txt and PyInstaller in .venv.
+# Run after installing the release/build locks in .venv (or set PYTHON).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+python="${PYTHON:-$PWD/.venv/bin/python}"
 
 tool="${APPIMAGETOOL:-$PWD/build/appimage-tools/squashfs-root/AppRun}"
 runtime="${APPIMAGE_RUNTIME:-$PWD/build/appimage-tools/runtime-x86_64}"
@@ -10,11 +12,11 @@ if [[ ! -x "$tool" || ! -f "$runtime" ]]; then
     exit 1
 fi
 
-.venv/bin/pyinstaller --noconfirm packaging/TrophyTracker.spec
+"$python" -m PyInstaller --noconfirm packaging/TrophyTracker.spec
 appdir="$PWD/build/TrophyTracker.AppDir"
 mkdir -p "$appdir/usr"
 # Replace the previous payload so removed dependencies do not linger.
-.venv/bin/python - "$appdir" <<'PY'
+"$python" - "$appdir" <<'PY'
 import shutil
 import sys
 from pathlib import Path
@@ -42,7 +44,7 @@ Icon=trophytracker
 Categories=Game;Utility;
 Terminal=false
 EOF
-version="$(PYTHONPATH=src .venv/bin/python -c 'from retrocheevos.version import APP_VERSION; print(APP_VERSION)')"
+version="$(PYTHONPATH=src "$python" -c 'from retrocheevos.version import APP_VERSION; print(APP_VERSION)')"
 output="dist/TrophyTracker-${version}-x86_64.AppImage"
 temporary_output="${output%.AppImage}.build-$$.AppImage"
 trap 'rm -f -- "$temporary_output"' EXIT

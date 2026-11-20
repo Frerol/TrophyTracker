@@ -39,7 +39,7 @@ class WiiRvzScanTests(unittest.TestCase):
         nested = self.romdir / 'Subfolder'
         nested.mkdir()
         (nested / 'Another Game.RVZ').write_bytes(rvz_header(2))
-        with patch.dict(os.environ, {'HOME': str(self.root)}):
+        with patch.dict(os.environ, {'HOME': str(self.root), 'USERPROFILE': str(self.root)}):
             folder = library.add_rom_folder('~/Emulation/roms/wii', 19)
         result = library.scan_rom_folder(folder.id)
         self.assertEqual(len(result.recorded), 2)

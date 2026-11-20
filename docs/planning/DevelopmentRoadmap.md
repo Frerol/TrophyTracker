@@ -8,7 +8,8 @@ The planned Android achievement-tracking companion has a separate
 Treat this work as a priority ahead of new feature phases. P1 addresses
 correctness and stability first; P2 addresses performance and reliability;
 P3 strengthens maintenance and release verification. Within each tier,
-follow the order below. These are open tasks, not implemented fixes.
+follow the order below. All items are implemented as of 2026-11-20; the
+validation notes here and in `docs/validation/` record the evidence.
 
 Review covered the desktop GUI/worker lifecycle, Explorer read path, API
 client/sync orchestration, SQLite repositories, ROM scanning and artwork.
@@ -187,7 +188,7 @@ R05–R10 implementation evidence and reproducible measurements are recorded in
 
 ### P3 — maintenance and release verification
 
-- [ ] **R11 — Automate reproducible checks and validate dependency changes.**
+- [x] **R11 — Automate reproducible checks and validate dependency changes.**
   The repository has unittest coverage but no checked-in CI workflow or
   development-tool configuration discovered in this review. Add documented
   test commands and CI for core/services/database plus offscreen GUI tests,
@@ -198,8 +199,8 @@ R05–R10 implementation evidence and reproducible measurements are recorded in
   can run the checks, supported platforms are exercised, and GUI/framework
   upgrades repeat fullscreen, navigation and worker-lifetime scenarios.
 
-- [ ] **R12 — Reconcile historical roadmap status with current code.**
-  The historical Current Status below still describes Quick Links,
+- [x] **R12 — Reconcile historical roadmap status with current code.**
+  The former status narrative in this roadmap still described Quick Links,
   `ProfilePage`, `DashboardPage` and fixed list behavior that no longer
   match the current modules/UI; README already describes newer Now Playing,
   account isolation and artwork work. Preserve useful investigation history
@@ -207,6 +208,28 @@ R05–R10 implementation evidence and reproducible measurements are recorded in
   behavior to the actual files. **Done when:** one current status section
   reflects the shipped code, distinguishes desktop/Android scope and points
   to this prioritized backlog without presenting removed features as active.
+
+R11/R12 follow-up (2026-11-20): added `.github/workflows/ci.yml` (full offscreen
+suite on Windows/Linux × Python 3.12/3.13, packaging smoke builds, and the
+non-blocking dependency-upgrade probe), `requirements-dev.txt` and
+`requirements-upgrade.txt`, the packaging smoke probe
+(`tools/checks/packaging_smoke.py`) and the GUI lifecycle regression
+(`tests/gui/test_lifecycle_regression.py`). Test/CI documentation is
+[Testing.md](../validation/Testing.md). The current status section now reflects
+the shipped modules, and the former status narrative is labelled historical.
+Validation follow-up: release/build dependencies are now locked with exact
+versions and SHA-256 hashes, with editable policy in `requirements.in` and
+`requirements-dev.in`. The fullscreen regression loads 40 matching games for
+an active account through the actual background snapshot/model path, waits
+for results, scrolls and renders the table across repeated transitions. It
+also fails on Python exceptions in Qt slots. Worker shutdown is checked via
+the finished signal, without accessing an already-destroyed Qt object.
+The full Linux Python 3.13 suite passes (298 tests); the Windows Python 3.13
+suite under Wine passes (298 tests, two POSIX symlink tests skipped).
+The Linux PySide6 6.12.0 upgrade probe passes all 61 GUI tests; the release
+pin remains 6.10.1 pending native Windows validation. The 0.1.0 public package
+is Linux only; Windows packaging remains experimental. Build and smoke
+commands are documented in `packaging/README.md`.
 
 Review validation: 22 existing tests passed using
 `PYTHONPATH=src python3 -m unittest tests.api.test_credential_redaction tests.database.test_game_hash_case tests.library.test_zip_extraction`.
@@ -218,6 +241,76 @@ only an in-memory database and temporarily replaced the migration list in
 that Python process. R14 and R15 are code-inspection findings; their failure
 scenarios still require regression tests during implementation. R13–R15 are
 additional P1 work and precede P2 despite their later review IDs.
+
+## Current Status
+
+Reflects the shipped desktop code as of 2026-11-20. The prioritized review
+backlog above is the active work list; the proposed R16–R27 interface revamp
+below is planned, not implemented. Earlier investigation notes are preserved
+under [Historical Status](#historical-status) and include features that no
+longer exist — read that section as history, not as the current UI.
+
+### Desktop (this repository)
+
+- **Navigation** — `gui/main_window.py` hosts four persistent destinations:
+  Home, Library, Lists and Settings. There is no standalone Profile or
+  Dashboard page: `ProfilePage` was removed (its content moved to Home and
+  Settings) and `DashboardPage` was retired after its Recent Activity section
+  was absorbed into Home.
+- **Home** — `gui/pages/home_page.py`: Continue Playing, points/true points,
+  badges, event badges, Recent Activity (`services/activity_feed_service.py`),
+  Now Playing (`widgets/now_playing_panel.py`, `services/now_playing_service.py`)
+  and an always-visible search field that expands an embedded
+  `ExplorerPage` (`gui/pages/explorer_page.py`) in place.
+- **Explorer** — `gui/pages/explorer_page.py` with the sortable table
+  (`gui/models/explorer_table_model.py`) and paint-only delegates
+  (`gui/delegates/explorer_delegates.py`); the `setIndexWidget()` widget pool
+  that caused the native crash is gone.
+- **Library** — `gui/pages/library_page.py`: installed-ROM grid, per-account
+  ROM folders, background scanning and manual matching.
+- **Lists** — `gui/pages/lists_page.py` over `core/lists.py`; blocked games are
+  `ListType.BLOCKED`, not a separate table.
+- **Settings** — `gui/pages/settings_page.py`: accounts, emulators and profile
+  sync. ROM Destinations and Quick Links were removed in Bloco 11; their tables
+  were dropped in schema v20.
+- **Per-account data** — `rom_folders` and `installed_roms` are account-scoped
+  (migration v21); signing out preserves each account's library and lists.
+- **Artwork** — `library/game_images.py`, `library/rom_artwork.py`,
+  `gui/image_loader.py` and `services/image_service.py`, with the bounded cache
+  from R07.
+- **Recovery** — `database/backup.py` and `database/migrations.py` implement the
+  R13–R15 atomic-migration, verified-backup and credential/launch recovery
+  behavior; regression tests live in `tests/database/test_recovery.py` and
+  `tests/services/test_account_recovery.py` / `test_launch_recovery.py`.
+- **Validation** — R05–R10 evidence is in
+  [PerformanceValidation.md](../validation/PerformanceValidation.md); test
+  commands, CI jobs and the dependency policy are in
+  [Testing.md](../validation/Testing.md).
+
+### Android
+
+A separate planned companion app exists only as the
+[Android roadmap](AndroidRoadmap.md). No Android code, APK or shared
+implementation has been built; the desktop and Android roadmaps are scoped
+independently.
+
+### Removed or superseded (not active)
+
+- Quick Links per console and ROM Destinations — removed in Bloco 11; the
+  tables were dropped in schema v20 (`database/schema.py`).
+- `ProfilePage` — removed; profile content lives on Home and Settings
+  ([UI.md](../design/UI.md) §3.4).
+- `DashboardPage` — retired; Recent Activity moved to Home.
+- Watch Folder organizer and automatic file moving — removed; scans only index
+  what is already on disk.
+- Fixed list behavior — lists are definitions in `user_list_definitions`, not
+  a hard-coded set.
+
+### Next
+
+R16 maps the four reference boards to current flows and missing data; R17 then
+establishes the visual tokens before any R18–R27 implementation. The
+prioritized P1–P3 backlog above is complete as of this revision.
 
 ## Desktop interface revamp — proposed R16–R27
 
@@ -482,7 +575,14 @@ though the four boards do not draw every existing feature.
 4. Apply R25/R26 to each converted flow. R27 maintains screenshot/performance
    evidence throughout and finishes with the complete desktop/package review.
 
-## Current Status
+## Historical Status
+
+> **Historical record, not the current UI.** This section preserves the
+> investigation trail from earlier revisions. Quick Links, `ProfilePage`,
+> `DashboardPage`, the Watch Folder organizer and fixed list behavior described
+> below were removed or superseded; see [Current Status](#current-status) for
+> the shipped code. Kept because the crash findings and design reasoning remain
+> useful.
 
 - Explorer filter/grid performance — resolved (superseded by the table
   redesign below, which replaced the Game Card grid entirely).
@@ -676,13 +776,12 @@ though the four boards do not draw every existing feature.
   expanded, and round-tripped through standalone-Explorer-nav and back —
   `logs/crash.log` line count unchanged throughout. Also confirmed with
   the standard real 20s app launch used all session.
-- **Next up**: Phase 6/7 (Games Beaten + Friends leaderboards — needs a
-  research spike, this pulls forward Version 1.2 work with zero backend
-  built), Phase 8 (notification bell — own feasibility check, same
-  data-gap pattern as "recently added achievements"). Separately, also
-  still pending: restoring PySide6 to latest (pinned to 6.10.1 since the
-  Explorer crash, confirmed fixed independent of version, never actually
-  re-tested against latest).
+- **Historical next steps (superseded)**: the Phase 6/7 leaderboards and
+  Phase 8 notification-bell ideas, and the PySide6 upgrade, were recorded
+  here. The PySide6 re-test now lives in the CI dependency-upgrade probe and
+  `tests/gui/test_lifecycle_regression.py` (fullscreen, navigation and
+  worker-lifetime scenarios). Current priorities are the backlog above and the
+  proposed revamp below.
 
 ## MVP
 

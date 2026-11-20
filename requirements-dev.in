@@ -1,0 +1,3 @@
+# Build tools, locked together with the release dependencies.
+-r requirements.in
+pyinstaller>=6.0

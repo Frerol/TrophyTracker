@@ -30,7 +30,10 @@ class EmulatorDiscoveryTests(unittest.TestCase):
         self._file('other/pcsx2-v2.4.0-setup.AppImage')
         self._file('other/pcsx2-v2.4.0.dll')
         self._file('other/pcsx2-qt', executable=False)
-        with patch.object(discovery.sys, 'platform', 'linux'):
+        # Model POSIX executable permissions even on a Windows filesystem.
+        with patch.object(discovery.sys, 'platform', 'linux'), patch.object(
+            discovery.os, 'access', side_effect=lambda path, mode: Path(path).name != 'pcsx2-qt'
+        ):
             psp = discovery.discover_emulators(41, [self.root])
             ps2 = discovery.discover_emulators(21, [self.root])
         self.assertEqual({candidate.name for candidate in psp.candidates}, {'RetroArch', 'PPSSPP'})

@@ -1,0 +1,7 @@
+# Deliberate dependency-upgrade probe — NOT a release constraint.
+#
+# CI installs this on top of requirements.txt and reruns the GUI crash
+# regressions (fullscreen, navigation, worker lifetime) on Windows and Linux.
+# requirements.txt stays the reproducible release set; change its PySide6 pin
+# only after this probe passes. See docs/validation/Testing.md.
+PySide6>=6.11

@@ -1,5 +1,7 @@
 # Developer tools
 
+- `checks/`: CI helper scripts. `packaging_smoke.py` starts a frozen build with
+  an isolated data directory and verifies it initializes.
 - `benchmarks/`: repeatable performance probes. Run from the repository root
   with the project's environment and `PYTHONPATH=src`.
 - `rahasher/`: optional third-party helper and its redistribution notices.
