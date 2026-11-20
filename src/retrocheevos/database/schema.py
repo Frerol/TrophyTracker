@@ -511,6 +511,19 @@ ADD_FLATPAK_CONFIG_V25 = [
     "ALTER TABLE emulator_configs ADD COLUMN flatpak_installation TEXT",
 ]
 
+# R04: detect a ROM whose contents changed at an already-scanned path.
+# `file_size`/`file_mtime_ns` are the fingerprint captured at hash time, so a
+# rescan can tell "same file" from "different file now sitting at that path"
+# without re-reading every byte. Nullable on purpose: rows written before this
+# migration have no fingerprint, and a NULL forces a one-time rehash rather
+# than being mistaken for a match. `manual_match` marks a `game_id` the user
+# picked by hand, so a later hash-driven rematch never silently overrides it.
+ADD_ROM_FINGERPRINT_V26 = [
+    "ALTER TABLE installed_roms ADD COLUMN file_size INTEGER",
+    "ALTER TABLE installed_roms ADD COLUMN file_mtime_ns INTEGER",
+    "ALTER TABLE installed_roms ADD COLUMN manual_match BOOLEAN NOT NULL DEFAULT 0",
+]
+
 CREATE_TABLES_V18 = [
     """
     CREATE TABLE IF NOT EXISTS user_preferences (

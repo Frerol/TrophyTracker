@@ -400,23 +400,37 @@ class SettingsPage(Page):
         self.refresh()
 
     def _on_sync_profile(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SYNC_PROFILE
+
         account = self.app_context.active_account
         if account is None:
             QMessageBox.warning(self, "No account", "Add or select an account first.")
+            return
+
+        token = try_acquire(JOB_SYNC_PROFILE)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(
+                self, "Busy", f"Cannot start: {active_job()} is already running."
+            )
             return
 
         client = session_service.build_api_client(account)
         self._sync_profile_button.setEnabled(False)
         self._sync_profile_button.setText("Syncing...")
 
-        self._sync_profile_worker = ServiceWorker(sync_service.sync_profile, client, account)
-        self._sync_profile_worker.finished_ok.connect(self._on_sync_profile_done)
-        self._sync_profile_worker.failed.connect(self._on_sync_profile_failed)
-        self._sync_profile_worker.start()
+        worker = ServiceWorker(sync_service.sync_profile, client, account, cancellable=True)
+        worker.finished_ok.connect(lambda _r: (self._on_sync_profile_done(_r), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_sync_profile_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: self._release_job(token))
+        self.app_context.workers.start(worker, key=("settings", "sync-profile"))
 
-    def _reset_sync_profile_button(self) -> None:
-        self._sync_profile_button.setText("Sync Profile")
-        self._sync_profile_button.setEnabled(True)
+    def _release_job(self, token) -> None:
+        from retrocheevos.services.job_coordinator import release
+
+        release(token)
+        self._reset_sync_profile_button()
 
     def _on_sync_profile_done(self, _result: object) -> None:
         self._reset_sync_profile_button()

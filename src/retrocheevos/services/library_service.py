@@ -47,6 +47,7 @@ from retrocheevos.models.library import (
     RomFolderScanResult,
 )
 from retrocheevos.services import session_service, play_session_service
+from retrocheevos.utils.cancellation import OperationCancelled, raise_if_cancelled
 
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,22 @@ def _normalize_path_for_comparison(path: str) -> str:
     re-hashed on every scan — normalize both sides before comparing.
     """
     return os.path.normcase(str(Path(path).expanduser().resolve()))
+
+
+def _file_fingerprint(path: Path) -> tuple[Optional[int], Optional[int]]:
+    """Size and nanosecond mtime — R04's cheap "did this file change?" test.
+
+    `st_mtime_ns` rather than `st_mtime`: filesystem mtimes are often stored
+    at sub-second resolution, and two edits within the same second are
+    exactly the kind of change a whole-second comparison misses. Returns
+    `(None, None)` when the file can't be stat'ed; a NULL fingerprint forces
+    a rehash rather than being mistaken for "unchanged".
+    """
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return None, None
+    return stat_result.st_size, stat_result.st_mtime_ns
 
 
 def add_rom_folder(
@@ -212,9 +229,13 @@ def match_installed_rom_to_game(installed_rom_id: int, game_id: int) -> None:
     """Manual match (UI.md 3.3): the user picked which game a ROM that
     hashing couldn't resolve actually is. Also usable to correct a wrong
     match — no check that the ROM was previously unmatched.
+
+    Marked `manual_match` so a later hash-driven rematch (a rescan, a forced
+    rehash, or the hash backfill's `rematch_unmatched_roms`) reports a
+    disagreement instead of overwriting the user's choice.
     """
     with get_connection() as connection:
-        _library_repo(connection).set_game_id(installed_rom_id, game_id)
+        _library_repo(connection).set_game_id(installed_rom_id, game_id, manual=True)
 
 
 def rematch_unmatched_roms() -> int:
@@ -251,9 +272,15 @@ def rematch_unmatched_roms() -> int:
 
 def rehash_installed_roms(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> RehashResult:
     """Recompute every recorded ROM's hash with the current hasher, then
     re-match anything whose hash changed.
+
+    This is also R04's **forced verification pass**: unlike a folder scan,
+    it ignores the size/mtime fingerprint and re-reads every file, so a
+    change the fingerprint couldn't see (same size, mtime restored) is still
+    caught. It refreshes each row's fingerprint as it goes.
 
     `rematch_unmatched_roms` re-runs *matching* against the stored hash. This
     re-runs the *hashing*, which is the half that was unreachable: a folder
@@ -265,13 +292,14 @@ def rehash_installed_roms(
     the text index instead of the disc.
 
     Only writes when the hash actually changes, so a second run is a no-op
-    against the database and every `last_played_at` and manual match survives.
+    against the database and every `last_played_at` survives.
 
-    Re-matching is attempted for any ROM that is unmatched *or* whose hash
-    moved — a changed hash can invalidate an existing match as easily as
-    create one. An existing match is never cleared: if the new hash finds
-    nothing, the old `game_id` stays, because it may well have been the
-    user's own "Match to Game…" choice.
+    A **manual** match is never overwritten. If the new hash disagrees with
+    the game the user picked, the row keeps the user's choice and the path is
+    reported in `manual_matches_preserved` for review. An automatic match
+    whose hash moved is re-resolved from the new hash — including clearing it
+    when nothing matches, since the old match was a statement about the old
+    bytes.
 
     `progress_callback(done, total, current_path)` runs on this thread.
 
@@ -287,8 +315,11 @@ def rehash_installed_roms(
     newly_matched = 0
     missing: list[str] = []
     failed: list[str] = []
+    manual_matches_preserved: list[str] = []
+    changed_paths: list[str] = []
 
     for index, rom in enumerate(roms, start=1):
+        raise_if_cancelled(should_cancel)
         if progress_callback is not None:
             progress_callback(index, total, rom.file_path)
 
@@ -297,6 +328,7 @@ def rehash_installed_roms(
             missing.append(rom.file_path)
             continue
 
+        file_size, file_mtime_ns = _file_fingerprint(path)
         try:
             new_hash = _hash_recorded_rom(path, rom.console_id)
         except Exception:  # noqa: BLE001 — one unreadable ROM mustn't end the pass
@@ -305,31 +337,43 @@ def rehash_installed_roms(
             continue
 
         hash_changed = new_hash != rom.hash
-        if not hash_changed and rom.game_id is not None:
-            continue
+        # A row with no game yet still deserves a matching attempt even when
+        # its hash is unchanged — the hash table may have filled in since.
+        needs_match = hash_changed or rom.game_id is None
 
         with get_connection() as connection:
             repository = LibraryRepository(connection, account_id)
+            repository.set_fingerprint(rom.id, file_size, file_mtime_ns)
             if hash_changed:
                 logger.info(
                     "Re-hashed %s: %s -> %s", rom.file_path, rom.hash, new_hash
                 )
                 repository.set_hash(rom.id, new_hash)
                 changed += 1
+                changed_paths.append(rom.file_path)
+
+            if not needs_match:
+                continue
 
             game_id = GameRepository(connection).find_game_id_by_hash(new_hash)
+            if rom.manual_match:
+                if rom.game_id is not None and game_id != rom.game_id:
+                    manual_matches_preserved.append(rom.file_path)
+                continue
+
             if game_id is not None and game_id != rom.game_id:
                 repository.set_game_id(rom.id, game_id)
                 newly_matched += 1
 
     logger.info(
         "Re-hash pass: %d checked, %d hashes changed, %d newly matched, "
-        "%d missing, %d failed",
+        "%d missing, %d failed, %d manual match(es) preserved",
         total,
         changed,
         newly_matched,
         len(missing),
         len(failed),
+        len(manual_matches_preserved),
     )
     return RehashResult(
         checked=total,
@@ -337,6 +381,8 @@ def rehash_installed_roms(
         newly_matched=newly_matched,
         missing=missing,
         failed=failed,
+        manual_matches_preserved=manual_matches_preserved,
+        changed_paths=changed_paths,
     )
 
 
@@ -364,6 +410,7 @@ def record_installed_rom(file_path: str, console_id: int, rom_hash: str) -> Inst
 def _record_installed_rom_for_account(
     file_path: str, console_id: int, rom_hash: str, account_id: Optional[int]
 ) -> InstalledRom:
+    file_size, file_mtime_ns = _file_fingerprint(Path(file_path))
     with get_connection() as connection:
         game_id = GameRepository(connection).find_game_id_by_hash(rom_hash) if rom_hash else None
         return LibraryRepository(connection, account_id).add_installed_rom(
@@ -373,6 +420,8 @@ def _record_installed_rom_for_account(
                 console_id=console_id,
                 game_id=game_id,
                 detected_at=datetime.now(),
+                file_size=file_size,
+                file_mtime_ns=file_mtime_ns,
             )
         )
 
@@ -523,6 +572,7 @@ def launch_installed_rom(installed_rom_id: int) -> subprocess.Popen:
 def scan_rom_folder(
     rom_folder_id: int,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> RomFolderScanResult:
     """Walk a ROM folder and record what's installed, **without moving anything**.
 
@@ -555,7 +605,10 @@ def scan_rom_folder(
     the folder row is gone.
     """
     return _scan_rom_folder_for_account(
-        rom_folder_id, _active_account_id(), progress_callback
+        rom_folder_id,
+        _active_account_id(),
+        progress_callback,
+        should_cancel=should_cancel,
     )
 
 
@@ -563,6 +616,7 @@ def _scan_rom_folder_for_account(
     rom_folder_id: int,
     account_id: Optional[int],
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> RomFolderScanResult:
     with get_connection() as connection:
         repository = LibraryRepository(connection, account_id)
@@ -570,14 +624,16 @@ def _scan_rom_folder_for_account(
         if rom_folder is None:
             raise RomFolderNotFoundError(f"ROM folder {rom_folder_id} not found")
         already_installed = {
-            _normalize_path_for_comparison(path)
-            for path in repository.get_installed_file_paths()
+            _normalize_path_for_comparison(rom.file_path): rom
+            for rom in repository.list_installed_roms()
         }
 
     recorded: list[InstalledRom] = []
     ambiguous_paths: list[str] = []
     unrecognized_paths: list[str] = []
     failed_paths: list[str] = []
+    changed_paths: list[str] = []
+    preserved_manual_matches: list[str] = []
     already_known_count = 0
     scanned = 0
 
@@ -585,12 +641,55 @@ def _scan_rom_folder_for_account(
     if not folder_path.is_dir():
         raise FileNotFoundError(f"ROM folder is not accessible: {folder_path}")
     for file_path in sorted(folder_path.rglob("*")):
+        raise_if_cancelled(should_cancel)
         if not file_path.is_file():
             continue
         if _is_not_a_rom(file_path.relative_to(folder_path)):
             continue
-        if _normalize_path_for_comparison(str(file_path)) in already_installed:
-            already_known_count += 1
+
+        existing = already_installed.get(_normalize_path_for_comparison(str(file_path)))
+        if existing is not None:
+            file_size, file_mtime_ns = _file_fingerprint(file_path)
+            unchanged = (
+                existing.file_size is not None
+                and existing.file_mtime_ns is not None
+                and existing.file_size == file_size
+                and existing.file_mtime_ns == file_mtime_ns
+            )
+            if unchanged:
+                already_known_count += 1
+                continue
+
+            # A recorded path whose file changed (or predates v26 and has no
+            # fingerprint yet). Rehash it — this is the R04 gap a plain rescan
+            # left open: the path was known, so it was skipped forever even
+            # though the bytes underneath it were different.
+            scanned += 1
+            if progress_callback is not None:
+                progress_callback(scanned, str(file_path))
+            try:
+                new_hash = _hash_recorded_rom(file_path, existing.console_id)
+            except (OSError, ValueError):
+                logger.exception("Could not re-scan changed ROM %s", file_path)
+                failed_paths.append(str(file_path))
+                continue
+
+            changed_paths.append(str(file_path))
+            with get_connection() as connection:
+                repository = LibraryRepository(connection, account_id)
+                repository.set_hash(existing.id, new_hash)
+                repository.set_fingerprint(existing.id, file_size, file_mtime_ns)
+                if existing.manual_match:
+                    if existing.game_id is not None:
+                        preserved_manual_matches.append(str(file_path))
+                    continue
+                game_id = (
+                    GameRepository(connection).find_game_id_by_hash(new_hash)
+                    if new_hash
+                    else None
+                )
+                if game_id != existing.game_id:
+                    repository.set_game_id(existing.id, game_id)
             continue
 
         detection = detect_console(file_path, rom_folder.console_id)
@@ -624,6 +723,8 @@ def _scan_rom_folder_for_account(
         ambiguous_paths=ambiguous_paths,
         unrecognized_paths=unrecognized_paths,
         failed_paths=failed_paths,
+        changed_paths=changed_paths,
+        preserved_manual_matches=preserved_manual_matches,
     )
 
 
@@ -764,6 +865,7 @@ def _is_not_a_rom(file_path: Path) -> bool:
 
 def scan_all_rom_folders(
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> RomFolderScanResult:
     """Scan every configured ROM folder and return one combined result.
 
@@ -789,10 +891,16 @@ def scan_all_rom_folders(
     with get_connection() as connection:
         folders = LibraryRepository(connection, account_id).list_rom_folders()
     for rom_folder in folders:
+        raise_if_cancelled(should_cancel)
         try:
             result = _scan_rom_folder_for_account(
-                rom_folder.id, account_id, progress_callback
+                rom_folder.id,
+                account_id,
+                progress_callback,
+                should_cancel=should_cancel,
             )
+        except OperationCancelled:
+            raise
         except Exception:
             logger.exception("Scan failed for ROM folder %s", rom_folder.path)
             combined.failed_folders.append(rom_folder.path)
@@ -802,6 +910,8 @@ def scan_all_rom_folders(
         combined.ambiguous_paths.extend(result.ambiguous_paths)
         combined.unrecognized_paths.extend(result.unrecognized_paths)
         combined.failed_paths.extend(result.failed_paths)
+        combined.changed_paths.extend(result.changed_paths)
+        combined.preserved_manual_matches.extend(result.preserved_manual_matches)
     return combined
 
 

@@ -186,10 +186,14 @@ class LibraryAccountScopeTests(unittest.TestCase):
         connection.execute("INSERT INTO consoles (id, name) VALUES (5, 'GBA')")
         repository = LibraryRepository(connection, 1)
         folder = repository.add_rom_folder(RomFolder(path='/roms', console_id=5, watch_enabled=True))
-        rom = repository.add_installed_rom(InstalledRom(file_path='/roms/game.gba', hash='original', console_id=5))
-        repository.set_last_played(rom.id, datetime(2026, 1, 1))
+        cursor = connection.execute(
+            "INSERT INTO installed_roms (game_id, file_path, hash, console_id, detected_at, account_id) VALUES (NULL, '/roms/game.gba', 'original', 5, NULL, 1)"
+        )
+        rom_id = cursor.lastrowid
+        repository.set_last_played(rom_id, datetime(2026, 1, 1))
         connection.commit()
         apply_migrations(connection)
+        rom = repository.get_by_id(rom_id)
         self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], MIGRATIONS[-1][0])
         self.assertEqual(repository.get_rom_folder(folder.id).path, '/roms')
         self.assertEqual(repository.get_by_id(rom.id).hash, 'original')

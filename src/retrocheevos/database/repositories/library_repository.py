@@ -85,17 +85,25 @@ class LibraryRepository:
     # --- installed_roms -----------------------------------------------
 
     def add_installed_rom(self, installed_rom: InstalledRom) -> InstalledRom:
-        """Idempotent: re-scanning the same file path updates the existing row."""
+        """Idempotent: re-scanning the same file path updates the existing row.
+
+        `manual_match` is deliberately absent from the conflict update: a
+        rescan of a file the user matched by hand must not reset that choice
+        back to "automatic".
+        """
         self._connection.execute(
             """
             INSERT INTO installed_roms
-                (game_id, file_path, hash, console_id, detected_at, account_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (game_id, file_path, hash, console_id, detected_at, account_id,
+                 file_size, file_mtime_ns, manual_match)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT DO UPDATE SET
                 game_id = excluded.game_id,
                 hash = excluded.hash,
                 console_id = excluded.console_id,
-                detected_at = excluded.detected_at
+                detected_at = excluded.detected_at,
+                file_size = excluded.file_size,
+                file_mtime_ns = excluded.file_mtime_ns
             """,
             (
                 installed_rom.game_id,
@@ -104,6 +112,9 @@ class LibraryRepository:
                 installed_rom.console_id,
                 datetime_to_sql(installed_rom.detected_at),
                 self._account_id,
+                installed_rom.file_size,
+                installed_rom.file_mtime_ns,
+                1 if installed_rom.manual_match else 0,
             ),
         )
         row = self._connection.execute(
@@ -134,13 +145,28 @@ class LibraryRepository:
         rows = self._rows("SELECT * FROM installed_roms WHERE id = ?", (installed_rom_id,))
         return self._row_to_installed_rom(rows[0]) if rows else None
 
-    def set_game_id(self, installed_rom_id: int, game_id: int) -> None:
-        """Manual match (UI.md 3.3) — hashing found no game for this ROM, or
-        found the wrong one; the user picked the right one themselves.
+    def set_game_id(
+        self, installed_rom_id: int, game_id: Optional[int], manual: bool = False
+    ) -> None:
+        """Set a ROM's game match.
+
+        `manual=True` is for the user's "Match to Game…" (UI.md 3.3) — hashing
+        found no game for this ROM, or found the wrong one; the user picked the
+        right one themselves. That flag survives later hash-driven rematches,
+        which must not silently overrule a person.
         """
         self._execute(
-            "UPDATE installed_roms SET game_id = ? WHERE id = ?",
-            (game_id, installed_rom_id),
+            "UPDATE installed_roms SET game_id = ?, manual_match = ? WHERE id = ?",
+            (game_id, 1 if manual else 0, installed_rom_id),
+        )
+
+    def set_fingerprint(
+        self, installed_rom_id: int, file_size: Optional[int], file_mtime_ns: Optional[int]
+    ) -> None:
+        """Record the size/mtime a hash was computed from (R04)."""
+        self._execute(
+            "UPDATE installed_roms SET file_size = ?, file_mtime_ns = ? WHERE id = ?",
+            (file_size, file_mtime_ns, installed_rom_id),
         )
 
     def set_hash(self, installed_rom_id: int, rom_hash: str) -> None:
@@ -238,4 +264,7 @@ class LibraryRepository:
             console_id=row["console_id"],
             detected_at=datetime_from_sql(row["detected_at"]),
             last_played_at=datetime_from_sql(row["last_played_at"]),
+            file_size=row["file_size"],
+            file_mtime_ns=row["file_mtime_ns"],
+            manual_match=bool(row["manual_match"]),
         )

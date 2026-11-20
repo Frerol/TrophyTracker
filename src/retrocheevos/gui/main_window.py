@@ -144,6 +144,8 @@ class MainWindow(QMainWindow):
         self._update_worker = ServiceWorker(update_service.check_for_update)
         self._update_worker.finished_ok.connect(self._on_update_check_finished)
         self._update_worker.start()
+        # register
+        self.app_context.workers.start(self._update_worker, key=("main", "update-check"))
 
     def _on_update_check_finished(self, available) -> None:
         if available is None:
@@ -234,6 +236,7 @@ class MainWindow(QMainWindow):
         one — `changeEvent`/`resizeEvent` do the real work.
         """
         self._save_window_state()
+        self.app_context.shutdown()
         super().closeEvent(event)
 
     def _on_active_account_changed(self, _account) -> None:

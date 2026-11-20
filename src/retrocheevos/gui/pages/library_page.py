@@ -18,7 +18,8 @@ column) rather than the `rom_destinations` table Bloco 11 removed: two
 tables both meaning "where this console's ROMs live" would drift apart.
 """
 
-from typing import Optional
+import os
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -91,9 +92,9 @@ class LibraryPage(Page):
         super().__init__(app_context)
         self._play_worker: Optional[ServiceWorker] = None
         self._scan_worker: Optional[ServiceWorker] = None
-        # One loader shared by every frame in the grid, same arrangement
-        # Home uses for Continue Playing.
-        self._image_loader = ImageLoader()
+        # One loader shared by every frame in the grid, registered with
+        # AppContext so shutdown can wait for it.
+        self._image_loader = app_context.create_image_loader()
 
         self._grid_container = QWidget()
         self._grid_layout = QGridLayout(self._grid_container)
@@ -382,17 +383,24 @@ class LibraryPage(Page):
                 item.widget().deleteLater()
 
     def _on_play(self, game_id: int) -> None:
-        self._play_worker = ServiceWorker(library_service.launch_game, game_id)
-        self._play_worker.failed.connect(self._on_play_failed)
-        self._play_worker.start()
+        play_worker = ServiceWorker(library_service.launch_game, game_id)
+        play_worker.failed.connect(self._on_play_failed)
+        self.app_context.workers.start(play_worker, key=("library", "play"))
 
     def _on_play_unmatched_rom(self, installed_rom_id: int) -> None:
         """Launched by `installed_roms.id`, not `game_id` — there isn't one."""
-        self._play_worker = ServiceWorker(
-            library_service.launch_installed_rom, installed_rom_id
-        )
-        self._play_worker.failed.connect(self._on_play_failed)
-        self._play_worker.start()
+        play_worker = ServiceWorker(library_service.launch_installed_rom, installed_rom_id)
+        play_worker.failed.connect(self._on_play_failed)
+        self.app_context.workers.start(play_worker, key=("library", "play"))
+
+    def _invalidate_artwork_for_paths(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        normalized = {os.path.normcase(str(Path(p).expanduser().resolve())) for p in paths}
+        for rom in library_service.list_installed_roms():
+            if os.path.normcase(str(Path(rom.file_path).expanduser().resolve())) in normalized:
+                if rom.id is not None:
+                    self._image_loader.forget_rom(rom.id)
 
     def _on_play_failed(self, message: str) -> None:
         QMessageBox.warning(self, "Couldn't launch game", message)
@@ -456,6 +464,8 @@ class LibraryPage(Page):
         self._refresh_rom_folders()
 
     def _on_scan_folder(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SCAN_FOLDER
+
         item = selected_item(self._rom_folders_list)
         if item is None:
             QMessageBox.warning(
@@ -463,21 +473,42 @@ class LibraryPage(Page):
             )
             return
 
+        token = try_acquire(JOB_SCAN_FOLDER)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+            return
+
         self._set_scan_buttons_enabled(False)
         self._scan_button.setText("Scanning...")
         self._scan_status_label.setText("")
-        self._scan_worker = ServiceWorker(
-            library_service.scan_rom_folder, item.data(ROM_FOLDER_ID_ROLE)
+        worker = ServiceWorker(
+            library_service.scan_rom_folder,
+            item.data(ROM_FOLDER_ID_ROLE),
+            report_progress=False,
+            cancellable=True,
         )
-        self._scan_worker.finished_ok.connect(self._on_scan_done)
-        self._scan_worker.failed.connect(self._on_scan_failed)
-        self._scan_worker.start()
+        # report_progress not supported by scan signature? It has progress_callback. Add report_progress? ServiceWorker report_progress injects progress_callback(current,total). But scan callback signature is (scanned_count, current_path), not (int,int). So no. Use default.
+        worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=("library", "scan"))
 
     def _on_scan_all_folders(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SCAN_ALL_FOLDERS
+
         if self._rom_folders_list.count() == 0:
             QMessageBox.warning(
                 self, "No ROM folders", "Add a folder for a console first."
             )
+            return
+
+        token = try_acquire(JOB_SCAN_ALL_FOLDERS)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
             return
 
         # Both buttons disabled: they write to the same tables, and letting a
@@ -486,27 +517,39 @@ class LibraryPage(Page):
         self._set_scan_buttons_enabled(False)
         self._scan_all_button.setText("Scanning...")
         self._scan_status_label.setText("")
-        self._scan_worker = ServiceWorker(library_service.scan_all_rom_folders)
-        self._scan_worker.finished_ok.connect(self._on_scan_done)
-        self._scan_worker.failed.connect(self._on_scan_failed)
-        self._scan_worker.start()
+        worker = ServiceWorker(library_service.scan_all_rom_folders, cancellable=True)
+        worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=("library", "scan"))
 
     def _on_rehash(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_REHASH_LIBRARY
+
         if self._unmatched_list.count() == 0 and self._rom_folders_list.count() == 0:
             QMessageBox.warning(
                 self, "Nothing to re-hash", "No ROMs have been scanned yet."
             )
             return
 
+        token = try_acquire(JOB_REHASH_LIBRARY)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+            return
+
         self._set_scan_buttons_enabled(False)
         self._rehash_button.setText("Re-hashing...")
         self._scan_status_label.setText("")
-        self._rehash_worker = ServiceWorker(library_service.rehash_installed_roms)
-        self._rehash_worker.finished_ok.connect(self._on_rehash_done)
-        self._rehash_worker.failed.connect(self._on_rehash_failed)
-        self._rehash_worker.start()
+        worker = ServiceWorker(library_service.rehash_installed_roms, cancellable=True)
+        worker.finished_ok.connect(lambda result: (self._on_rehash_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_rehash_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=("library", "rehash"))
 
     def _on_rehash_done(self, result: RehashResult) -> None:
+        self._invalidate_artwork_for_paths(list(result.changed_paths))
         self._reset_scan_button()
         self._scan_status_label.setText(_describe_rehash(result))
         self.refresh()
@@ -522,13 +565,17 @@ class LibraryPage(Page):
         # Same tables as the scans, so it shares their mutual exclusion.
         self._rehash_button.setEnabled(enabled)
 
-    def _reset_scan_button(self) -> None:
-        self._scan_button.setText(SCAN_BUTTON_TEXT)
-        self._scan_all_button.setText(SCAN_ALL_BUTTON_TEXT)
-        self._rehash_button.setText(REHASH_BUTTON_TEXT)
-        self._set_scan_buttons_enabled(True)
+    def _release_job(self, token) -> None:
+        from retrocheevos.services.job_coordinator import release
+
+        release(token)
 
     def _on_scan_done(self, result: RomFolderScanResult) -> None:
+        # Invalidate in-flight artwork for ROMs whose file changed, so a
+        # stale load can't repaint the card with the old cover (R04).
+        self._invalidate_artwork_for_paths(
+            list(result.changed_paths) + list(result.preserved_manual_matches)
+        )
         self._reset_scan_button()
         self._scan_status_label.setText(_describe_scan(result))
         self.refresh()
@@ -631,6 +678,10 @@ def _describe_scan(result: RomFolderScanResult) -> str:
         parts.append(f"{len(result.failed_paths)} file(s) could not be read")
     if result.failed_folders:
         parts.append(f"{len(result.failed_folders)} folder(s) could not be scanned")
+    if result.changed_paths:
+        parts.append(f"{len(result.changed_paths)} changed file(s) re-hashed")
+    if result.preserved_manual_matches:
+        parts.append(f"{len(result.preserved_manual_matches)} manual match(es) preserved")
     return ", ".join(parts) + "."
 
 
@@ -648,4 +699,6 @@ def _describe_rehash(result: RehashResult) -> str:
         parts.append(f"{len(result.missing)} file(s) missing")
     if result.failed:
         parts.append(f"{len(result.failed)} failed to hash")
+    if result.manual_matches_preserved:
+        parts.append(f"{len(result.manual_matches_preserved)} manual match(es) preserved for review")
     return ", ".join(parts) + "."

@@ -86,6 +86,7 @@ class ExplorerPage(Page):
         # two separate attributes this replaced only ever held one live
         # thread anyway.
         self._sync_worker: Optional[ServiceWorker] = None
+        self._job_token = None
         self._sync_phase = ""
         self._current_results: list[GameWithCompletion] = []
         self._console_names: dict[int, str] = {}
@@ -331,33 +332,49 @@ class ExplorerPage(Page):
         self._sync_median_times_button.setEnabled(enabled)
         self._sync_hashes_button.setEnabled(enabled)
 
-    def _on_sync_failed(self, message: str) -> None:
+    def _on_sync_cancelled(self) -> None:
         self._set_sync_buttons_enabled(True)
         self._catalog_sync_progress.setVisible(False)
-        QMessageBox.warning(self, "Sync failed", message)
+
+    def _release_job(self) -> None:
+        from retrocheevos.services.job_coordinator import release
+
+        release(self._job_token)
+        self._job_token = None
 
     def _on_sync_everything(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SYNC_EVERYTHING
+
         account = self.app_context.active_account
         if account is None:
             return
+        token = try_acquire(JOB_SYNC_EVERYTHING)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+            return
+        self._job_token = token
         client = session_service.build_api_client(account)
         self._set_sync_buttons_enabled(False)
         self._sync_phase = ""
         self._catalog_sync_progress.setRange(0, 0)  # indeterminate until the first phase reports
         self._catalog_sync_progress.setFormat("Starting sync…")
         self._catalog_sync_progress.setVisible(True)
-        self._sync_worker = ServiceWorker(
+        worker = ServiceWorker(
             sync_service.sync_everything,
             client,
             account,
             report_progress=True,
             report_phase=True,
+            cancellable=True,
         )
-        self._sync_worker.phase.connect(self._on_sync_phase)
-        self._sync_worker.progress.connect(self._on_sync_progress)
-        self._sync_worker.finished_ok.connect(self._on_sync_everything_done)
-        self._sync_worker.failed.connect(self._on_sync_failed)
-        self._sync_worker.start()
+        worker.phase.connect(self._on_sync_phase)
+        worker.progress.connect(self._on_sync_progress)
+        worker.finished_ok.connect(lambda result: (self._on_sync_everything_done(result), self._release_job()))
+        worker.failed.connect(lambda message: (self._on_sync_failed(message), self._release_job()))
+        worker.cancelled.connect(lambda: (self._on_sync_cancelled(), self._release_job()))
+        self.app_context.workers.start(worker, key=("explorer", "sync"))
 
     def _on_sync_phase(self, phase: str) -> None:
         self._sync_phase = phase
@@ -387,17 +404,20 @@ class ExplorerPage(Page):
         self.sync_finished.emit(list(new_event_ids or []))
 
     def _on_sync_game_hashes(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SYNC_HASHES
+
         account = self.app_context.active_account
         if account is None:
             return
+        token = try_acquire(JOB_SYNC_HASHES)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
 
-        # The times here are measured against the live API, not computed from
-        # the pacing constant — the previous wording costed a request at the
-        # 0.3s sleep alone, ignored the round trip on top of it, and so
-        # advertised "about an hour" for a run that takes closer to 1h40.
-        # Understating the cheap option is bad; understating the expensive
-        # one at "three hours" when it is four, in a Yes/No where the
-        # expensive answer buys nothing this feature uses, is worse.
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+            return
+        self._job_token = token
+
+        # ... keep dialog ...
         with_details = QMessageBox.question(
             self,
             "Sync ROM hashes",
@@ -420,16 +440,18 @@ class ExplorerPage(Page):
         self._catalog_sync_progress.setValue(0)
         self._catalog_sync_progress.setFormat("Starting hash sync…")
         self._catalog_sync_progress.setVisible(True)
-        self._sync_worker = ServiceWorker(
+        worker = ServiceWorker(
             sync_service.sync_all_game_hashes,
             client,
             report_progress=True,
             full_details=with_details == QMessageBox.StandardButton.Yes,
+            cancellable=True,
         )
-        self._sync_worker.progress.connect(self._on_game_hashes_progress)
-        self._sync_worker.finished_ok.connect(self._on_game_hashes_done)
-        self._sync_worker.failed.connect(self._on_sync_failed)
-        self._sync_worker.start()
+        worker.progress.connect(self._on_game_hashes_progress)
+        worker.finished_ok.connect(lambda synced: (self._on_game_hashes_done(synced), self._release_job()))
+        worker.failed.connect(lambda message: (self._on_sync_failed(message), self._release_job()))
+        worker.cancelled.connect(lambda: (self._on_sync_cancelled(), self._release_job()))
+        self.app_context.workers.start(worker, key=("explorer", "sync"))
 
     def _on_game_hashes_progress(self, current: int, total: int) -> None:
         self._show_progress_percent("ROM hashes", current, total)
@@ -447,21 +469,31 @@ class ExplorerPage(Page):
         )
 
     def _on_sync_median_times(self) -> None:
+        from retrocheevos.services.job_coordinator import try_acquire, JOB_SYNC_MEDIAN_TIMES
+
         account = self.app_context.active_account
         if account is None:
             return
+        token = try_acquire(JOB_SYNC_MEDIAN_TIMES)
+        if token is None:
+            from retrocheevos.services.job_coordinator import active_job
+
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+            return
+        self._job_token = token
         client = session_service.build_api_client(account)
         self._set_sync_buttons_enabled(False)
         self._catalog_sync_progress.setValue(0)
         self._catalog_sync_progress.setFormat("Starting median time sync…")
         self._catalog_sync_progress.setVisible(True)
-        self._sync_worker = ServiceWorker(
-            sync_service.sync_median_times, client, report_progress=True
+        worker = ServiceWorker(
+            sync_service.sync_median_times, client, report_progress=True, cancellable=True
         )
-        self._sync_worker.progress.connect(self._on_median_times_progress)
-        self._sync_worker.finished_ok.connect(self._on_median_times_done)
-        self._sync_worker.failed.connect(self._on_sync_failed)
-        self._sync_worker.start()
+        worker.progress.connect(self._on_median_times_progress)
+        worker.finished_ok.connect(lambda filled: (self._on_median_times_done(filled), self._release_job()))
+        worker.failed.connect(lambda message: (self._on_sync_failed(message), self._release_job()))
+        worker.cancelled.connect(lambda: (self._on_sync_cancelled(), self._release_job()))
+        self.app_context.workers.start(worker, key=("explorer", "sync"))
 
     def _on_median_times_progress(self, current: int, total: int) -> None:
         self._show_progress_percent("Median time", current, total)

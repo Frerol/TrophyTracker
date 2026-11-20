@@ -12,12 +12,14 @@ QThread and re-emits it as a Qt signal.
 
 import logging
 import sqlite3
-import time
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from retrocheevos.api.achievements import AchievementProgressClient
-from retrocheevos.api.client import RetroAchievementsClient
+from retrocheevos.api.client import (
+    REQUEST_MIN_INTERVAL_SECONDS,
+    RetroAchievementsClient,
+)
 from retrocheevos.api.exceptions import RateLimitError
 from retrocheevos.api.games import GamesClient
 from retrocheevos.api.profile import ProfileClient
@@ -45,6 +47,11 @@ from retrocheevos.database.repositories.profile_repository import ProfileReposit
 from retrocheevos.models.account import Account
 from retrocheevos.models.game_completion import GameCompletion
 from retrocheevos.services import library_service
+from retrocheevos.utils.cancellation import (
+    OperationCancelled,
+    interruptible_sleep,
+    raise_if_cancelled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +80,30 @@ PROFILE_SYNC_STALE_AFTER = timedelta(hours=6)
 PROFILE_STATS_REVISION = 2
 
 
-def sync_consoles(client: RetroAchievementsClient) -> int:
+# Pacing used to live here as a per-loop `time.sleep`, which kept each sync
+# polite in isolation but did nothing when Home's activity feed ran at the same
+# time. It is now enforced once, process-wide, by `api/client.py`'s shared
+# `RequestPacer`; this alias remains so the cost notes below and the tests that
+# zero it keep a single named value to refer to.
+CATALOG_SYNC_CALL_DELAY_SECONDS = REQUEST_MIN_INTERVAL_SECONDS
+# Measured live: one request per 0.1s starts returning HTTP 429 after ~9
+# calls, so the shared interval above is near the practical floor. These
+# govern what happens when it trips anyway — doubling each time, so 1s, 2s, 4s
+# — and honour a server-supplied `Retry-After` as a floor.
+RATE_LIMIT_BACKOFF_SECONDS = 1.0
+MAX_RATE_LIMIT_RETRIES = 4
+
+
+def sync_consoles(
+    client: RetroAchievementsClient,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> int:
     """Fetch the console list and cache it. Returns the number of consoles synced."""
+    raise_if_cancelled(should_cancel)
     raw_consoles = _with_rate_limit_retry(
-        "the console list", GamesClient(client).list_console_ids
+        "the console list",
+        GamesClient(client).list_console_ids,
+        should_cancel=should_cancel,
     )
     with get_connection() as connection:
         repository = ConsoleRepository(connection)
@@ -91,6 +118,7 @@ def sync_games_for_console(
     console_id: int,
     only_with_achievements: bool = True,
     progress_callback: Optional[ProgressCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> int:
     """Cache basic metadata for every game on a console (title/image/achievement count).
 
@@ -98,17 +126,20 @@ def sync_games_for_console(
     per game for that; it's a heavier per-game request (API.md §4: fetch only
     what's needed).
     """
+    raise_if_cancelled(should_cancel)
     raw_games = _with_rate_limit_retry(
         f"the game list for console {console_id}",
         lambda: GamesClient(client).list_games_for_console(
             console_id, only_with_achievements
         ),
+        should_cancel=should_cancel,
     )
     now = datetime.now()
     total = len(raw_games)
     with get_connection() as connection:
         repository = GameRepository(connection)
         for index, raw_game in enumerate(raw_games, start=1):
+            raise_if_cancelled(should_cancel)
             repository.upsert_game(map_game(raw_game, synced_at=now))
             if progress_callback:
                 progress_callback(index, total)
@@ -116,29 +147,10 @@ def sync_games_for_console(
     return total
 
 
-# Confirmed live (see `services/activity_feed_service.py::API_CALL_DELAY_SECONDS`):
-# RA's API has a short burst limiter — several back-to-back requests with no
-# delay reliably return HTTP 429. `sync_full_catalog` makes one
-# `API_GetGameList.php` call per console (~84 of them), so it paces them the
-# same way that module already does.
-#
-# This is the *sleep between* calls, NOT the cost of a call. Every docstring
-# in this module that estimated a run's duration used to multiply this by the
-# request count and land at about half the real figure, because the HTTP round
-# trip (~0.22s, timed against the live API) happens on top of it. Budget
-# ~0.5s per request, not 0.3s — and if you change this constant, the
-# durations quoted in `sync_all_game_hashes` and the Explorer's sync dialog
-# are what go stale.
-CATALOG_SYNC_CALL_DELAY_SECONDS = 0.3
-# Measured live: one request per 0.1s starts returning HTTP 429 after ~9
-# calls, so the delay above is near the practical floor. These govern what
-# happens when it trips anyway — doubling each time, so 1s, 2s, 4s.
-RATE_LIMIT_BACKOFF_SECONDS = 1.0
-MAX_RATE_LIMIT_RETRIES = 4
-
-
 def sync_full_catalog(
-    client: RetroAchievementsClient, progress_callback: Optional[ProgressCallback] = None
+    client: RetroAchievementsClient,
+    progress_callback: Optional[ProgressCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> int:
     """Lightweight sync of every console's game catalog — basic metadata and
     achievement counts only (no `sync_game_details`, which is a much heavier
@@ -149,18 +161,19 @@ def sync_full_catalog(
     coarser than `sync_games_for_console`'s own per-game callback, which is
     intentionally not threaded through here.
     """
-    sync_consoles(client)
+    sync_consoles(client, should_cancel=should_cancel)
     with get_connection() as connection:
         consoles = ConsoleRepository(connection).list_all()
 
     total_games = 0
     total_consoles = len(consoles)
     for index, console in enumerate(consoles, start=1):
-        total_games += sync_games_for_console(client, console.id)
+        raise_if_cancelled(should_cancel)
+        total_games += sync_games_for_console(
+            client, console.id, should_cancel=should_cancel
+        )
         if progress_callback:
             progress_callback(index, total_consoles)
-        if index < total_consoles:
-            time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
 
     logger.info(
         "Synced full catalog: %d games across %d consoles", total_games, total_consoles
@@ -188,6 +201,7 @@ def sync_event_progress(
     client: RetroAchievementsClient,
     account: Account,
     progress_callback: Optional[ProgressCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> list[int]:
     """Fetches this account's per-event achievement counts, and reports which
     events are newly appeared since the last sync.
@@ -204,7 +218,7 @@ def sync_event_progress(
             event.id for event in GameRepository(connection).list_events()
         }
 
-    sync_games_for_console(client, EVENTS_CONSOLE_ID)
+    sync_games_for_console(client, EVENTS_CONSOLE_ID, should_cancel=should_cancel)
 
     with get_connection() as connection:
         events = GameRepository(connection).list_events()
@@ -214,6 +228,7 @@ def sync_event_progress(
     now = datetime.now()
     total = len(events)
     for index, event in enumerate(events, start=1):
+        raise_if_cancelled(should_cancel)
         # The account can be deleted while this loop runs. It takes ~237
         # requests at 0.3s, so it is live for over a minute, and nothing
         # stops it when Settings removes the account underneath it — the
@@ -244,7 +259,10 @@ def sync_event_progress(
                 lambda: games_client.get_user_game_progress(
                     account.username, event.id
                 ),
+                should_cancel=should_cancel,
             )
+        except OperationCancelled:
+            raise
         except Exception as error:  # noqa: BLE001 — one bad event mustn't abort the rest
             logger.info("Skipped event %d progress: %s", event.id, error)
         else:
@@ -285,8 +303,6 @@ def sync_event_progress(
                 return new_event_ids
         if progress_callback:
             progress_callback(index, total)
-        if index < total:
-            time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
 
     logger.info(
         "Synced progress for %d events (%d new)", total, len(new_event_ids)
@@ -299,6 +315,7 @@ def sync_everything(
     account: Account,
     progress_callback: Optional[ProgressCallback] = None,
     phase_callback: Optional[PhaseCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> list[int]:
     """One-click sync: catalog, then profile, then event progress.
 
@@ -317,20 +334,25 @@ def sync_everything(
     """
     if phase_callback:
         phase_callback("Catalog")
-    sync_full_catalog(client, progress_callback)
+    sync_full_catalog(client, progress_callback, should_cancel=should_cancel)
 
+    raise_if_cancelled(should_cancel)
     if phase_callback:
         phase_callback("Profile")
-    sync_profile(client, account)
+    sync_profile(client, account, should_cancel=should_cancel)
 
+    raise_if_cancelled(should_cancel)
     if phase_callback:
         phase_callback("Events")
-    return sync_event_progress(client, account, progress_callback)
+    return sync_event_progress(
+        client, account, progress_callback, should_cancel=should_cancel
+    )
 
 
 def sync_median_times(
     client: RetroAchievementsClient,
     progress_callback: Optional[ProgressCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> int:
     """Backfills median time-to-beat across the whole browsable catalog.
 
@@ -351,7 +373,10 @@ def sync_median_times(
     total = len(game_ids)
     filled = 0
     for index, game_id in enumerate(game_ids, start=1):
-        progression = _fetch_median_time_with_retry(games_client, game_id)
+        raise_if_cancelled(should_cancel)
+        progression = _fetch_median_time_with_retry(
+            games_client, game_id, should_cancel=should_cancel
+        )
         if progression is not None and progression.median_time_to_beat_hardcore_seconds is not None:
             with get_connection() as connection:
                 GameRepository(connection).set_median_time(
@@ -362,14 +387,16 @@ def sync_median_times(
             filled += 1
         if progress_callback:
             progress_callback(index, total)
-        if index < total:
-            time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
 
     logger.info("Synced median times: %d of %d games had a value", filled, total)
     return filled
 
 
-def _with_rate_limit_retry(description: str, call):
+def _with_rate_limit_retry(
+    description: str,
+    call,
+    should_cancel: Optional[Callable[[], bool]] = None,
+):
     """Run `call()`, riding out RA's burst limiter with exponential backoff.
 
     The median-times loop had this protection and the catalog sync did not —
@@ -378,6 +405,10 @@ def _with_rate_limit_retry(description: str, call):
     largest sync to do, over a thousand requests, and is therefore the most
     likely to trip the limiter and the least able to afford losing the run.
 
+    A server-supplied `Retry-After` is honoured as a floor for the wait, so
+    the retry never starts earlier than the server asked. `interruptible_sleep`
+    lets a close request break out of the backoff immediately.
+
     Unlike `_fetch_median_time_with_retry`, exhausting the retries here
     **re-raises**. A missing median time is one blank cell; a missing console
     is a hole in the catalog that nothing later would notice or repair, so
@@ -385,26 +416,32 @@ def _with_rate_limit_retry(description: str, call):
     """
     delay = RATE_LIMIT_BACKOFF_SECONDS
     for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
+        raise_if_cancelled(should_cancel)
         try:
             return call()
-        except RateLimitError:
+        except RateLimitError as error:
             if attempt == MAX_RATE_LIMIT_RETRIES:
                 logger.warning(
                     "Rate limited %d times on %s; giving up", attempt, description
                 )
                 raise
+            wait = max(delay, error.retry_after or 0.0)
             logger.info(
                 "Rate limited on %s (attempt %d) — waiting %.0fs",
                 description,
                 attempt,
-                delay,
+                wait,
             )
-            time.sleep(delay)
+            interruptible_sleep(wait, should_cancel)
             delay *= 2
     return None
 
 
-def _fetch_median_time_with_retry(games_client: GamesClient, game_id: int):
+def _fetch_median_time_with_retry(
+    games_client: GamesClient,
+    game_id: int,
+    should_cancel: Optional[Callable[[], bool]] = None,
+):
     """One game's median time, riding out RA's burst limiter.
 
     This loop runs for well over an hour on a full catalog, so a
@@ -418,21 +455,28 @@ def _fetch_median_time_with_retry(games_client: GamesClient, game_id: int):
     """
     delay = RATE_LIMIT_BACKOFF_SECONDS
     for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
+        raise_if_cancelled(should_cancel)
         try:
             return games_client.get_median_time_to_beat_hardcore(game_id)
-        except RateLimitError:
+        except RateLimitError as error:
             if attempt == MAX_RATE_LIMIT_RETRIES:
                 logger.warning("Gave up on game %d after %d rate limits", game_id, attempt)
                 return None
-            time.sleep(delay)
+            interruptible_sleep(max(delay, error.retry_after or 0.0), should_cancel)
             delay *= 2
+        except OperationCancelled:
+            raise
         except Exception as error:  # noqa: BLE001 — one bad game mustn't kill the run
             logger.info("Skipped median time for game %d: %s", game_id, error)
             return None
     return None
 
 
-def sync_game_details(client: RetroAchievementsClient, game_id: int) -> None:
+def sync_game_details(
+    client: RetroAchievementsClient,
+    game_id: int,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> None:
     """Full sync for one game: metadata, achievements, hashes, median time to beat.
 
     Skips the upsert entirely if the game turns out to have zero achievements
@@ -442,26 +486,32 @@ def sync_game_details(client: RetroAchievementsClient, game_id: int) -> None:
     row nothing else in the app will ever surface, and no repository call to
     clean it back up later.
     """
+    raise_if_cancelled(should_cancel)
     games_client = GamesClient(client)
     # All three calls retried: this had none, and it is now reachable from a
     # ~36k-request backfill (`sync_all_game_hashes(full_details=True)`) where
     # tripping the burst limiter is a matter of when, not if.
     raw_game, raw_achievements = _with_rate_limit_retry(
-        f"details for game {game_id}", lambda: games_client.get_game_extended(game_id)
+        f"details for game {game_id}",
+        lambda: games_client.get_game_extended(game_id),
+        should_cancel=should_cancel,
     )
 
     if raw_game.num_achievements <= 0:
         logger.info("Skipped syncing game %d: no achievement set", game_id)
         return
 
-    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    raise_if_cancelled(should_cancel)
     progression = _with_rate_limit_retry(
         f"median time for game {game_id}",
         lambda: games_client.get_median_time_to_beat_hardcore(game_id),
+        should_cancel=should_cancel,
     )
-    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    raise_if_cancelled(should_cancel)
     hashes = _with_rate_limit_retry(
-        f"hashes for game {game_id}", lambda: games_client.get_game_hashes(game_id)
+        f"hashes for game {game_id}",
+        lambda: games_client.get_game_hashes(game_id),
+        should_cancel=should_cancel,
     )
     now = datetime.now()
 
@@ -486,6 +536,7 @@ def sync_all_game_hashes(
     client: RetroAchievementsClient,
     progress_callback: Optional[ProgressCallback] = None,
     full_details: bool = False,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> int:
     """Backfill ROM hashes across the catalog, so scanning a folder can match
     files to games by hash instead of leaving them unmatched.
@@ -543,26 +594,28 @@ def sync_all_game_hashes(
     )
 
     for index, game_id in enumerate(game_ids, start=1):
+        raise_if_cancelled(should_cancel)
         try:
             if full_details:
-                sync_game_details(client, game_id)
+                sync_game_details(client, game_id, should_cancel=should_cancel)
                 synced += 1
             else:
                 hashes = _with_rate_limit_retry(
                     f"hashes for game {game_id}",
                     lambda: games_client.get_game_hashes(game_id),
+                    should_cancel=should_cancel,
                 )
                 if hashes:
                     with get_connection() as connection:
                         GameRepository(connection).replace_hashes(game_id, hashes)
                     synced += 1
+        except OperationCancelled:
+            raise
         except Exception as error:  # noqa: BLE001 — one bad game mustn't kill the run
             logger.info("Skipped hashes for game %d: %s", game_id, error)
 
         if progress_callback:
             progress_callback(index, total)
-        if index < total:
-            time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
 
     # The point of the whole run. Without this the newly-fetched hashes sit
     # unused: matching only happens at scan time, and a rescan deliberately
@@ -580,7 +633,10 @@ def sync_all_game_hashes(
 
 
 def sync_account_progress(
-    client: RetroAchievementsClient, account: Account, game_id: int
+    client: RetroAchievementsClient,
+    account: Account,
+    game_id: int,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> None:
     """Sync one account's unlock state for one game.
 
@@ -589,7 +645,9 @@ def sync_account_progress(
     exist locally. Unlocks for achievements not yet synced are skipped
     rather than crashing (same pattern as `sync_profile`).
     """
+    raise_if_cancelled(should_cancel)
     unlocks = AchievementProgressClient(client).get_user_progress(account.username, game_id)
+    raise_if_cancelled(should_cancel)
     with get_connection() as connection:
         repository = AchievementRepository(connection)
         known_achievement_ids = {a.id for a in repository.get_for_game(game_id)}
@@ -612,7 +670,11 @@ def sync_account_progress(
     )
 
 
-def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
+def sync_profile(
+    client: RetroAchievementsClient,
+    account: Account,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> None:
     """Sync profile stats, per-game completion, and badges for one account.
 
     `game_completion.game_id` has a foreign key to `games.id`, and
@@ -630,17 +692,23 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
     # catalog requests already spent — the burst limiter is warm here, not
     # idle, which made it the most likely phase to trip and the one whose
     # failure looks least like a rate limit ("Sync Everything failed").
+    raise_if_cancelled(should_cancel)
     profile = _with_rate_limit_retry(
-        "the user profile", lambda: profile_client.get_user_profile(account.username)
+        "the user profile",
+        lambda: profile_client.get_user_profile(account.username),
+        should_cancel=should_cancel,
     )
-    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    raise_if_cancelled(should_cancel)
     completion_progress = _with_rate_limit_retry(
         "completion progress",
         lambda: profile_client.get_user_completion_progress(account.username),
+        should_cancel=should_cancel,
     )
-    time.sleep(CATALOG_SYNC_CALL_DELAY_SECONDS)
+    raise_if_cancelled(should_cancel)
     awards = _with_rate_limit_retry(
-        "user awards", lambda: profile_client.get_user_awards(account.username)
+        "user awards",
+        lambda: profile_client.get_user_awards(account.username),
+        should_cancel=should_cancel,
     )
     now = datetime.now()
 
@@ -698,7 +766,11 @@ def sync_profile(client: RetroAchievementsClient, account: Account) -> None:
     )
 
 
-def sync_profile_if_needed(client: RetroAchievementsClient, account: Account) -> bool:
+def sync_profile_if_needed(
+    client: RetroAchievementsClient,
+    account: Account,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> bool:
     """Opportunistic profile sync for account activation/switch — self-heals
     stale cached points (e.g. `true_points` left at its migration-v8 backfill
     default of 0) without a background timer. Skips the network call if
@@ -724,5 +796,5 @@ def sync_profile_if_needed(client: RetroAchievementsClient, account: Account) ->
     ):
         return False
 
-    sync_profile(client, account)
+    sync_profile(client, account, should_cancel=should_cancel)
     return True

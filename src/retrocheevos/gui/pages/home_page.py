@@ -255,7 +255,13 @@ def _continue_playing_sort_key(entry: tuple) -> tuple:
     )
 
 
-HOVER_MENU_DELAY_MS = 120
+# Stable keys used with AppContext's WorkerRegistry so shutdown can cancel
+# every background job this page owns, and so "is a job already running?"
+# checks don't rely on a dangling QThread reference.
+HOME_WORKER_ACTIVITY = ("home", "activity")
+HOME_WORKER_PHOTO = ("home", "photo")
+HOME_WORKER_PROFILE_SYNC = ("home", "profile-sync")
+HOME_WORKER_PLAY = ("home", "play")
 
 
 class _HoverMenuButton(QPushButton):
@@ -307,10 +313,6 @@ class HomePage(Page):
 
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
-        self._play_worker: Optional[ServiceWorker] = None
-        self._photo_worker: Optional[ServiceWorker] = None
-        self._activity_worker: Optional[ServiceWorker] = None
-        self._profile_sync_worker: Optional[ServiceWorker] = None
         self._user_menu: Optional[QMenu] = None
         self._activity_entries: list[ActivityEntry] = []
         # See `_refresh_activity_feed`: only an initial load renders entries
@@ -320,10 +322,27 @@ class HomePage(Page):
         # Last completed feed, kept across navigations (`_activity_entries`
         # is reset at the start of every fetch, so it can't serve this).
         self._activity_cache: list[ActivityEntry] = []
+        # Which account the cached feed belongs to (R01). Without this, an
+        # account switch could paint the previous account's feed while the
+        # new one loads — the cache survives navigation by design, but it
+        # must not survive a change of user.
+        self._activity_cache_account_id: Optional[int] = None
+        # Bumped on every account change. Workers capture it before starting
+        # and ignore their result if it has moved by the time they finish, so
+        # a slow fetch for account A can never land on account B's Home (R01).
+        self._account_generation = 0
+        # Per-request generation/account for the activity fetch. Separate from
+        # `_account_generation` because a manual refresh while the same account
+        # is signed in should also invalidate the older in-flight request.
+        self._activity_request_generation = 0
+        self._activity_request_account_id: Optional[int] = None
         # One shared loader for every ContinuePlayingGameRow built by
-        # refresh() — same "one instance per page" precedent as
-        # `gui/pages/explorer_page.py`'s own `ImageLoader`.
-        self._image_loader = ImageLoader()
+        # refresh() — registered with AppContext so shutdown can wait for it.
+        self._image_loader = app_context.create_image_loader()
+
+        # R01: invalidate anything account-bound the moment the session
+        # changes, before MainWindow refreshes the visible page.
+        self.app_context.active_account_changed.connect(self._on_active_account_changed)
 
         # Only ticks while Home is the visible page (started/stopped in
         # showEvent/hideEvent below) — keeps Recent Activity current without
@@ -647,6 +666,23 @@ class HomePage(Page):
         super().hideEvent(event)
         self._activity_refresh_timer.stop()
 
+    def _on_active_account_changed(self, account) -> None:
+        # R01: cancel anything account-bound before it can land on the wrong
+        # user's screen, and drop the cached feed if the user changed.
+        self._account_generation += 1
+        self.app_context.workers.cancel_key(HOME_WORKER_ACTIVITY)
+        self.app_context.workers.cancel_key(HOME_WORKER_PHOTO)
+        self.app_context.workers.cancel_key(HOME_WORKER_PROFILE_SYNC)
+        new_id = account.id if account is not None else None
+        if self._activity_cache_account_id != new_id:
+            self._activity_cache = []
+            self._activity_entries = []
+            self._clear_activity_feed()
+            self._activity_cache_account_id = new_id
+            self._activity_last_attempt = None
+            self._activity_retry_interval_ms = ACTIVITY_REFRESH_INTERVAL_MS
+            self._activity_refresh_timer.setInterval(ACTIVITY_REFRESH_INTERVAL_MS)
+
     def refresh_header(self) -> None:
         """Update just the shared header — points, stats, avatar.
 
@@ -712,6 +748,8 @@ class HomePage(Page):
             # Dropped on logout/account switch, or the next account would
             # briefly see the previous one's feed painted from cache.
             self._activity_cache = []
+            self._activity_entries = []
+            self._activity_cache_account_id = None
             self._clear_activity_feed()
             return
 
@@ -729,12 +767,16 @@ class HomePage(Page):
             # still-running `QThread`'s only reference destroys it while
             # `run()` is executing, which is what caused a native crash
             # here once this fetch got slow (DevelopmentRoadmap.md).
-            if self._photo_worker is None or not self._photo_worker.isRunning():
-                self._photo_worker = ServiceWorker(
+            if not self.app_context.workers.has_key(HOME_WORKER_PHOTO):
+                gen = self._account_generation
+                account_id = account.id
+                photo_worker = ServiceWorker(
                     image_service.ensure_user_pic_cached, account.username, stats.user_pic_path
                 )
-                self._photo_worker.finished_ok.connect(self._on_photo_ready)
-                self._photo_worker.start()
+                photo_worker.finished_ok.connect(
+                    lambda path: self._on_photo_ready_guarded(path, gen, account_id)
+                )
+                self.app_context.workers.start(photo_worker, key=HOME_WORKER_PHOTO)
         else:
             self._points_label.setText("—")
             self._true_points_label.setText("—")
@@ -746,14 +788,20 @@ class HomePage(Page):
         # stale points (e.g. `true_points` stuck at its migration-v8 backfill
         # default of 0) without hammering the API on every restart/switch.
         # Same in-flight guard as `_photo_worker`/`_activity_worker` above.
-        if self._profile_sync_worker is None or not self._profile_sync_worker.isRunning():
+        if not self.app_context.workers.has_key(HOME_WORKER_PROFILE_SYNC):
+            gen = self._account_generation
+            account_id = account.id
             client = session_service.build_api_client(account)
-            self._profile_sync_worker = ServiceWorker(
+            profile_worker = ServiceWorker(
                 sync_service.sync_profile_if_needed, client, account
             )
-            self._profile_sync_worker.finished_ok.connect(self._on_profile_sync_done)
-            self._profile_sync_worker.failed.connect(self._on_profile_sync_failed)
-            self._profile_sync_worker.start()
+            profile_worker.finished_ok.connect(
+                lambda synced: self._on_profile_sync_done_guarded(synced, gen, account_id)
+            )
+            profile_worker.failed.connect(
+                lambda message: self._on_profile_sync_failed_guarded(message, gen, account_id)
+            )
+            self.app_context.workers.start(profile_worker, key=HOME_WORKER_PROFILE_SYNC)
 
         # Continue Playing lists installed ROMs too, so it needs the same
         # sweep the Library does — otherwise a game deleted from disk keeps
@@ -1000,7 +1048,7 @@ class HomePage(Page):
         # leave the running one appending to a list the screen no longer
         # matches. Same in-flight guard as `_photo_worker` above; this fetch
         # does up to `3 * (1 + FOLLOWED_USERS_LIMIT)` live API calls.
-        if self._activity_worker is not None and self._activity_worker.isRunning():
+        if self.app_context.workers.has_key(HOME_WORKER_ACTIVITY):
             return
 
         self._activity_entries = []
@@ -1018,18 +1066,51 @@ class HomePage(Page):
             self._clear_activity_feed()
             self._activity_feed_layout.addWidget(QLabel(ACTIVITY_LOADING_TEXT))
 
-        self._activity_worker = ServiceWorker(
-            activity_feed_service.get_recent_activity_feed, account, stream_results=True
+        gen = self._account_generation
+        request_gen = self._activity_request_generation + 1
+        self._activity_request_generation = request_gen
+        account_id = account.id
+        self._activity_request_account_id = account_id
+
+        activity_worker = ServiceWorker(
+            activity_feed_service.get_recent_activity_feed,
+            account,
+            stream_results=True,
+            cancellable=True,
         )
-        # `partial_result`: render each entry as it's fetched instead of
-        # waiting for the whole ~several-second batch — feels much faster
-        # even though the total fetch time is unchanged. `finished_ok` still
-        # lands with the complete, correctly-sorted list as the
-        # authoritative final state.
-        self._activity_worker.partial_result.connect(self._on_activity_entry_ready)
-        self._activity_worker.finished_ok.connect(self._on_activity_feed_ready)
-        self._activity_worker.failed.connect(self._on_activity_feed_failed)
-        self._activity_worker.start()
+        # pass should_cancel via kwargs? ServiceWorker cancellable=True injects should_cancel automatically.
+        # Need result_callback for streaming handled by stream_results=True.
+        # Also pass should_cancel? cancellable True injects self.is_cancelled. Good.
+        # But activity service signature now includes should_cancel; worker injects it. Good.
+
+        def handle_partial(entry):
+            if gen != self._account_generation or request_gen != self._activity_request_generation:
+                return
+            if self.app_context.active_account is None or self.app_context.active_account.id != account_id:
+                return
+            self._on_activity_entry_ready(entry)
+
+        def handle_ready(entries):
+            if gen != self._account_generation or request_gen != self._activity_request_generation:
+                return
+            if self.app_context.active_account is None or self.app_context.active_account.id != account_id:
+                return
+            self._activity_cache = entries
+            self._activity_cache_account_id = account_id
+            self._on_activity_feed_ready(entries)
+
+        def handle_failed(message):
+            if gen != self._account_generation or request_gen != self._activity_request_generation:
+                return
+            if self.app_context.active_account is None or self.app_context.active_account.id != account_id:
+                return
+            self._on_activity_feed_failed(message)
+
+        activity_worker.partial_result.connect(handle_partial)
+        activity_worker.finished_ok.connect(handle_ready)
+        activity_worker.failed.connect(handle_failed)
+        activity_worker.cancelled.connect(lambda: None)
+        self.app_context.workers.start(activity_worker, key=HOME_WORKER_ACTIVITY)
 
     def _clear_continue_playing(self) -> None:
         # Column stretches outlive `takeAt`, so going from a wide layout to a
@@ -1180,10 +1261,10 @@ class HomePage(Page):
         logger.info("Recent activity refresh back to %ds", ACTIVITY_REFRESH_INTERVAL_MS // 1000)
 
     def _on_play(self, game_id: int) -> None:
-        self._play_worker = ServiceWorker(library_service.launch_game, game_id)
-        self._play_worker.finished_ok.connect(self._on_play_started)
-        self._play_worker.failed.connect(self._on_play_failed)
-        self._play_worker.start()
+        play_worker = ServiceWorker(library_service.launch_game, game_id)
+        play_worker.finished_ok.connect(self._on_play_started)
+        play_worker.failed.connect(self._on_play_failed)
+        self.app_context.workers.start(play_worker, key=HOME_WORKER_PLAY)
 
     def _on_play_failed(self, message: str) -> None:
         QMessageBox.warning(self, "Couldn't launch game", message)
@@ -1197,10 +1278,26 @@ class HomePage(Page):
         self._refresh_continue_playing()
 
     def _on_play_unmatched_rom(self, installed_rom_id: int) -> None:
-        self._play_worker = ServiceWorker(library_service.launch_installed_rom, installed_rom_id)
-        self._play_worker.finished_ok.connect(self._on_play_started)
-        self._play_worker.failed.connect(self._on_play_failed)
-        self._play_worker.start()
+        play_worker = ServiceWorker(library_service.launch_installed_rom, installed_rom_id)
+        play_worker.finished_ok.connect(self._on_play_started)
+        play_worker.failed.connect(self._on_play_failed)
+        self.app_context.workers.start(play_worker, key=HOME_WORKER_PLAY)
+
+    def _on_profile_sync_done_guarded(self, synced: bool, generation: int, account_id: int) -> None:
+        if generation != self._account_generation:
+            return
+        account = self.app_context.active_account
+        if account is None or account.id != account_id:
+            return
+        self._on_profile_sync_done(synced)
+
+    def _on_profile_sync_failed_guarded(self, message: str, generation: int, account_id: int) -> None:
+        if generation != self._account_generation:
+            return
+        account = self.app_context.active_account
+        if account is None or account.id != account_id:
+            return
+        self._on_profile_sync_failed(message)
 
     def _on_profile_sync_done(self, synced: bool) -> None:
         # `synced` is False for the common case (cache still fresh) — nothing
@@ -1216,6 +1313,14 @@ class HomePage(Page):
         # manual "Sync Profile" button on the Profile page is what reports
         # failures. Just log for diagnosis.
         logger.info("Opportunistic profile sync skipped/failed: %s", message)
+
+    def _on_photo_ready_guarded(self, cached_path, generation: int, account_id: int) -> None:
+        if generation != self._account_generation:
+            return
+        account = self.app_context.active_account
+        if account is None or account.id != account_id:
+            return
+        self._on_photo_ready(cached_path)
 
     def _on_photo_ready(self, cached_path) -> None:
         # `ensure_user_pic_cached` never raises (see image_service.py) —

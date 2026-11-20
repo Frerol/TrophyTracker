@@ -25,6 +25,15 @@ class InstalledRom:
     # launch helper). None if never launched. Powers Continue Playing's
     # recency ordering (`core/dashboard.py`).
     last_played_at: Optional[datetime] = None
+    # Fingerprint captured at hash time (R04). A rescan compares these
+    # against the file on disk: same size and same high-resolution mtime
+    # means the file is unchanged and can be skipped without re-reading it.
+    # None on rows written before schema v26, which forces one rehash.
+    file_size: Optional[int] = None
+    file_mtime_ns: Optional[int] = None
+    # True when `game_id` came from the user's "Match to Game…" rather than
+    # from a hash hit. A changed file must never silently overwrite this.
+    manual_match: bool = False
     id: Optional[int] = None
 
 
@@ -49,6 +58,12 @@ class RomFolderScanResult:
     unrecognized_paths: list[str]
     failed_paths: list[str] = field(default_factory=list)
     failed_folders: list[str] = field(default_factory=list)
+    # Files already recorded whose size/mtime no longer match the stored
+    # fingerprint — re-hashed and re-matched during this scan (R04).
+    changed_paths: list[str] = field(default_factory=list)
+    # Changed files whose user-picked "Match to Game…" was kept rather than
+    # overwritten by whatever the new hash resolved to.
+    preserved_manual_matches: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -71,3 +86,11 @@ class RehashResult:
     # swallowed: a format that silently fails to re-hash is exactly the kind
     # of thing that stays broken because nobody hears about it.
     failed: list[str]
+    # ROMs whose `game_id` came from a manual match and was kept even though
+    # the new hash resolved to a different game (or nothing). These are the
+    # ones worth reviewing by hand — the file changed underneath a choice the
+    # user made, so the app reports it instead of deciding for them.
+    manual_matches_preserved: list[str] = field(default_factory=list)
+    # Files whose hash moved during this pass — their in-flight artwork
+    # loads must be invalidated (R04).
+    changed_paths: list[str] = field(default_factory=list)

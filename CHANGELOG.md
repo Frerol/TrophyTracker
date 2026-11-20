@@ -4,7 +4,12 @@
 - Preserve existing data and credential identifiers for compatibility.
 - Disable automatic update checks against the original project's releases.
 
-# Changelog
+## 1.1.1 — 2026-11-20
+
+- Reject stale account-bound Home worker results across account switches/logout.
+- Add cooperative cancellation and orderly shutdown across sync/scan/activity/image workers.
+- Add application-wide job coordination and shared API pacing with Retry-After handling.
+- Detect changed ROMs at previously scanned paths via size+mtime fingerprint; rehash and preserve manual matches.
 
 ## 1.1.0 — 2026-11-19
 

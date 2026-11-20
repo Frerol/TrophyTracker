@@ -121,6 +121,11 @@ Result of scanning + hashing, links a local file to a `games` row.
 | hash | TEXT | matched against `game_hashes.hash` |
 | console_id | INTEGER FK → consoles.id | |
 | detected_at | DATETIME | |
+| last_played_at | DATETIME | nullable; stamped on successful launch |
+| file_size | INTEGER | nullable; size in bytes at hash time (R04 fingerprint) |
+| file_mtime_ns | INTEGER | nullable; mtime in ns at hash time (R04 fingerprint) |
+| manual_match | BOOLEAN | 1 if `game_id` came from "Match to Game…" (R04) |
+| account_id | INTEGER FK → accounts.id | nullable for unowned rows (v21) |
 
 `games.installed` status is derived (JOIN against `installed_roms`), not
 stored redundantly, to avoid sync drift.

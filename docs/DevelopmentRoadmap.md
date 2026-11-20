@@ -3,6 +3,219 @@
 The planned Android achievement-tracking companion has a separate
 [roadmap](AndroidRoadmap.md). It excludes ROM management and emulator launching.
 
+## Priority technical backlog — code review 2026-11-20
+
+Treat this work as a priority ahead of new feature phases. P1 addresses
+correctness and stability first; P2 addresses performance and reliability;
+P3 strengthens maintenance and release verification. Within each tier,
+follow the order below. These are open tasks, not implemented fixes.
+
+Review covered the desktop GUI/worker lifecycle, Explorer read path, API
+client/sync orchestration, SQLite repositories, ROM scanning and artwork.
+Evidence below is from code inspection unless explicitly described as
+executed. GUI risks still require reproduction with PySide6; the review
+environment does not have it installed. No production database or live API
+was used, and no application behavior was changed.
+
+### P1 — correctness and stability
+
+- [x] **R01 — Reject stale account-bound worker results.**
+  `gui/pages/home_page.py::refresh` clears the activity cache only when
+  there is no active account, rather than keying it by account ID.
+  `_on_activity_entry_ready`, `_on_activity_feed_ready` and
+  `_on_photo_ready` accept results without checking the originating account.
+  A direct account switch can retain the previous feed; an old in-flight
+  request can repopulate it even after logout. Capture account ID and a
+  request generation, invalidate cached data on account changes, and reject
+  stale partial/final/error/photo callbacks. **Done when:** delayed results
+  from account A cannot update B's Home or a logged-out Home, and B can
+  refresh after A's request finishes. Add deterministic regression coverage.
+
+- [x] **R02 — Coordinate cancellation and application shutdown.**
+  `gui/workers.py::ServiceWorker` has no cooperative cancellation contract;
+  `gui/main_window.py::closeEvent` only saves window state. Sync loops and
+  their sleeps can run long after a close request. Inspect and reproduce
+  shutdown with active sync, scan, activity and image tasks, then add shared
+  worker ownership, cancellation checks between units of work, interruptible
+  waits and orderly teardown without blocking the GUI for a full sync.
+  Include `gui/image_loader.py`'s global pool and signal-object lifetime.
+  **Done when:** closing during each operation produces no destroyed-running-
+  QThread or deleted-signal errors and committed sync progress remains usable.
+
+- [x] **R03 — Coordinate syncs across pages and share API pacing.**
+  `gui/pages/explorer_page.py::_set_sync_buttons_enabled` protects only one
+  page instance; Home embeds another Explorer and Settings/Home also start
+  sync workers. Multiple jobs can therefore bypass those local guards.
+  `services/sync_service.py` and `services/activity_feed_service.py` pace
+  requests independently, while `api/client.py::get` has no shared limiter.
+  Introduce application-wide job coordination and a shared request budget,
+  with consistent bounded retry/backoff and handling of retry guidance when
+  supplied by the server. Do not simply increase request concurrency.
+  **Done when:** simultaneous triggers from Home, Explorer and Settings
+  cannot launch conflicting jobs, and mocked 429s preserve progress without
+  retry storms or SQLite write contention.
+
+- [x] **R04 — Detect changed ROMs at previously scanned paths.**
+  `services/library_service.py::scan_rom_folder` skips every path already
+  recorded before inspecting file changes. Replacing a ROM at the same
+  path can leave its old hash and game association indefinitely. Store and
+  compare a file fingerprint (size and high-resolution modification time),
+  rehash changed files, invalidate affected artwork, and offer a forced
+  verification pass for same-fingerprint replacements. **Done when:** an
+  unchanged rescan avoids hashing, a modified file is rematched, and manual
+  matches have an explicit preservation/review policy.
+
+- [ ] **R13 — Make migrations atomic and recoverable; provide verified backups.**
+  Follow-up review: `database/migrations.py::apply_migrations` executes DDL
+  without an explicit transaction boundary and only commits after the loop.
+  With the current sqlite3 connection defaults, early DDL can survive a
+  later failure even when the caller rolls back. An isolated in-memory
+  experiment injected `CREATE TABLE` followed by invalid SQL: after rollback,
+  the table still existed while `PRAGMA user_version` remained zero. This
+  demonstrates a partial-schema risk, not a failure observed in user data.
+  Define explicit migration transactions covering schema changes and version
+  updates, roll back and close failed initialization connections, and reject
+  databases newer than the application supports. Before upgrades, create a
+  consistent SQLite backup using the backup API rather than copying a live
+  WAL database file. Add a documented restore path and retention policy;
+  distinguish local backups from portable exports and exclude credentials
+  from portable exports, since the database can contain fallback API keys.
+  **Done when:** injected failures leave schema/data/version consistent,
+  upgrades from representative populated older schemas preserve user data,
+  a second startup succeeds after recovery, and a restored backup passes
+  integrity/foreign-key checks and retains lists, manual matches and settings.
+
+- [ ] **R14 — Reconcile credential-vault changes with database commits.**
+  `database/repositories/account_repository.py::add` writes to the OS vault
+  before executing the account upsert; `remove` deletes the vault entry
+  before its caller commits. A later SQL/commit failure can therefore leave
+  the database rolled back but credentials changed or removed. The
+  `credential_store.delete_key` docstring incorrectly assumes the rows are
+  already gone at this point. Define recoverable sequencing and compensation
+  for these two independent stores, retaining the existing fallback behavior
+  when the vault is unavailable and making deferred cleanup retryable.
+  **Done when:** injected vault, SQL and commit failures during account
+  creation, key replacement and removal do not silently lose the last usable
+  credential or leave an unexplained mismatch; tests verify recovery and
+  diagnostics without exposing keys.
+
+- [ ] **R15 — Record last-played time only after successful process creation.**
+  `services/library_service.py::_launch_installed_rom` updates and commits
+  `last_played_at` before calling `launch_emulator`. An invalid executable
+  or permission error therefore moves an unlaunched game into recent play.
+  Create the emulator process first, then record the successful launch;
+  handle a subsequent persistence failure separately so the UI does not
+  imply that an already-running emulator failed to start or invite a
+  duplicate launch. **Done when:** mocked `Popen` failures leave recency and
+  play-session state unchanged, successful creation records them once, and
+  a database failure after creation reports the actual partial outcome.
+
+### P2 — performance and resilience
+
+- [ ] **R05 — Restore indexed ROM hash lookup.**
+  `database/repositories/game_repository.py::find_game_id_by_hash` always
+  uses `LOWER(hash) = LOWER(?)`. The v23 normalization migration does not
+  make this expression use the ordinary `idx_game_hashes_hash` index,
+  despite the comment in `database/schema.py`. An isolated in-memory SQLite
+  `EXPLAIN QUERY PLAN` confirmed `SCAN game_hashes` for the current query
+  versus `SEARCH ... USING INDEX idx_game_hashes_hash` for plain equality.
+  Use normalized equality with a compatibility fallback, or an index whose
+  expression/collation matches the lookup. Correct the misleading comments.
+  **Done when:** mixed-case compatibility tests pass, the normal query uses
+  an index, and a representative bulk-match benchmark records the effect.
+
+- [ ] **R06 — Reduce synchronous Explorer refresh work.**
+  `gui/pages/explorer_page.py::set_search_text` immediately runs
+  `_refresh_results` on Home search changes. That path queries and converts
+  all matching games, filters them in Python in `core/explorer.py`, reads
+  all account completion records, recounts the catalog and resets the model.
+  Debounce typing first; measure catalog-sized refreshes before deciding
+  whether to move the read to a worker, push predicates into a repository
+  query, or page results. Preserve Core's filtering rules and both Explorer
+  instances. **Done when:** record query count and input-to-render timings
+  against a representative catalog, reduce redundant refreshes, and retain
+  blocked/completed/list/installed filter semantics and sorting behavior.
+
+- [ ] **R07 — Make artwork caching atomic, retryable and bounded.**
+  `library/game_images.py::download_image` writes directly to the final
+  shared cache path; `gui/image_loader.py` deduplicates only within one
+  loader. Concurrent page instances can request/write the same cover.
+  `_ImageLoadTask.run` also lacks the exception/final-signal protection
+  present in `_RomImageLoadTask.run`. In
+  `gui/models/explorer_table_model.py`, a failed load caches `None` for the
+  model's lifetime, and successful pixmaps have no eviction policy.
+  Use temporary downloads plus atomic replacement, shared in-flight
+  deduplication, guaranteed completion cleanup, expiring failure entries
+  and a measured memory budget. **Done when:** interrupted/concurrent
+  downloads leave no partial final file, exceptions release pending entries,
+  offline-to-online retries recover covers, and long browsing stays bounded.
+
+- [ ] **R08 — Isolate activity failures and avoid repeated full rebuilds.**
+  `services/activity_feed_service.py::get_recent_activity_feed` aborts the
+  entire user loop if a summary fetch fails; only the progress subrequest
+  has per-user recovery. Each streamed result also rebuilds every activity
+  widget in `HomePage._render_activity_entries_now`. Handle individual-user
+  failures while retaining good entries, propagate authentication/rate-limit
+  failures appropriately, and batch or incrementally update rendering.
+  Preserve existing refresh backoff and last-good data behavior.
+  **Done when:** one unavailable followed user does not discard other users,
+  partial failure is distinguishable from complete success, and initial
+  streaming avoids repeated teardown of unchanged cards.
+
+- [ ] **R09 — Stream folder traversal and expose progress sooner.**
+  `services/library_service.py::scan_rom_folder` uses
+  `sorted(folder_path.rglob("*"))`, materializing the whole directory tree
+  before scanning the first file. It also traverses directories later
+  discarded by the non-ROM filter. Use streaming traversal and prune only
+  directories whose exclusion is established by the existing rules; report
+  discovery progress and allow cancellation. **Done when:** large nested
+  folders begin reporting work before enumeration ends, use bounded
+  traversal memory, and retain current supported-format discovery.
+
+- [ ] **R10 — Remember completed empty metadata fetches.**
+  `GameRepository.list_ids_missing_hashes` explicitly treats a successful
+  empty hash response as never fetched; `list_ids_missing_median_time`
+  similarly selects every NULL median. Repeated backfills can spend API
+  requests on the same legitimate empty results. Track fetch outcome/time
+  separately from the value, with an expiry/force-refresh policy; failures
+  must remain retryable. **Done when:** an immediate second backfill skips
+  successful empty results, retries failed requests and refreshes expired
+  entries without confusing unknown duration with zero duration.
+
+### P3 — maintenance and release verification
+
+- [ ] **R11 — Automate reproducible checks and validate dependency changes.**
+  The repository has unittest coverage but no checked-in CI workflow or
+  development-tool configuration discovered in this review. Add documented
+  test commands and CI for core/services/database plus offscreen GUI tests,
+  with Windows/Linux packaging smoke checks. Separate reproducible release
+  dependency constraints from deliberate upgrade testing. Reuse the
+  existing pending task to re-test the PySide6 pin rather than upgrading
+  it without crash regression checks. **Done when:** a fresh environment
+  can run the checks, supported platforms are exercised, and GUI/framework
+  upgrades repeat fullscreen, navigation and worker-lifetime scenarios.
+
+- [ ] **R12 — Reconcile historical roadmap status with current code.**
+  The historical Current Status below still describes Quick Links,
+  `ProfilePage`, `DashboardPage` and fixed list behavior that no longer
+  match the current modules/UI; README already describes newer Now Playing,
+  account isolation and artwork work. Preserve useful investigation history
+  but label it as historical, replace stale next steps and link current
+  behavior to the actual files. **Done when:** one current status section
+  reflects the shipped code, distinguishes desktop/Android scope and points
+  to this prioritized backlog without presenting removed features as active.
+
+Review validation: 22 existing tests passed using
+`PYTHONPATH=src python3 -m unittest tests.api.test_credential_redaction tests.database.test_game_hash_case tests.library.test_zip_extraction`.
+This targeted run does not validate the GUI or establish performance numbers;
+the only executed performance-related check was the isolated SQLite query plan.
+
+Follow-up validation (2026-11-20): R13's failure-injection experiment used
+only an in-memory database and temporarily replaced the migration list in
+that Python process. R14 and R15 are code-inspection findings; their failure
+scenarios still require regression tests during implementation. R13–R15 are
+additional P1 work and precede P2 despite their later review IDs.
+
 ## Current Status
 
 - Explorer filter/grid performance — resolved (superseded by the table
