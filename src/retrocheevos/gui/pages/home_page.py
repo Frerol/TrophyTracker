@@ -62,6 +62,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from retrocheevos.models.account import Account
+
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCursor, QDesktopServices, QFontMetrics, QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -338,6 +340,10 @@ class HomePage(Page):
         # is signed in should also invalidate the older in-flight request.
         self._activity_request_generation = 0
         self._activity_request_account_id: Optional[int] = None
+        # Account generation of the activity fetch currently in flight.
+        self._activity_request_account_gen: Optional[int] = None
+        self._activity_refresh_pending = False
+        self._photo_worker_key = HOME_WORKER_PHOTO
         # One shared loader for every ContinuePlayingGameRow built by
         # refresh() — registered with AppContext so shutdown can wait for it.
         self._image_loader = app_context.create_image_loader()
@@ -604,6 +610,12 @@ class HomePage(Page):
         stats_font.setPointSize(stats_font.pointSize() + STATS_FONT_DELTA)
         self._stats_row_label.setFont(stats_font)
         stats_row = QHBoxLayout()
+        self._displayed_account_label = QLabel()
+        account = self.app_context.active_account
+        self._displayed_account_label.setText(
+            f"Account: {account.username}" if account else "No account selected"
+        )
+        stats_row.addWidget(self._displayed_account_label)
         stats_row.addStretch(1)
         stats_row.addWidget(self._stats_row_label)
 
@@ -672,8 +684,18 @@ class HomePage(Page):
         # R01: cancel anything account-bound before it can land on the wrong
         # user's screen, and drop the cached feed if the user changed.
         self._account_generation += 1
+        self._displayed_account_label.setText(
+            f"Account: {account.username}" if account else "No account selected"
+        )
         self.app_context.workers.cancel_key(HOME_WORKER_ACTIVITY)
-        self.app_context.workers.cancel_key(HOME_WORKER_PHOTO)
+        self.app_context.workers.cancel_key(self._photo_worker_key)
+        self._photo_worker_key = (HOME_WORKER_PHOTO, self._account_generation)
+        self._activity_refresh_pending = False
+        self._user_avatar_button.setIcon(QIcon())
+        self._user_avatar_button.setText("●")
+        self._user_avatar_button.setToolTip(
+            f"Displayed account: {account.username}" if account else "Choose an account"
+        )
         self.app_context.workers.cancel_key(HOME_WORKER_PROFILE_SYNC)
         new_id = account.id if account is not None else None
         if self._activity_cache_account_id != new_id:
@@ -769,7 +791,7 @@ class HomePage(Page):
             # still-running `QThread`'s only reference destroys it while
             # `run()` is executing, which is what caused a native crash
             # here once this fetch got slow (DevelopmentRoadmap.md).
-            if not self.app_context.workers.has_key(HOME_WORKER_PHOTO):
+            if not self.app_context.workers.has_key(self._photo_worker_key):
                 gen = self._account_generation
                 account_id = account.id
                 photo_worker = ServiceWorker(
@@ -778,7 +800,7 @@ class HomePage(Page):
                 photo_worker.finished_ok.connect(
                     lambda path: self._on_photo_ready_guarded(path, gen, account_id)
                 )
-                self.app_context.workers.start(photo_worker, key=HOME_WORKER_PHOTO)
+                self.app_context.workers.start(photo_worker, key=self._photo_worker_key)
         else:
             self._points_label.setText("—")
             self._true_points_label.setText("—")
@@ -790,20 +812,7 @@ class HomePage(Page):
         # stale points (e.g. `true_points` stuck at its migration-v8 backfill
         # default of 0) without hammering the API on every restart/switch.
         # Same in-flight guard as `_photo_worker`/`_activity_worker` above.
-        if not self.app_context.workers.has_key(HOME_WORKER_PROFILE_SYNC):
-            gen = self._account_generation
-            account_id = account.id
-            client = session_service.build_api_client(account)
-            profile_worker = ServiceWorker(
-                sync_service.sync_profile_if_needed, client, account
-            )
-            profile_worker.finished_ok.connect(
-                lambda synced: self._on_profile_sync_done_guarded(synced, gen, account_id)
-            )
-            profile_worker.failed.connect(
-                lambda message: self._on_profile_sync_failed_guarded(message, gen, account_id)
-            )
-            self.app_context.workers.start(profile_worker, key=HOME_WORKER_PROFILE_SYNC)
+        self._start_profile_sync(account)
 
         # Continue Playing lists installed ROMs too, so it needs the same
         # sweep the Library does — otherwise a game deleted from disk keeps
@@ -1038,20 +1047,18 @@ class HomePage(Page):
         section blanking out on every tick.
         """
         account = self.app_context.active_account
-        if account is None:
+        if account is None or self.app_context._shutting_down:
             return
-        # Stamped here rather than on completion: what the backoff paces is
-        # how often this app *asks*, and a fetch that fails still spent the
-        # requests.
-        self._activity_last_attempt = time.monotonic()
-
-        # Bail before touching state if a fetch is already in flight —
-        # clearing `_activity_entries` and then not starting a worker would
-        # leave the running one appending to a list the screen no longer
-        # matches. Same in-flight guard as `_photo_worker` above; this fetch
-        # does up to `3 * (1 + FOLLOWED_USERS_LIMIT)` live API calls.
         if self.app_context.workers.has_key(HOME_WORKER_ACTIVITY):
+            # Only queue a retry when the in-flight fetch belongs to an
+            # earlier account generation (cancelled, results discarded). A
+            # fetch already running for this account will deliver its own
+            # results; re-running it right after would double the API calls.
+            if self._activity_request_account_gen != self._account_generation:
+                self._activity_refresh_pending = True
             return
+        self._activity_refresh_pending = False
+        self._activity_last_attempt = time.monotonic()
 
         self._activity_entries = []
         # Streaming is only ever shown on a load that starts from nothing.
@@ -1069,6 +1076,7 @@ class HomePage(Page):
             self._activity_feed_layout.addWidget(QLabel(ACTIVITY_LOADING_TEXT))
 
         gen = self._account_generation
+        self._activity_request_account_gen = gen
         request_gen = self._activity_request_generation + 1
         self._activity_request_generation = request_gen
         account_id = account.id
@@ -1108,6 +1116,47 @@ class HomePage(Page):
         activity_worker.failed.connect(handle_failed)
         activity_worker.cancelled.connect(lambda: None)
         self.app_context.workers.start(activity_worker, key=HOME_WORKER_ACTIVITY)
+        # Connected after registry.start so its ownership entry is removed first.
+        activity_worker.finished.connect(self._retry_pending_activity)
+
+    def _retry_pending_activity(self) -> None:
+        if self._activity_refresh_pending:
+            self._activity_refresh_pending = False
+            if self.app_context.active_account is not None and not self.app_context._shutting_down:
+                QTimer.singleShot(0, lambda: self._refresh_activity_feed(
+                    show_loading=not self._activity_cache
+                ))
+
+    def _start_profile_sync(self, account: Account) -> Optional[ServiceWorker]:
+        from retrocheevos.services.job_coordinator import (
+            try_acquire, release, JOB_SYNC_PROFILE,
+        )
+
+        if (
+            self.app_context._shutting_down
+            or self.app_context.workers.has_key(HOME_WORKER_PROFILE_SYNC)
+        ):
+            return None
+        token = try_acquire(JOB_SYNC_PROFILE)
+        if token is None:
+            return None
+        try:
+            gen, account_id = self._account_generation, account.id
+            client = session_service.build_api_client(account)
+            worker = ServiceWorker(
+                sync_service.sync_profile_if_needed, client, account, cancellable=True
+            )
+            worker.finished_ok.connect(
+                lambda synced: self._on_profile_sync_done_guarded(synced, gen, account_id)
+            )
+            worker.failed.connect(
+                lambda message: self._on_profile_sync_failed_guarded(message, gen, account_id)
+            )
+            worker.finished.connect(lambda: release(token))
+            return self.app_context.workers.start(worker, key=HOME_WORKER_PROFILE_SYNC)
+        except Exception:
+            release(token)
+            raise
 
     def _clear_continue_playing(self) -> None:
         # Column stretches outlive `takeAt`, so going from a wide layout to a
@@ -1406,7 +1455,16 @@ class HomePage(Page):
         - signed out, several   -> one entry per account, so the choice is
           made here rather than by going to Settings to switch first
         """
-        if self.app_context.active_account is not None:
+        active = self.app_context.active_account
+        if active is not None:
+            account_menu = QMenu(f"Displayed account: {active.username}", menu)
+            menu.addMenu(account_menu)
+            for account in session_service.list_accounts():
+                action = account_menu.addAction(
+                    account.username, self._make_login_handler(account.id)
+                )
+                action.setCheckable(True)
+                action.setChecked(account.id == active.id)
             menu.addAction(LOGOUT_ACTION_TEXT, self.logout_requested.emit)
             return
 

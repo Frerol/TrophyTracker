@@ -64,7 +64,7 @@ class SettingsPage(Page):
         self._username_input = QLineEdit()
         self._api_key_input = QLineEdit()
         self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        add_account_button = QPushButton("Add Account")
+        add_account_button = QPushButton("Save Account")
         add_account_button.setProperty("primary", True)
         add_account_button.clicked.connect(self._on_add_account)
 
@@ -74,7 +74,7 @@ class SettingsPage(Page):
 
         self._accounts_list = QListWidget()
         self._accounts_list.setMaximumHeight(110)
-        switch_button = QPushButton("Switch to Selected")
+        switch_button = QPushButton("Display Selected Account")
         switch_button.clicked.connect(self._on_switch_account)
         remove_account_button = QPushButton("Remove Selected")
         remove_account_button.clicked.connect(self._on_remove_account)
@@ -166,6 +166,10 @@ class SettingsPage(Page):
         accounts_layout = QVBoxLayout(accounts_group)
         accounts_layout.setSpacing(10)
         accounts_layout.addLayout(account_form)
+        accounts_layout.addWidget(QLabel(
+            "Save accounts here, then select which account to display. "
+            "Only one account is displayed at a time."
+        ))
         accounts_layout.addWidget(add_account_button)
         accounts_layout.addWidget(self._accounts_list)
         accounts_layout.addLayout(account_buttons)
@@ -276,7 +280,10 @@ class SettingsPage(Page):
         if not username or not api_key:
             QMessageBox.warning(self, "Missing info", "Username and API Key are both required.")
             return
-        session_service.add_account(username, api_key)
+        active = self.app_context.active_account
+        session_service.add_account(
+            username, api_key, activate=active is not None and active.username == username
+        )
         self._username_input.clear()
         self._api_key_input.clear()
         self.app_context.refresh_active_account()
@@ -288,10 +295,15 @@ class SettingsPage(Page):
             QMessageBox.information(
                 self,
                 "No account selected",
-                "Select an account in the list first, then press Switch to Selected.",
+                "Select an account in the list first, then press Display Selected Account.",
             )
             return
-        session_service.switch_account(item.data(Qt.ItemDataRole.UserRole))
+        try:
+            session_service.switch_account(item.data(Qt.ItemDataRole.UserRole))
+        except ValueError as error:
+            QMessageBox.warning(self, "Account unavailable", str(error))
+            self.refresh()
+            return
         self.app_context.refresh_active_account()
         self.refresh()
 

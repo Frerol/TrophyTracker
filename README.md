@@ -41,10 +41,12 @@ TrophyTracker is a desktop app for Windows and Linux that connects to your Retro
    - Log in at [retroachievements.org](https://retroachievements.org)
    - Go to your account control panel
    - Copy the "Web API Key"
-4. Enter your username and API key in the app's Settings.
+4. Enter your username and API key in Settings and choose **Save Account**. Select the saved account, then choose **Display Selected Account**. Saving another account does not switch the displayed account.
 5. Run "Sync Everything" to sync the game catalog and your profile (this can take up to ~1h the first time, due to RetroAchievements' own API rate limits — that's normal, and it's resumable if interrupted).
 
 ## Per-account data
+
+Only one explicitly selected account supplies the displayed interface. You can switch accounts in Settings or the avatar menu; the selected username stays visible in the shared header.
 
 Each RetroAchievements account that signs in on this app has its own data stored locally on this PC (library, lists, stats, configured ROM folders). Logging out doesn't delete anything — signing back in with the same account brings everything back exactly as you left it.
 

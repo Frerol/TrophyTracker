@@ -134,18 +134,31 @@ class RehashInstalledRomsTests(unittest.TestCase):
         self.assertEqual(result.newly_matched, 1)
         self.assertEqual(self._rom(rom_id).game_id, 1)
 
-    def test_an_existing_match_is_never_cleared(self) -> None:
+    def test_manual_match_is_preserved_when_new_hash_is_unknown(self) -> None:
         """A manual "Match to Game…" must survive a re-hash that finds
         nothing — the user's own answer beats an empty lookup.
         """
         self._add_game(1, "Hand Picked", [OTHER_HASH])
         rom_id = self._add_rom("game.nes", OLD_HASH, game_id=1)
+        with connection_module.get_connection() as conn:
+            LibraryRepository(conn).set_game_id(rom_id, 1, manual=True)
 
         with patch.object(library_service, "compute_rom_hash", return_value=NEW_HASH):
             library_service.rehash_installed_roms()
 
         self.assertEqual(self._rom(rom_id).hash, NEW_HASH)
         self.assertEqual(self._rom(rom_id).game_id, 1)
+
+    def test_changed_unknown_hash_clears_only_automatic_match(self) -> None:
+        self._add_game(1, "Old game", [OLD_HASH])
+        rom_id = self._add_rom("replacement.nes", OLD_HASH, game_id=1)
+        with patch.object(library_service, "compute_rom_hash", return_value=NEW_HASH):
+            result = library_service.rehash_installed_roms()
+        self.assertEqual(self._rom(rom_id).hash, NEW_HASH)
+        self.assertIsNone(self._rom(rom_id).game_id)
+        self.assertEqual(result.changed, 1)
+        self.assertEqual(result.newly_matched, 0)
+        self.assertIn(self._rom(rom_id).file_path, result.changed_paths)
 
     def test_a_changed_hash_can_correct_a_wrong_match(self) -> None:
         self._add_game(1, "Wrong Game", [OLD_HASH])

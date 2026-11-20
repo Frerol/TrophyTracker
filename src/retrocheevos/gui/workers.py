@@ -28,7 +28,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from retrocheevos.utils.cancellation import OperationCancelled
+from retrocheevos.utils.cancellation import OperationCancelled, cancellation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,8 @@ class ServiceWorker(QThread):
 
     def run(self) -> None:
         try:
-            result = self._func(*self._args, **self._kwargs)
+            with cancellation_scope(self.is_cancelled):
+                result = self._func(*self._args, **self._kwargs)
         except OperationCancelled:
             logger.info("Worker stopped at a cancellation boundary")
             self.cancelled.emit()
@@ -175,6 +176,7 @@ class WorkerRegistry(QObject):
 
     def _forget(self, worker: ServiceWorker) -> None:
         self._workers.pop(worker, None)
+        _LINGERING_WORKERS.discard(worker)
         worker.deleteLater()
 
     def has_key(self, key: Any) -> bool:
@@ -191,6 +193,10 @@ class WorkerRegistry(QObject):
 
     def active(self) -> tuple[ServiceWorker, ...]:
         return tuple(self._workers)
+
+    def is_idle(self) -> bool:
+        # Drain finished delivery too, before allowing the last window to close.
+        return not self._workers
 
     def shutdown(self, timeout_ms: int = SHUTDOWN_TIMEOUT_MS) -> None:
         """Cancel and wait for every worker, bounded by `timeout_ms` in total.

@@ -1,3 +1,12 @@
+## Unreleased
+
+- Queue a Home activity refresh for the new account when the previous account's request is still finishing, without duplicating fetches for the same account.
+- Make shared API pacing cancellable and release its lock while waiting, so rate-limit penalties no longer block shutdown.
+- Close the window without blocking the GUI while background work drains, bounded by the shutdown timeout.
+- Coordinate Home's automatic profile sync with the application-wide job slot.
+- Clear obsolete automatic ROM matches when a forced rehash finds no catalog match; manual matches are preserved.
+- Require explicit selection of the displayed account; saving an account no longer switches to it.
+
 ## 0.1.0 — TrophyTracker
 
 - Add CI for the full offscreen suite on Windows/Linux, packaging smoke builds and a non-blocking dependency-upgrade probe.

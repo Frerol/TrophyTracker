@@ -362,9 +362,10 @@ def rehash_installed_roms(
                     manual_matches_preserved.append(rom.file_path)
                 continue
 
-            if game_id is not None and game_id != rom.game_id:
+            if game_id != rom.game_id:
                 repository.set_game_id(rom.id, game_id)
-                newly_matched += 1
+                if game_id is not None:
+                    newly_matched += 1
 
     logger.info(
         "Re-hash pass: %d checked, %d hashes changed, %d newly matched, "

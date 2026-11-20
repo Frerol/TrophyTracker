@@ -61,3 +61,16 @@ class AppContext(QObject):
         self.workers.shutdown()
         for loader in self._image_loaders:
             loader.shutdown()
+
+    def begin_shutdown(self) -> None:
+        """Request cancellation without blocking the event loop."""
+        if not self._shutting_down:
+            self._shutting_down = True
+            self.workers.shutdown(timeout_ms=0)
+            for loader in self._image_loaders:
+                loader.shutdown(timeout_ms=0)
+
+    def is_idle(self) -> bool:
+        return self.workers.is_idle() and all(
+            loader.is_idle() for loader in self._image_loaders
+        )

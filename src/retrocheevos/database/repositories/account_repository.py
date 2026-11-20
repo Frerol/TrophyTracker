@@ -73,6 +73,10 @@ class AccountRepository:
 
     def set_active(self, account_id: int) -> None:
         """Mark `account_id` as active and deactivate every other account."""
+        if self._connection.execute(
+            "SELECT 1 FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone() is None:
+            raise ValueError("The selected account no longer exists")
         self._connection.execute("UPDATE accounts SET is_active = 0")
         self._connection.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
         logger.info("Switched active account to id=%d", account_id)

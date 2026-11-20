@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
+from retrocheevos.utils.cancellation import current_cancellation, raise_if_cancelled
+
 import requests
 
 from retrocheevos.api.exceptions import (
@@ -73,15 +75,20 @@ class RequestPacer:
         with self._lock:
             self._min_interval = max(0.0, seconds)
 
-    def wait(self) -> None:
+    def wait(self, should_cancel=None) -> None:
         """Block until the next request may start, then reserve that slot."""
-        if self._min_interval <= 0:
-            return
-        with self._lock:
-            now = time.monotonic()
-            if self._next_allowed > now:
-                time.sleep(self._next_allowed - now)
-            self._next_allowed = time.monotonic() + self._min_interval
+        should_cancel = should_cancel or current_cancellation()
+        while True:
+            raise_if_cancelled(should_cancel)
+            with self._lock:
+                now = time.monotonic()
+                remaining = self._next_allowed - now
+                if remaining <= 0:
+                    self._next_allowed = now + self._min_interval
+                    return
+            # Release the lock while waiting so other callers can cancel or
+            # extend the shared deadline. Never reserve a slot until it is due.
+            time.sleep(min(0.05, remaining))
 
     def penalize(self, seconds: float) -> None:
         """Push every caller's next slot out after a rate-limit response."""

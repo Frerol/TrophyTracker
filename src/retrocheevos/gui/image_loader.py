@@ -191,7 +191,10 @@ class ImageLoader(QObject):
         pixmap = QPixmap.fromImage(image) if image is not None else None
         self.image_ready.emit(game_id, pixmap)
 
-    def shutdown(self) -> None:
+    def is_idle(self) -> bool:
+        return not self._tasks
+
+    def shutdown(self, timeout_ms: int = SHUTDOWN_WAIT_MS) -> None:
         """Stop accepting work and give in-flight pool tasks a bounded wait.
 
         Results that arrive after this are ignored (`_pending`/`_rom_pending`
@@ -203,4 +206,4 @@ class ImageLoader(QObject):
         self._shutting_down = True
         self._pending.clear()
         self._rom_pending.clear()
-        QThreadPool.globalInstance().waitForDone(SHUTDOWN_WAIT_MS)
+        QThreadPool.globalInstance().waitForDone(timeout_ms)

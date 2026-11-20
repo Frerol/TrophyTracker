@@ -76,6 +76,72 @@ class WiiRvzScanTests(unittest.TestCase):
                 library.scan_rom_folder(folder.id, cancel_on_discovery, lambda: cancelled)
             hash_rom.assert_not_called()
 
+    def test_unchanged_rescan_skips_hashing_and_replacement_clears_stale_match(self):
+        from retrocheevos.database.repositories.game_repository import GameRepository
+        from retrocheevos.models.game import Game
+        rom = self.romdir / 'replacement.rvz'
+        rom.write_bytes(rvz_header(2))
+        old_hash, new_hash = 'a' * 32, 'b' * 32
+        with db.get_connection() as conn:
+            from retrocheevos.database.repositories.console_repository import ConsoleRepository
+            from retrocheevos.models.console import Console
+            ConsoleRepository(conn).upsert(Console(19, 'Wii'))
+            GameRepository(conn).upsert_game(Game(1, 'Old game', 19, True))
+            GameRepository(conn).replace_hashes(1, [old_hash])
+        folder = library.add_rom_folder(str(self.romdir), 19)
+        with patch.object(library, '_hash_in_place', return_value=old_hash) as hasher:
+            first = library.scan_rom_folder(folder.id)
+            self.assertEqual(first.recorded[0].game_id, 1)
+            hasher.reset_mock()
+            second = library.scan_rom_folder(folder.id)
+            hasher.assert_not_called()
+            self.assertEqual(second.already_known_count, 1)
+        rom.write_bytes(rvz_header(2) + b'changed bytes')
+        with patch.object(library, '_hash_in_place', return_value=new_hash) as hasher:
+            third = library.scan_rom_folder(folder.id)
+            hasher.assert_called_once()
+        current, = library.list_installed_roms()
+        self.assertEqual(current.hash, new_hash)
+        self.assertIsNone(current.game_id)
+        self.assertEqual(third.changed_paths, [str(rom)])
+
+    def test_changed_rescan_and_same_fingerprint_forced_pass_preserve_manual_choice(self):
+        from retrocheevos.database.repositories.game_repository import GameRepository
+        from retrocheevos.database.repositories.library_repository import LibraryRepository
+        from retrocheevos.models.game import Game
+        from retrocheevos.database.repositories.console_repository import ConsoleRepository
+        from retrocheevos.models.console import Console
+        rom = self.romdir / 'manual.rvz'
+        rom.write_bytes(rvz_header(2))
+        folder = library.add_rom_folder(str(self.romdir), 19)
+        with db.get_connection() as conn:
+            ConsoleRepository(conn).upsert(Console(19, 'Wii'))
+            GameRepository(conn).upsert_game(Game(1, 'Chosen game', 19, True))
+        with patch.object(library, '_hash_in_place', return_value='a' * 32):
+            installed, = library.scan_rom_folder(folder.id).recorded
+        with db.get_connection() as conn:
+            LibraryRepository(conn).set_game_id(installed.id, 1, manual=True)
+        rom.write_bytes(rvz_header(2) + b'replacement')
+        with patch.object(library, '_hash_in_place', return_value='b' * 32):
+            result = library.scan_rom_folder(folder.id)
+        self.assertEqual(result.preserved_manual_matches, [str(rom)])
+        current, = library.list_installed_roms()
+        self.assertEqual(current.game_id, 1)
+        # Replace bytes without changing the size/mtime: normal scan skips it,
+        # but the forced pass must still rehash and report the manual choice.
+        stat = rom.stat()
+        rom.write_bytes(rvz_header(2) + b'other bytes')
+        os.utime(rom, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        with patch.object(library, '_hash_in_place', return_value='c' * 32) as hasher:
+            self.assertEqual(library.scan_rom_folder(folder.id).already_known_count, 1)
+            hasher.assert_not_called()
+            result = library.rehash_installed_roms()
+            hasher.assert_called_once()
+        self.assertEqual(result.manual_matches_preserved, [str(rom)])
+        current, = library.list_installed_roms()
+        self.assertEqual(current.game_id, 1)
+        self.assertEqual(current.hash, 'c' * 32)
+
     def test_content_detects_wii_and_gamecube_before_folder_hint(self) -> None:
         path = self.romdir / 'game.rvz'
         for disc_type, expected, incorrect_hint in ((2, 19, 16), (1, 16, 19)):

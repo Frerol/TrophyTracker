@@ -11,7 +11,25 @@ interrupting SQLite writes halfway through a transaction.
 """
 
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Callable, Optional
+
+_current_cancellation = ContextVar("operation_cancellation", default=None)
+
+
+@contextmanager
+def cancellation_scope(should_cancel):
+    """Propagate a worker's cancellation through synchronous API adapters."""
+    token = _current_cancellation.set(should_cancel)
+    try:
+        yield
+    finally:
+        _current_cancellation.reset(token)
+
+
+def current_cancellation():
+    return _current_cancellation.get()
 
 # How often a long wait re-checks the cancellation flag. Short enough that a
 # close request is honoured promptly, long enough not to spin.

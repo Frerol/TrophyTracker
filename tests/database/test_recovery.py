@@ -78,6 +78,41 @@ class RecoveryTests(unittest.TestCase):
         finally:
             restored.close()
 
+    def test_representative_populated_historical_schemas_upgrade_and_restore(self):
+        for version in (1, 10, 20, 26, 27):
+            with self.subTest(version=version):
+                path = self.root / f'v{version}.db'
+                with patch.object(migrations, 'MIGRATIONS', [m for m in migrations.MIGRATIONS if m[0] <= version]):
+                    connection = migrations.initialize_database(path)
+                try:
+                    connection.execute("INSERT INTO accounts(id,username,api_key,is_active) VALUES(1,'Example','synthetic',1)")
+                    connection.execute("INSERT INTO consoles(id,name) VALUES(7,'NES')")
+                    connection.execute("INSERT INTO games(id,title,console_id,has_achievements) VALUES(1,'Example',7,1)")
+                    connection.execute("INSERT INTO user_lists(account_id,game_id,list_type) VALUES(1,1,'backlog')")
+                    columns = {row[1] for row in connection.execute('PRAGMA table_info(installed_roms)')}
+                    connection.execute("INSERT INTO installed_roms(file_path,console_id,game_id,hash) VALUES('example.nes',7,1,'abc')")
+                    if 'account_id' in columns:
+                        connection.execute('UPDATE installed_roms SET account_id=1')
+                    if 'manual_match' in columns:
+                        connection.execute('UPDATE installed_roms SET manual_match=1')
+                    connection.commit()
+                    migrations.apply_migrations(connection)
+                    self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], migrations.supported_database_version())
+                    self.assertEqual(connection.execute('SELECT username FROM accounts').fetchone()[0], 'Example')
+                    self.assertEqual(connection.execute('SELECT game_id FROM user_lists').fetchone()[0], 1)
+                    row = connection.execute('SELECT game_id,account_id,manual_match FROM installed_roms').fetchone()
+                    self.assertEqual(tuple(row[:2]), (1, 1))
+                    if 'manual_match' in columns:
+                        self.assertEqual(row['manual_match'], 1)
+                    saved = backup.create_backup(connection=connection)
+                    restored_path = self.root / f'restored-v{version}.db'
+                    backup.restore_backup(saved, restored_path)
+                    self.assertTrue(backup.verify_backup(restored_path))
+                    restored = migrations.initialize_database(restored_path)
+                    restored.close()
+                finally:
+                    connection.close()
+
     def test_backups_do_not_collide_and_refuse_existing_destination(self):
         connection = self.old_database()
         with patch.object(backup, 'datetime') as clock:

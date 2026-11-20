@@ -18,7 +18,7 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -189,7 +189,11 @@ class LifecycleRegressionTests(unittest.TestCase):
         self.assertIn(worker, self.window.app_context.workers.active())
 
         self.window.close()
-        self._pump()
+        for _ in range(100):
+            self._pump(10)
+            if not self.window.isVisible():
+                break
+        self.assertFalse(self.window.isVisible())
         self.assertTrue(stopped.is_set())
         self.assertNotIn(worker, self.window.app_context.workers.active())
 
@@ -197,6 +201,195 @@ class LifecycleRegressionTests(unittest.TestCase):
         # anything.
         self.window.app_context.shutdown()
         self.assertEqual(self.window.app_context.workers.active(), ())
+
+    def _close_and_wait(self):
+        before = time.monotonic()
+        self.window.close()
+        self.assertLess(time.monotonic() - before, 0.5)
+        for _ in range(200):
+            self._pump(10)
+            if not self.window.isVisible():
+                break
+        self.assertFalse(self.window.isVisible())
+        self.assertTrue(self.window.app_context.is_idle())
+
+    def test_close_gives_up_on_a_worker_that_outlives_the_shutdown_budget(self):
+        # A worker that ignores cancellation must not keep the window open
+        # (disabled) forever: after the budget it is left lingering and the
+        # close goes through.
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        def stuck():
+            entered.set()
+            release.wait(5)
+        worker = ServiceWorker(stuck)
+        with patch('retrocheevos.gui.main_window.SHUTDOWN_TIMEOUT_MS', 150):
+            self.window.app_context.workers.start(worker)
+            self.assertTrue(entered.wait(1))
+            self.window.close()
+            self.assertTrue(self.window.isVisible())
+            for _ in range(100):
+                self._pump(10)
+                if not self.window.isVisible():
+                    break
+        self.assertFalse(self.window.isVisible())
+        self.assertFalse(self.window.app_context.is_idle())
+        release.set()
+        worker.wait(2000)
+
+    def test_close_cancels_shared_api_penalty_without_sending_request(self):
+        from retrocheevos.api.client import RequestPacer, RetroAchievementsClient
+        from unittest.mock import Mock
+        pacer = RequestPacer()
+        pacer.penalize(120)
+        entered = Event()
+        client = RetroAchievementsClient('synthetic', 'synthetic')
+        client._session.get = Mock()
+        def request():
+            entered.set()
+            client.get('synthetic.php')
+        with patch('retrocheevos.api.client.pacer', pacer):
+            worker = ServiceWorker(request)
+            self.window.app_context.workers.start(worker)
+            self.assertTrue(entered.wait(1))
+            self._close_and_wait()
+        client._session.get.assert_not_called()
+
+    def test_close_waits_asynchronously_for_an_active_image_download(self):
+        from retrocheevos.models.game import Game
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        def download(_game):
+            entered.set()
+            if not release.wait(3):
+                raise TimeoutError('test download was not released')
+            return None
+        loader = self.window.app_context.create_image_loader()
+        with patch('retrocheevos.gui.image_loader.ensure_game_image_cached', side_effect=download):
+            loader.request(Game(id=1, title='synthetic', console_id=7, has_achievements=True))
+            self.assertTrue(entered.wait(1))
+            self.window.close()
+            self.assertTrue(self.window.isVisible())
+            self.assertFalse(self.window.isEnabled())
+            QTimer.singleShot(50, release.set)
+            self._close_and_wait()
+
+    def test_close_during_sync_preserves_an_already_committed_console(self):
+        from retrocheevos.api.client import RetroAchievementsClient
+        from retrocheevos.services import sync_service
+        from retrocheevos.api.exceptions import RateLimitError
+        from retrocheevos.database.repositories.console_repository import ConsoleRepository
+        first = RetroAchievementsClient('synthetic', 'synthetic')
+        calls = 0
+        paused = Event()
+        def consoles():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                from retrocheevos.api.games import RawConsole
+                return [RawConsole(id=7, name='NES')]
+            paused.set()
+            raise RateLimitError('test penalty', retry_after=120)
+        def sync(should_cancel):
+            sync_service.sync_consoles(first, should_cancel)
+            sync_service.sync_consoles(first, should_cancel)
+        with patch('retrocheevos.services.sync_service.GamesClient.list_console_ids', side_effect=consoles):
+            worker = ServiceWorker(sync, cancellable=True)
+            self.window.app_context.workers.start(worker)
+            self.assertTrue(paused.wait(1))
+            self._close_and_wait()
+        with db.get_connection() as connection:
+            self.assertIsNotNone(ConsoleRepository(connection).get_by_id(7))
+        self.assertEqual(calls, 2)
+
+    def test_close_during_scan_preserves_previously_recorded_rom(self):
+        from retrocheevos.services import library_service
+        from tests.services.test_wii_rvz_scan import rvz_header
+        root = self.database.parent / 'roms'
+        root.mkdir()
+        for name in ('first.rvz', 'second.rvz'):
+            (root / name).write_bytes(rvz_header(2))
+        folder = library_service.add_rom_folder(str(root), 19)
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        calls = 0
+        def hash_rom(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                entered.set()
+                release.wait(3)
+            return ''
+        with patch('retrocheevos.services.library_service._hash_in_place', side_effect=hash_rom):
+            worker = ServiceWorker(library_service.scan_rom_folder, folder.id, cancellable=True)
+            self.window.app_context.workers.start(worker)
+            self.assertTrue(entered.wait(1))
+            self.assertEqual(len(library_service.list_installed_roms()), 1)
+            QTimer.singleShot(50, release.set)
+            self._close_and_wait()
+        self.assertGreaterEqual(len(library_service.list_installed_roms()), 1)
+
+    def test_close_during_activity_waits_for_inflight_request_then_cancels(self):
+        from retrocheevos.services import activity_feed_service
+        entered, release = Event(), Event()
+        self.addCleanup(release.set)
+        def following(*args):
+            entered.set()
+            release.wait(3)
+            return []
+        with patch('retrocheevos.services.activity_feed_service.ProfileClient.get_users_i_follow', side_effect=following):
+            worker = ServiceWorker(activity_feed_service.get_recent_activity_feed,
+                                   Account('synthetic', 'synthetic', True), cancellable=True)
+            self.window.app_context.workers.start(worker)
+            self.assertTrue(entered.wait(1))
+            QTimer.singleShot(50, release.set)
+            self._close_and_wait()
+
+    def test_process_exits_cleanly_after_close_with_inflight_worker(self):
+        import os
+        import subprocess
+        import sys
+        script = r"""
+import sys
+import time
+from pathlib import Path
+from threading import Event
+from unittest.mock import patch
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
+from retrocheevos.database import connection as db
+from retrocheevos.database.migrations import initialize_database
+from retrocheevos.gui.main_window import MainWindow
+from retrocheevos.gui.workers import ServiceWorker
+app = QApplication([])
+create = db.create_connection
+path = Path(sys.argv[1])
+with patch.object(db, 'create_connection', lambda database_path=None: create(path)):
+    initialize_database(path).close()
+    with patch.object(MainWindow, '_start_update_check', lambda self: None):
+        window = MainWindow()
+    window.show()
+    entered = Event()
+    def inflight():
+        entered.set()
+        time.sleep(0.2)
+    worker = ServiceWorker(inflight)
+    window.app_context.workers.start(worker)
+    assert entered.wait(1)
+    QTimer.singleShot(0, window.close)
+    QTimer.singleShot(5000, lambda: app.exit(9))
+    result = app.exec()
+    assert result == 0, result
+    assert window.app_context.is_idle()
+"""
+        result = subprocess.run(
+            [sys.executable, '-c', script, str(self.database.parent / 'child.db')],
+            env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen'},
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('Destroyed while thread', result.stderr)
+        self.assertNotIn('Signal source has been deleted', result.stderr)
 
     def test_registry_refuses_new_workers_after_shutdown(self) -> None:
         self.window.app_context.shutdown()

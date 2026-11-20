@@ -1,8 +1,10 @@
 """Main window with a shared brand header and persistent page navigation."""
 
-from PySide6.QtCore import QEvent
+import time
+
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import (
-    QButtonGroup, QHBoxLayout, QLabel, QMainWindow, QPushButton,
+    QButtonGroup, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
     QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -11,7 +13,7 @@ from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.gui.pages.library_page import LibraryPage
 from retrocheevos.gui.pages.lists_page import ListsPage
 from retrocheevos.gui.pages.settings_page import SettingsPage
-from retrocheevos.gui.workers import ServiceWorker
+from retrocheevos.gui.workers import SHUTDOWN_TIMEOUT_MS, ServiceWorker
 from retrocheevos.services import preferences_service, session_service, update_service
 from retrocheevos.widgets.update_banner import UpdateBanner
 from retrocheevos.version import APP_VERSION
@@ -39,6 +41,11 @@ class MainWindow(QMainWindow):
         )
 
         self.app_context = AppContext()
+        self._close_deadline = 0.0
+        self._close_retry_timer = QTimer(self)
+        self._close_retry_timer.setSingleShot(True)
+        self._close_retry_timer.setInterval(25)
+        self._close_retry_timer.timeout.connect(self.close)
 
         home_page = HomePage(self.app_context)
 
@@ -234,9 +241,25 @@ class MainWindow(QMainWindow):
 
         A last write for the case where nothing changed since the previous
         one — `changeEvent`/`resizeEvent` do the real work.
+
+        Closing does not block the event loop: cancellation is requested and
+        the close is retried until background work drains, so delayed results
+        are delivered (and discarded) before the window goes away. The wait is
+        bounded by `SHUTDOWN_TIMEOUT_MS`; work still running after that is
+        kept referenced by the registry instead of holding the app open.
         """
-        self._save_window_state()
-        self.app_context.shutdown()
+        if not self.app_context._shutting_down:
+            self._save_window_state()
+            self._close_deadline = time.monotonic() + SHUTDOWN_TIMEOUT_MS / 1000
+        self.app_context.begin_shutdown()
+        if (
+            not self.app_context.is_idle()
+            and time.monotonic() < self._close_deadline
+        ):
+            event.ignore()
+            self.setEnabled(False)
+            self._close_retry_timer.start()
+            return
         super().closeEvent(event)
 
     def _on_active_account_changed(self, _account) -> None:
@@ -274,7 +297,11 @@ class MainWindow(QMainWindow):
         """Sign back in from the user menu. `refresh_active_account` fires
         `active_account_changed`, which repaints the header and the visible
         page — no restart, no trip to Settings."""
-        session_service.switch_account(account_id)
+        try:
+            session_service.switch_account(account_id)
+        except ValueError as error:
+            QMessageBox.warning(self, "Account unavailable", str(error))
+            return
         self.app_context.refresh_active_account()
         self._navigate_home()
 
