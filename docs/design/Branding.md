@@ -1,8 +1,8 @@
 # TrophyTracker visual identity
 
 This document describes the current runtime artwork. The planned replacement
-is defined by the [UI proposal](ui-proposal.html) and
-[desktop revamp roadmap](../planning/DevelopmentRoadmap.md#desktop-interface-revamp--proposed-r16r27).
+is defined by the [reviewed UI proposal](ui-proposal-reviewed.html) and
+[desktop revamp roadmap](../planning/DevelopmentRoadmap.md#active-desktop-plan--interface-revamp-r16r27).
 The preferred A/C concepts have not yet replaced the shipped icon/logo.
 
 The application is now named TrophyTracker. The existing R-shaped controller,

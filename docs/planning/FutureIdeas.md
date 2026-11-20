@@ -1,11 +1,11 @@
 # TrophyTracker — Future Ideas
 
 Unscheduled ideas, not committed to any version yet. See
-`DevelopmentRoadmap.md` for the actual versioned plan.
+`DevelopmentRoadmap.md` for the active plan; historical version buckets are
+not current release commitments.
 
-- Steam Deck support (also tracked as committed in Roadmap v2.0)
-- Linux support (also tracked as committed in Roadmap v2.0)
-- Plugin system (also tracked as committed in Roadmap v2.0)
+- Steam Deck support
+- Plugin system
 - Themes
 - Cloud Sync
 - Achievements timeline

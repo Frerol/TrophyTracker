@@ -18,7 +18,7 @@ Focus areas:
 - Performance
 - Organization
 - Offline cache
-- Windows-first (future Linux & Steam Deck support)
+- Linux release support, Windows validation and future Steam Deck support
 
 The application should feel like a **native desktop application**, not a
 website.

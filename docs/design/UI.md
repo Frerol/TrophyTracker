@@ -1,177 +1,123 @@
-# TrophyTracker — UI
+# TrophyTracker — UI specification
 
-## 1. Design Direction
+## Status and references
 
-- Inspired by RetroAchievements — **not** a clone.
-- Dark mode first.
-- Compact.
-- Fast.
-- Minimal clicks to any action.
-- Professional, no clutter.
-- Never sacrifice performance for visual effects (no gratuitous animations
-  that block or slow the UI thread).
+This document separates the current desktop behavior from the proposed visual
+revamp. The [roadmap](../planning/DevelopmentRoadmap.md) owns task status.
+The [reviewed UI proposal](ui-proposal-reviewed.html) and
+[product fit review](ProposalReview.md) define the revised design direction.
+The [supplied HTML](ui-proposal.html) remains an original visual reference;
+its controls are not evidence of implemented features.
 
-## 2. Navigation
+## Current desktop navigation
 
-Primary navigation (left sidebar or top nav — implementation detail for
-`gui/`), fixed set of destinations:
+`gui/main_window.py` provides Home, Library, Lists and Settings. Explorer is
+embedded in Home behind catalog search and filters. There is no separate
+Profile, Dashboard, Achievements or Systems page. The shared header shows the
+displayed account, points/stats and account menu across destinations.
 
-1. Home
-2. Library
-3. Leaderboards
-4. Lists
-5. Settings
+Saved credentials and displayed identity are separate. Saving another account
+in Settings does not switch the interface. The user explicitly selects the
+displayed account in Settings or the avatar menu. One account is active at a
+time; restart restores that choice. Sign out preserves saved data. Delayed
+results from a previous selection must never update the new account's screen.
 
-Explorer isn't a destination of its own — it's embedded in Home, behind the
-search field and filter pills. There is no Profile screen either: its
-content now lives on Home (points, Beaten/Mastered/Completion, Badges and
-Event Badges) and in Settings (the manual "Sync Profile" action).
+## Current screens and actions
 
-## 3. Screens
+### Home
 
-### 3.1 Dashboard
+- Continue Playing and guarded Play actions for local games.
+- Points, true points, beaten/mastered/completion statistics.
+- Badges and event awards; no standalone profile page.
+- Followed-user Recent Activity, with cached results and partial-failure feedback.
+- Now Playing, distinct from an achievement-unlock event stream.
+- Always-visible catalog search and embedded Explorer.
 
-Sections:
+Profile synchronization is opportunistic when stale and participates in the
+same job coordination as manual synchronization. Activity refresh keeps its
+existing backoff; no fixed five-minute profile polling is introduced.
 
-- Continue Playing
-- Recommendations
-- Recent activity
-- Leaderboards (summary)
-- Events
-- Recently added achievements
+### Explorer
 
-All sections read from local cache; population/refresh handled by
-Services/Core in the background.
+A sortable model/view table over the cached achievement-enabled catalog.
+Search input is debounced; snapshot reads run in a worker. Core owns console,
+list, installed, game-type and median-time filters. Blocked, beaten and mastered
+games are excluded from suggestions; completed/abandoned list rules retain
+their existing toggles. Numeric sorting and return-state preservation matter.
+Actions include Play where available, list/block operations and external RA
+links. No recommendation engine, genre filter or full leaderboard UI is implied.
 
-### 3.2 Explorer (Main Page)
+### Library
 
-The heart of the app. Contains:
+Account-scoped installed ROMs and configured folders, independent of Explorer's
+catalog exclusions. Local games can be unmatched or lack an achievement set.
+Scanning indexes existing files without moving, renaming or downloading them.
+Selected/all-folder scans expose progress and cancellation; forced verification
+rehashes existing files. Manual matches and user-selected covers are preserved
+according to the explicit matching policy.
 
-- Search bar (instant, cache-only).
-- Filter bar (see 3.2.1).
-- Grid/list of Game Cards (see 4.1).
-- Recommendations strip.
-- Access to user Lists from within results (quick actions on each card).
-- Random button (respects active filters).
+Keep manual matching, cover customization, emulator configuration, missing-file
+feedback and Play accessible. No automatic Watch Folder organizer exists.
 
-#### 3.2.1 Filters
+### Lists
 
-- Console (multi-select)
-- Genre (future)
-- Median Time to Beat (togglable on/off)
-- Installed
-- Completed
-- Want to Play
-- Playing
-- Abandoned
-- Retail
-- Homebrew
-- Hack
-- Demo
-- Prototype
+Account-scoped definitions and memberships support custom collections. Blocked
+is the special collection used by Explorer exclusions. Do not impose a fixed
+set of list names. Distinguish rename, remove membership and delete list;
+neither membership removal nor list deletion deletes a ROM file.
 
-Games without an achievement set are never synced or shown anywhere in the
-app (Database.md §2.3) — there is no achievements-based filter here because
-every game already has one, unconditionally. Already-mastered and
-already-beaten games are excluded the same way, unconditionally — there is
-no filter to reveal them (unlike Completed/Abandoned, which are hidden by
-default but toggleable).
+### Settings and dialogs
 
-Default state: Completed and Abandoned games are **hidden** unless the user
-enables them via filters.
+Saved accounts and explicit display selection, removal confirmation, masked API
+keys, emulator configuration and profile sync. Emulator setup supports offline
+console selection, executable discovery, launch arguments, libretro cores and
+supported Flatpak discovery. Preserve update-banner and window preferences.
+ROM Destinations and Quick Links were removed; do not restore their dialogs.
 
-### 3.3 Library
+## Proposed visual revamp — not implemented
 
-- Shows the ROM library organized by console (one folder per console,
-  mirrored in UI).
-- Watch Folder management (add/remove watched folders).
-- Installed / Not Installed status per game, driven by the scan results.
-- Manual "Scan now" action, runs on a background thread.
-- Play an installed game directly in its configured emulator (Settings §3.7
-  "Emulators"), launched as an independent background process.
+- Dark purple surfaces, gold achievement/progress accents and turquoise
+  secondary highlights; Inter text and Space Grotesk headings/branding.
+- The same four main destinations, with compact account-aware navigation.
+- Home cards sourced from existing points, true points, beaten and mastered
+  fields; Continue Playing, social activity, Now Playing and awards remain.
+- A virtualized Library cover grid with local search, progress filters and
+  explicit Play/configuration actions.
+- Explorer retains its efficient table and separate catalog search semantics.
+- Contextual game and achievement detail screens are planned. Achievement
+  counts/unlock state need an account/mode-aware service, on-demand refresh and
+  cache wiring before controls are enabled. Missing data must remain unknown.
+- No initial rarity sorting, release year, comments publishing/replies,
+  translation, instant unlock detection or new automatic polling preferences.
+  Community discussions are opened externally on RetroAchievements.
+- Settings follows the reviewed account/sync/folder/emulator layout. Folder
+  management entry points share the same editor rather than independent state.
+- Lists has a reference board and remains directly reachable.
+- Brand A/C comparisons remain pending; no new icon is selected by this document.
 
-### 3.4 Profile (removed — content absorbed elsewhere)
+The HTML's synthetic values, sample emulator choices and paths are never
+runtime defaults. Its colored cover blocks are placeholders for real cached
+artwork and deliberate fallback states. Font licenses and offline packaging
+must be validated before runtime assets change.
 
-There is no Profile screen. What it used to hold now lives on Home: points
-and true points in the header, Beaten/Mastered/Completion beneath them,
-Badges and Event Badges in the sidebar, and the recent activity feed in its
-own section. The manual "Sync Profile" action moved to Settings (§3.7) —
-Home also syncs the profile opportunistically on its own.
+## Interaction and quality requirements
 
-### 3.5 Leaderboards
+Common Play/list/RA actions should be reachable without unnecessary detail-page
+navigation. Long I/O runs off the GUI thread with visible, non-blocking progress.
+Shared API pacing is cancellable; sync jobs are mutually coordinated. Closing
+requests cancellation and keeps the event loop alive until workers and image
+signals have drained, instead of destroying running Qt objects.
 
-- Current RetroAchievements leaderboards.
-- Friends leaderboard.
-- Daily / Weekly / All Time tabs.
-- Custom "Games Beaten" leaderboard.
+Preserve bounded image caching, debounced search, cancellation and partial
+progress. Cached content remains useful after refresh failures. Show no-account,
+loading, empty, offline, partial-success and retryable-error states. Distinguish
+unknown data, zero progress, locked achievements and no achievement set.
 
-### 3.6 Lists
+Validate keyboard focus/order, accessible names, labels beyond color, text
+contrast and 100/125/150/200% scaling. Production layouts must adapt from
+1024×720 through 1920×1080; the 1240×780 HTML is only a reference canvas.
+Optional motion must be short/disableable and must not trigger network work.
 
-- Want to Play
-- Playing
-- Completed
-- Abandoned
-
-Each list is a filtered view over `user_lists`, reusing the Game Card
-component from Explorer.
-
-### 3.7 Settings
-
-- API Key
-- Username
-- Accounts (add/remove/switch)
-- ROM folders (Watch Folder configuration)
-- Emulators (executable path + optional launch arguments, per console;
-  Database.md 3.4)
-- ROM Destinations (per-console folder Watch Folder organizing moves matched
-  files into; Database.md 3.5)
-- Download folders (future)
-- Download sources (future)
-- Theme
-- Language
-- Cache (view size / clear cache)
-
-## 4. Components
-
-### 4.1 Explorer Game Card
-
-Displays:
-
-- Game image
-- Title
-- Console
-- Median Time to Beat (Hardcore)
-- Hardcore Beat Median Sample Size
-- Completion progress bar (per-account `percent_complete`, Database.md 6.4)
-- Installed icon (Installed / Not Installed)
-- Play button — launches the installed ROM in the console's configured
-  emulator (Settings §3.7), as an independent background process
-- Quick actions (e.g. add to a list, one click)
-- Three-dot menu (see 4.2)
-
-### 4.2 Three-dot Menu (per game)
-
-- Want to Play
-- Playing
-- Abandoned
-- Open on RetroAchievements (opens `retroachievements_url` externally)
-
-## 5. Interaction Principles
-
-- Minimal clicks: common actions (add to list, open on RetroAchievements)
-  must be reachable in one or two clicks from the Game Card, without opening
-  a full detail page when not necessary.
-- Search and filtering must feel instant — no spinners for cache-only
-  operations.
-- Any operation touching the network or disk I/O (sync, scan, download)
-  must show non-blocking progress feedback (status bar / toast / progress
-  indicator) while the UI remains fully responsive.
-
-## 6. Future UI Considerations
-
-- Steam Deck / Linux: only this layer (`gui/`) should need adaptation for
-  controller navigation and screen size — business logic stays untouched
-  (see `ARCHITECTURE.md` §6).
-- Plugin system and Themes (future) should be considered when designing the
-  Settings screen and the overall styling layer, even though they are out
-  of scope for the MVP.
+Fullscreen, resize, active-worker close, account switching, data recovery and
+packaged startup remain release checks. Native Windows validation is pending;
+Linux and offscreen checks do not replace it.

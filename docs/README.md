@@ -1,7 +1,7 @@
 # Documentation
 
 Start with the [desktop roadmap](planning/DevelopmentRoadmap.md) for current
-priorities and the proposed interface revamp. The HTML reference is a design
+priorities and the proposed interface revamp. The reviewed HTML is a design
 artifact; its screens are not yet implemented in the application.
 
 ## Technical reference
@@ -22,16 +22,20 @@ artifact; its screens are not yet implemented in the application.
 
 - [UI specification](design/UI.md)
 - [Current branding and artwork history](design/Branding.md)
-- [Proposed UI: Dashboard, Library, Game detail and Brand](design/ui-proposal.html)
+- [Reviewed UI proposal: eight desktop boards](design/ui-proposal-reviewed.html)
+- [Product fit review and implementation mapping](design/ProposalReview.md)
+- [Original supplied UI proposal: six boards](design/ui-proposal.html)
 - [Historical Home preview](design/previews/home-1.1.0.png)
 
-The original UI proposal is kept as
-`docs/design/ui-proposal.html` for a stable, portable filename. The roadmap
+The supplied UI proposal is preserved as
+`docs/design/ui-proposal.html` for a stable, portable filename. The reviewed copy corrects scope and adds
+Explorer/Lists without overwriting the source. The roadmap
 records the proposed A/C brand options; the runtime artwork remains under
 `assets/` until the brand implementation is selected and delivered.
 
 ## Validation and history
 
+- [Roadmap completion audit and follow-up](validation/RoadmapCompletionAudit.md)
 - [Testing, CI and dependency policy](validation/Testing.md)
 - [R05–R10 performance and resilience evidence](validation/PerformanceValidation.md)
 - [Historical implementation handoff](archive/HANDOFF.md)
