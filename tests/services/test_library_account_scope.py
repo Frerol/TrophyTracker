@@ -190,7 +190,7 @@ class LibraryAccountScopeTests(unittest.TestCase):
         repository.set_last_played(rom.id, datetime(2026, 1, 1))
         connection.commit()
         apply_migrations(connection)
-        self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 24)
+        self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], MIGRATIONS[-1][0])
         self.assertEqual(repository.get_rom_folder(folder.id).path, '/roms')
         self.assertEqual(repository.get_by_id(rom.id).hash, 'original')
         self.assertEqual(repository.get_by_id(rom.id).last_played_at, datetime(2026, 1, 1))

@@ -401,6 +401,8 @@ def set_emulator_config(
     executable_path: str,
     arguments_template: Optional[str] = None,
     core_path: Optional[str] = None,
+    flatpak_app_id: Optional[str] = None,
+    flatpak_installation: Optional[str] = None,
 ) -> EmulatorConfig:
     with get_connection() as connection:
         _ensure_config_console(connection, console_id)
@@ -409,6 +411,8 @@ def set_emulator_config(
             executable_path=executable_path,
             arguments_template=arguments_template or None,
             core_path=core_path or None,
+            flatpak_app_id=flatpak_app_id or None,
+            flatpak_installation=flatpak_installation if flatpak_app_id else None,
         )
         EmulatorConfigRepository(connection).upsert(config)
         return config
@@ -458,6 +462,8 @@ def _launch_installed_rom(
         rom_path,
         emulator_config.arguments_template,
         core_path=Path(emulator_config.core_path) if emulator_config.core_path else None,
+        flatpak_app_id=emulator_config.flatpak_app_id,
+        flatpak_installation=emulator_config.flatpak_installation,
     )
 
 

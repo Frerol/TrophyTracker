@@ -57,6 +57,8 @@ class SettingsPage(Page):
         super().__init__(app_context)
         self._sync_profile_worker: Optional[ServiceWorker] = None
         self._emulator_configs: dict[int, EmulatorConfig] = {}
+        self._flatpak_app_id: Optional[str] = None
+        self._flatpak_installation: Optional[str] = None
 
         self._username_input = QLineEdit()
         self._api_key_input = QLineEdit()
@@ -80,6 +82,12 @@ class SettingsPage(Page):
         self._emulator_console_selector = ConsoleSelector()
         self._emulator_path_input = QLineEdit()
         self._emulator_path_input.setPlaceholderText("Path to emulator executable")
+        self._emulator_path_input.textEdited.connect(
+            lambda _text: self._set_flatpak_selection(None, None)
+        )
+        self._emulator_flatpak_info = QLabel()
+        self._emulator_flatpak_info.setWordWrap(True)
+        self._emulator_flatpak_info.hide()
         browse_emulator_button = QPushButton("Browse...")
         browse_emulator_button.clicked.connect(self._on_browse_emulator)
         find_emulator_button = QPushButton("Find...")
@@ -114,6 +122,7 @@ class SettingsPage(Page):
         emulator_form = QFormLayout()
         emulator_form.addRow("Console", self._emulator_console_selector)
         emulator_form.addRow("Executable", emulator_path_row)
+        emulator_form.addRow(self._emulator_flatpak_info)
         emulator_form.addRow("Core", emulator_core_row)
         emulator_form.addRow("Arguments", self._emulator_args_input)
 
@@ -188,6 +197,11 @@ class SettingsPage(Page):
             # a config that looks identical but launches differently is worse
             # than a longer line.
             summary = f"{console_name}: {config.executable_path}"
+            if config.flatpak_app_id:
+                summary = (
+                    f"{console_name}: Flatpak {config.flatpak_app_id} "
+                    f"({config.flatpak_installation or 'automatic'})"
+                )
             if config.core_path:
                 summary += f"  -L {config.core_path}"
             item = QListWidgetItem(summary)
@@ -200,6 +214,23 @@ class SettingsPage(Page):
         self._emulator_path_input.setText(config.executable_path if config else "")
         self._emulator_args_input.setText((config.arguments_template or "") if config else "")
         self._emulator_core_input.setText((config.core_path or "") if config else "")
+        self._set_flatpak_selection(
+            config.flatpak_app_id if config else None,
+            config.flatpak_installation if config else None,
+        )
+
+    def _set_flatpak_selection(
+        self, app_id: Optional[str], installation: Optional[str]
+    ) -> None:
+        self._flatpak_app_id = app_id
+        self._flatpak_installation = installation if app_id else None
+        self._emulator_flatpak_info.setVisible(bool(app_id))
+        self._emulator_flatpak_info.setText(
+            f"Flatpak: {app_id} ({installation or 'automatic'}). "
+            "ROMs must be accessible to this Flatpak. "
+            "For RetroArch, use a core installed for its Flatpak version."
+            if app_id else ""
+        )
 
     def _on_emulator_selected(
         self, current: Optional[QListWidgetItem], _previous: Optional[QListWidgetItem]
@@ -280,6 +311,7 @@ class SettingsPage(Page):
     def _on_browse_emulator(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Emulator Executable")
         if file_path:
+            self._set_flatpak_selection(None, None)
             self._emulator_path_input.setText(file_path)
 
     def _on_find_emulator(self) -> None:
@@ -291,7 +323,11 @@ class SettingsPage(Page):
             console_id, self._emulator_console_selector.currentText(), self
         )
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_candidate is not None:
-            self._emulator_path_input.setText(dialog.selected_candidate.executable_path)
+            candidate = dialog.selected_candidate
+            if not candidate.requires_core or candidate.flatpak_app_id != self._flatpak_app_id:
+                self._emulator_core_input.clear()
+            self._emulator_path_input.setText(candidate.executable_path)
+            self._set_flatpak_selection(candidate.flatpak_app_id, candidate.flatpak_installation)
 
     def _on_browse_core(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -311,7 +347,9 @@ class SettingsPage(Page):
         arguments_template = self._emulator_args_input.text().strip() or None
         core_path = self._emulator_core_input.text().strip() or None
         library_service.set_emulator_config(
-            console_id, executable_path, arguments_template, core_path
+            console_id, executable_path, arguments_template, core_path,
+            flatpak_app_id=self._flatpak_app_id,
+            flatpak_installation=self._flatpak_installation,
         )
         self._emulator_path_input.clear()
         self._emulator_args_input.clear()

@@ -26,16 +26,17 @@ class FindEmulatorDialog(QDialog):
         self._worker: Optional[ServiceWorker] = None
         self._stop = Event()
         self._close_requested = False
+        self._accept_requested = False
         self.selected_candidate: Optional[EmulatorCandidate] = None
 
         layout = QVBoxLayout(self)
         instructions = QLabel(
             'Search for known emulators for this console. Choose a result, then save it in Settings.\n'
-            'Portable installations can also be found by searching their folder.'
+            'Installed Flatpaks are included. Portable installations can also be found by searching their folder.'
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
-        self._common_button = QPushButton('Search common locations')
+        self._common_button = QPushButton('Search installed apps and common locations')
         self._common_button.clicked.connect(lambda: self._start_search())
         self._folder_button = QPushButton('Search folder...')
         self._folder_button.clicked.connect(self._search_folder)
@@ -53,7 +54,7 @@ class FindEmulatorDialog(QDialog):
         layout.addWidget(self._status)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self._use_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self._use_button.setText('Use executable')
+        self._use_button.setText('Use emulator')
         self._use_button.setEnabled(False)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -86,19 +87,24 @@ class FindEmulatorDialog(QDialog):
 
     def _add_result(self, candidate: EmulatorCandidate) -> None:
         note = ' (libretro core required)' if candidate.requires_core else ''
-        item = QListWidgetItem(f'{candidate.name}{note}\n{candidate.executable_path}')
+        location = candidate.executable_path
+        if candidate.flatpak_app_id:
+            location = f'Flatpak: {candidate.flatpak_app_id} ({candidate.flatpak_installation})'
+        item = QListWidgetItem(f'{candidate.name}{note}\n{location}')
         item.setData(Qt.ItemDataRole.UserRole, candidate)
-        item.setToolTip(candidate.executable_path)
+        item.setToolTip(location)
         self._results.addItem(item)
         if self._results.count() == 1:
             self._results.setCurrentRow(0)
 
     def _search_done(self, result: EmulatorSearchResult) -> None:
-        text = f'{len(result.candidates)} executable(s) found.'
+        text = f'{len(result.candidates)} emulator(s) found.'
         if result.limited:
             text += ' Search limit reached; choose a folder to narrow the search.'
         elif not result.candidates:
             text += ' Try Search folder or use Browse in Settings.'
+        if result.warnings:
+            text += ' ' + ' '.join(result.warnings)
         self._status.setText(text)
 
     def _search_failed(self, message: str) -> None:
@@ -114,14 +120,21 @@ class FindEmulatorDialog(QDialog):
         self._update_selection()
         if self._close_requested:
             super().reject()
+        elif self._accept_requested:
+            super().accept()
 
     def _update_selection(self) -> None:
-        self._use_button.setEnabled(self._worker is None and self._results.currentItem() is not None)
+        self._use_button.setEnabled(self._results.currentItem() is not None)
 
     def accept(self) -> None:
-        if self._worker is not None or self._results.currentItem() is None:
+        if self._results.currentItem() is None:
             return
         self.selected_candidate = self._results.currentItem().data(Qt.ItemDataRole.UserRole)
+        if self._worker is not None:
+            self._accept_requested = True
+            self._stop.set()
+            self._status.setText('Stopping search...')
+            return
         super().accept()
 
     def reject(self) -> None:

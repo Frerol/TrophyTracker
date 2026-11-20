@@ -14,18 +14,23 @@ class EmulatorConfigRepository:
         self._connection.execute(
             """
             INSERT INTO emulator_configs
-                (console_id, executable_path, arguments_template, core_path)
-            VALUES (?, ?, ?, ?)
+                (console_id, executable_path, arguments_template, core_path,
+                 flatpak_app_id, flatpak_installation)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(console_id) DO UPDATE SET
                 executable_path = excluded.executable_path,
                 arguments_template = excluded.arguments_template,
-                core_path = excluded.core_path
+                core_path = excluded.core_path,
+                flatpak_app_id = excluded.flatpak_app_id,
+                flatpak_installation = excluded.flatpak_installation
             """,
             (
                 config.console_id,
                 config.executable_path,
                 config.arguments_template,
                 config.core_path,
+                config.flatpak_app_id,
+                config.flatpak_installation,
             ),
         )
 
@@ -53,4 +58,6 @@ class EmulatorConfigRepository:
             executable_path=row["executable_path"],
             arguments_template=row["arguments_template"],
             core_path=row["core_path"],
+            flatpak_app_id=row["flatpak_app_id"],
+            flatpak_installation=row["flatpak_installation"],
         )

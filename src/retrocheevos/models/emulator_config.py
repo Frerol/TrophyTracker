@@ -18,3 +18,5 @@ class EmulatorConfig:
     # per console. Set ⇒ launch as `retroarch.exe -L <core> <rom>` and
     # `arguments_template` is ignored (migration v19).
     core_path: Optional[str] = None
+    flatpak_app_id: Optional[str] = None
+    flatpak_installation: Optional[str] = None

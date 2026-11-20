@@ -14,7 +14,7 @@ check. That is deliberate: it lets a tag exist before the build is ready to
 hand out.
 """
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 GITHUB_OWNER = "Gmendes223"
 GITHUB_REPO = "Retrocheevos"

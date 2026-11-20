@@ -6,10 +6,13 @@ that's `services/library_service.py`'s job (Architecture.md's layering).
 """
 
 import logging
+import re
 import shlex
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+from retrocheevos.library.process_environment import host_process_environment
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,8 @@ def launch_emulator(
     rom_path: Path,
     arguments_template: Optional[str] = None,
     core_path: Optional[Path] = None,
+    flatpak_app_id: Optional[str] = None,
+    flatpak_installation: Optional[str] = None,
 ) -> subprocess.Popen:
     """Start the emulator as an independent process. Returns immediately (non-blocking).
 
@@ -76,9 +81,18 @@ def launch_emulator(
         args = build_libretro_args(rom_path, core_path)
     else:
         args = build_launch_args(rom_path, arguments_template)
+    if flatpak_app_id:
+        if re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}', flatpak_app_id) is None:
+            raise ValueError("Invalid Flatpak application ID")
+        prefix = ['run']
+        if flatpak_installation in ('user', 'system'):
+            prefix.append(f'--{flatpak_installation}')
+        elif flatpak_installation:
+            prefix.append(f'--installation={flatpak_installation}')
+        args = [*prefix, flatpak_app_id, *args]
     logger.info("Launching emulator: %s %s", executable_path, args)
     try:
-        return subprocess.Popen([str(executable_path), *args])
+        return subprocess.Popen([str(executable_path), *args], env=host_process_environment())
     except OSError:
         logger.exception("Failed to launch emulator %s", executable_path)
         raise

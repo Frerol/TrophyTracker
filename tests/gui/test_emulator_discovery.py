@@ -27,6 +27,31 @@ def wait_until(predicate) -> None:
 
 
 class EmulatorDiscoveryDialogTests(unittest.TestCase):
+    def test_flatpak_result_can_be_chosen_before_disk_search_finishes(self) -> None:
+        candidate = EmulatorCandidate(
+            'Dolphin', '/usr/bin/flatpak', flatpak_app_id='org.DolphinEmu.dolphin-emu',
+            flatpak_installation='user',
+        )
+        def search(_console, result_callback, stop_requested, **_kwargs):
+            result_callback(candidate)
+            while not stop_requested():
+                time.sleep(0.005)
+            return EmulatorSearchResult([candidate], cancelled=True)
+        with patch.object(emulator_discovery_service, 'find_emulators', side_effect=search):
+            dialog = FindEmulatorDialog(16, 'GameCube')
+            dialog.show()
+            try:
+                wait_until(lambda: dialog._results.count() == 1)
+                self.assertIn('Flatpak', dialog._results.item(0).text())
+                self.assertTrue(dialog._use_button.isEnabled())
+                dialog.accept()
+                wait_until(lambda: dialog._worker is None)
+                self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+                self.assertEqual(dialog.selected_candidate, candidate)
+            finally:
+                dialog.reject()
+                wait_until(lambda: dialog._worker is None)
+
     def test_results_require_explicit_selection_and_acceptance(self) -> None:
         candidate = EmulatorCandidate('PPSSPP', '/apps/PPSSPP.AppImage')
         def search(_console, result_callback, **_kwargs):

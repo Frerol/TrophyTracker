@@ -117,12 +117,16 @@ class GameHashCaseTests(unittest.TestCase):
                 (10155, SNAP_UPPER),
             )
 
-        from retrocheevos.database.migrations import apply_migrations
+        from retrocheevos.database.migrations import MIGRATIONS, apply_migrations
 
         with connection_module.get_connection() as conn:
             conn.execute("PRAGMA user_version = 22")
         with connection_module.get_connection() as conn:
-            apply_migrations(conn)
+            # Replay only the historical migration on this latest-schema fixture.
+            with patch('retrocheevos.database.migrations.MIGRATIONS', [
+                entry for entry in MIGRATIONS if entry[0] <= 23
+            ]):
+                apply_migrations(conn)
 
         with connection_module.get_connection() as conn:
             rows = [

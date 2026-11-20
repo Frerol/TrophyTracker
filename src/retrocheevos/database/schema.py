@@ -506,6 +506,11 @@ SCOPE_LIBRARY_PATHS_V24 = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_roms_unowned_path ON installed_roms(file_path) WHERE account_id IS NULL",
 ]
 
+ADD_FLATPAK_CONFIG_V25 = [
+    "ALTER TABLE emulator_configs ADD COLUMN flatpak_app_id TEXT",
+    "ALTER TABLE emulator_configs ADD COLUMN flatpak_installation TEXT",
+]
+
 CREATE_TABLES_V18 = [
     """
     CREATE TABLE IF NOT EXISTS user_preferences (

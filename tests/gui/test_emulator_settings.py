@@ -125,3 +125,58 @@ class EmulatorSettingsTests(unittest.TestCase):
             factory.return_value.exec.return_value = QDialog.DialogCode.Rejected
             self.page._on_find_emulator()
         self.assertEqual(self.page._emulator_path_input.text(), '/existing/emulator')
+
+    def test_flatpak_selection_survives_save_reload_and_native_replacement(self) -> None:
+        self._select(41)
+        with patch('retrocheevos.gui.pages.settings_page.FindEmulatorDialog') as factory:
+            factory.return_value.exec.return_value = QDialog.DialogCode.Accepted
+            factory.return_value.selected_candidate = EmulatorCandidate(
+                'PPSSPP', '/usr/bin/flatpak', flatpak_app_id='org.ppsspp.PPSSPP',
+                flatpak_installation='user',
+            )
+            self.page._on_find_emulator()
+        self.assertIn('org.ppsspp.PPSSPP', self.page._emulator_flatpak_info.text())
+        self.page._on_save_emulator()
+        config, = library_service.list_emulator_configs()
+        self.assertEqual(config.flatpak_app_id, 'org.ppsspp.PPSSPP')
+        self.assertEqual(config.flatpak_installation, 'user')
+        self._select(5)
+        self.assertIsNone(self.page._flatpak_app_id)
+        self._select(41)
+        self.assertEqual(self.page._flatpak_app_id, 'org.ppsspp.PPSSPP')
+        with patch('retrocheevos.gui.pages.settings_page.QFileDialog.getOpenFileName', return_value=('/apps/PPSSPP.AppImage', '')):
+            self.page._on_browse_emulator()
+        self.page._on_save_emulator()
+        config, = library_service.list_emulator_configs()
+        self.assertIsNone(config.flatpak_app_id)
+        self.assertIsNone(config.flatpak_installation)
+
+    def test_saved_flatpak_launch_is_forwarded_from_library(self) -> None:
+        path = self.database.parent / 'game with spaces.iso'
+        path.write_bytes(b'game')
+        library_service.set_emulator_config(
+            41, '/usr/bin/flatpak', '--fullscreen "{rom_path}"',
+            flatpak_app_id='org.ppsspp.PPSSPP', flatpak_installation='user',
+        )
+        rom = library_service.record_installed_rom(str(path), 41, 'hash')
+        with patch.object(library_service, 'create_connection', side_effect=lambda: db.create_connection()), patch('retrocheevos.library.launcher.subprocess.Popen') as popen:
+            library_service.launch_installed_rom(rom.id)
+        self.assertEqual(popen.call_args.args[0], [
+            '/usr/bin/flatpak', 'run', '--user', 'org.ppsspp.PPSSPP',
+            '--fullscreen', str(path),
+        ])
+
+    def test_switch_to_flatpak_retroarch_requires_choosing_its_core(self) -> None:
+        self._select(7)
+        self.page._emulator_core_input.setText('/native/core.so')
+        with patch('retrocheevos.gui.pages.settings_page.FindEmulatorDialog') as factory:
+            factory.return_value.exec.return_value = QDialog.DialogCode.Accepted
+            factory.return_value.selected_candidate = EmulatorCandidate(
+                'RetroArch', '/usr/bin/flatpak', requires_core=True,
+                flatpak_app_id='org.libretro.RetroArch', flatpak_installation='system',
+            )
+            self.page._on_find_emulator()
+        self.assertEqual(self.page._emulator_core_input.text(), '')
+        self.page._emulator_core_input.setText('/app/lib/core.so')
+        self.page._on_save_emulator()
+        self.assertEqual(library_service.list_emulator_configs()[0].core_path, '/app/lib/core.so')

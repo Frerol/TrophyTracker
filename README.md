@@ -40,6 +40,10 @@ Use **Find...** next to the executable field to search for known emulators
 for the selected console. Search common installation locations or choose a
 folder containing portable installations. Select a result, then click
 **Save Emulator**. RetroArch also needs a core in the **Core** field.
+On Linux, **Find...** also lists installed Flatpak emulators, including user
+and system installations. Selecting one saves its application ID and launches
+it through `flatpak run`. ROMs must be accessible under the Flatpak app's
+filesystem permissions; RetroArch needs a core installed for its Flatpak version.
 Console dropdowns show up to ten entries at a time and scroll through the rest.
 
 In Settings, per console, configure:
@@ -59,7 +63,7 @@ APPIMAGETOOL=/absolute/path/to/squashfs-root/AppRun \
 APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 tools/build_appimage.sh
 ```
 
-The result is `dist/Retrocheevos-1.0.0-x86_64.AppImage` (version comes from
+The result is `dist/Retrocheevos-1.1.0-x86_64.AppImage` (version comes from
 `src/retrocheevos/version.py`). Build on the oldest Linux distribution you
 intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
 is omitted; provide a native `tools/RAHasher` with its license/source files
