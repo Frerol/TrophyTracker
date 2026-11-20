@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -64,6 +65,7 @@ class SettingsPage(Page):
         self._api_key_input = QLineEdit()
         self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         add_account_button = QPushButton("Add Account")
+        add_account_button.setProperty("primary", True)
         add_account_button.clicked.connect(self._on_add_account)
 
         account_form = QFormLayout()
@@ -71,6 +73,7 @@ class SettingsPage(Page):
         account_form.addRow("API Key", self._api_key_input)
 
         self._accounts_list = QListWidget()
+        self._accounts_list.setMaximumHeight(110)
         switch_button = QPushButton("Switch to Selected")
         switch_button.clicked.connect(self._on_switch_account)
         remove_account_button = QPushButton("Remove Selected")
@@ -103,6 +106,7 @@ class SettingsPage(Page):
         )
 
         save_emulator_button = QPushButton("Save Emulator")
+        save_emulator_button.setProperty("primary", True)
         save_emulator_button.clicked.connect(self._on_save_emulator)
 
         # RetroArch and other libretro frontends are one executable plus a
@@ -127,6 +131,7 @@ class SettingsPage(Page):
         emulator_form.addRow("Arguments", self._emulator_args_input)
 
         self._emulators_list = QListWidget()
+        self._emulators_list.setMaximumHeight(130)
         self._emulator_console_selector.currentIndexChanged.connect(self._load_selected_emulator)
         self._emulators_list.currentItemChanged.connect(self._on_emulator_selected)
         emulators_delegate = RemovableListDelegate(self._emulators_list)
@@ -148,18 +153,38 @@ class SettingsPage(Page):
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.addWidget(QLabel("Accounts"))
-        layout.addLayout(account_form)
-        layout.addWidget(add_account_button)
-        layout.addWidget(self._accounts_list)
-        layout.addLayout(account_buttons)
-        layout.addWidget(QLabel("Emulators"))
-        layout.addLayout(emulator_form)
-        layout.addWidget(save_emulator_button)
-        layout.addWidget(self._emulators_list)
-        layout.addWidget(remove_emulator_button)
-        layout.addWidget(QLabel("Profile"))
-        layout.addWidget(self._sync_profile_button)
+        layout.setContentsMargins(24, 18, 24, 24)
+        layout.setSpacing(16)
+        heading = QLabel("Settings")
+        heading.setObjectName("pageTitle")
+        description = QLabel("Manage your accounts, emulators and progress.")
+        description.setObjectName("pageSubtitle")
+        layout.addWidget(heading)
+        layout.addWidget(description)
+
+        accounts_group = QGroupBox("Accounts")
+        accounts_layout = QVBoxLayout(accounts_group)
+        accounts_layout.setSpacing(10)
+        accounts_layout.addLayout(account_form)
+        accounts_layout.addWidget(add_account_button)
+        accounts_layout.addWidget(self._accounts_list)
+        accounts_layout.addLayout(account_buttons)
+        layout.addWidget(accounts_group)
+
+        emulators_group = QGroupBox("Emulators")
+        emulators_layout = QVBoxLayout(emulators_group)
+        emulators_layout.setSpacing(10)
+        emulators_layout.addLayout(emulator_form)
+        emulators_layout.addWidget(save_emulator_button)
+        emulators_layout.addWidget(self._emulators_list)
+        emulators_layout.addWidget(remove_emulator_button)
+        layout.addWidget(emulators_group)
+
+        profile_group = QGroupBox("Profile and sync")
+        profile_layout = QVBoxLayout(profile_group)
+        profile_layout.addWidget(QLabel("Refresh your points, completion progress and awards."))
+        profile_layout.addWidget(self._sync_profile_button)
+        layout.addWidget(profile_group)
         layout.addStretch(1)
 
         scroll_area = QScrollArea()

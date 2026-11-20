@@ -70,6 +70,14 @@ class ListsPage(Page):
         scroll_area.setWidget(self._rows_container)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 16, 24, 20)
+        layout.setSpacing(12)
+        heading = QLabel("Your lists")
+        heading.setObjectName("pageTitle")
+        subtitle = QLabel("Organize favorites, backlogs and everything in between.")
+        subtitle.setObjectName("pageSubtitle")
+        layout.addWidget(heading)
+        layout.addWidget(subtitle)
         layout.addLayout(selector_row)
         layout.addWidget(scroll_area, stretch=1)
 

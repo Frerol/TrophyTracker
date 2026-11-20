@@ -99,6 +99,7 @@ class ExplorerPage(Page):
         # catalog, which silently drops completion data. See
         # `sync_service.sync_everything`.
         self._sync_everything_button = QPushButton("Sync Everything")
+        self._sync_everything_button.setProperty("primary", True)
         self._sync_everything_button.setToolTip(
             "Update the game catalog, your profile and event progress from RetroAchievements."
         )

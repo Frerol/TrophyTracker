@@ -1,23 +1,10 @@
-"""Main application window and navigation (UI.md §2).
-
-Home is the root page; everything else is reached from `HomePage`'s user
-menu (`_menu_pages`, keyed by the string each menu action emits). Dashboard
-was retired once Home (`gui/pages/home_page.py`) fully absorbed its content
-(Continue Playing, Recent Activity), and the primary nav list went the same
-way once "Home" was its only remaining entry.
-
-The back/forward arrows went too, along with the `_history`/`_history_index`
-bookkeeping that existed only to serve them: with four destinations, all of
-them one hover away on the user menu (which now includes Home), a browser
-history was more chrome than the navigation it described. `_show_page` is
-just a page switch again.
-
-The shared header (`HomePage.header_widget`) sits above the page stack, so
-it shows on every page rather than only on Home.
-"""
+"""Main window with a shared brand header and persistent page navigation."""
 
 from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QMainWindow, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup, QHBoxLayout, QLabel, QMainWindow, QPushButton,
+    QStackedWidget, QVBoxLayout, QWidget,
+)
 
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.pages.home_page import HomePage
@@ -27,6 +14,7 @@ from retrocheevos.gui.pages.settings_page import SettingsPage
 from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.services import preferences_service, session_service, update_service
 from retrocheevos.widgets.update_banner import UpdateBanner
+from retrocheevos.version import APP_VERSION
 
 # Snug: the header already carries its own side margins, and the page below
 # has its own. Anything more here reads as dead space at the top of every
@@ -88,6 +76,29 @@ class MainWindow(QMainWindow):
         for page in [*self._nav_pages, *self._menu_pages.values()]:
             self._pages.addWidget(page)
 
+        navigation = QWidget()
+        navigation.setObjectName("navigation")
+        navigation_layout = QHBoxLayout(navigation)
+        navigation_layout.setContentsMargins(24, 4, 24, 10)
+        navigation_layout.setSpacing(6)
+        self._navigation_group = QButtonGroup(self)
+        self._navigation_buttons: dict[QWidget, QPushButton] = {}
+        for title, page in (
+            ("Home", home_page), ("Library", self._menu_pages["library"]),
+            ("Lists", self._menu_pages["lists"]), ("Settings", self._menu_pages["settings"]),
+        ):
+            button = QPushButton(title)
+            button.setObjectName("navButton")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, destination=page: self._show_page(destination))
+            self._navigation_group.addButton(button)
+            self._navigation_buttons[page] = button
+            navigation_layout.addWidget(button)
+        navigation_layout.addStretch(1)
+        version = QLabel(f"v{APP_VERSION}")
+        version.setObjectName("versionBadge")
+        navigation_layout.addWidget(version)
+
         # Above the header rather than inside a page: it's about the app
         # itself, not about whatever you happen to be looking at, and putting
         # it on Home alone would hide it from anyone who left the app on
@@ -108,6 +119,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self._update_banner)
         layout.addWidget(self._header)
+        layout.addWidget(navigation)
         layout.addSpacing(HEADER_GAP)
         layout.addWidget(self._pages, stretch=1)
         self.setCentralWidget(central)
@@ -270,6 +282,8 @@ class MainWindow(QMainWindow):
 
     def _show_page(self, page: QWidget) -> None:
         self._pages.setCurrentWidget(page)
+        for destination, button in self._navigation_buttons.items():
+            button.setChecked(destination is page)
         page.refresh()
         # Home's own `refresh()` already covers the header; anywhere else it
         # would otherwise keep whatever numbers were last loaded.

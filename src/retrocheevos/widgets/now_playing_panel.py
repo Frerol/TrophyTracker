@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from retrocheevos.gui.workers import ServiceWorker
+from retrocheevos.gui import styles
 from retrocheevos.models.account import Account
 from retrocheevos.models.now_playing import NowPlayingSnapshot
 from retrocheevos.services import now_playing_service
@@ -26,6 +27,7 @@ class NowPlayingPanel(QGroupBox):
 
     def __init__(self) -> None:
         super().__init__('Now Playing')
+        self.setObjectName('nowPlaying')
         self._account: Optional[Account] = None
         self._worker: Optional[ServiceWorker] = None
         self._generation = 0
@@ -63,7 +65,7 @@ class NowPlayingPanel(QGroupBox):
         self._unlock_banner = QLabel()
         self._unlock_banner.setTextFormat(Qt.TextFormat.PlainText)
         self._unlock_banner.setWordWrap(True)
-        self._unlock_banner.setStyleSheet('color: #cc9900; font-weight: bold;')
+        self._unlock_banner.setStyleSheet(f'color: {styles.DANGER}; font-weight: bold;')
         layout.addWidget(self._unlock_banner)
         self._tabs = QTabWidget()
         self._locked = QListWidget()

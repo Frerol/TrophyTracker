@@ -137,29 +137,13 @@ def _assets_dir() -> Path:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 LOGO_PATH = _assets_dir() / "logo.png"
-# `logo.png` is non-square (889x561, just the "RC" artwork) — fine for this
-# page's own inline header (scaled by height, aspect ratio preserved), but
-# forcing it into a square window/taskbar icon slot stretched it visibly.
-# `icon.png` is the same artwork centered on a square transparent canvas —
-# used for `MainWindow`/`QApplication.setWindowIcon` instead, never here.
+# The shared emblem is used in the header and as the desktop icon.
 ICON_PATH = _assets_dir() / "icon.png"
-# Header sizing. The points are the biggest thing here and the band is
-# *shorter* than before regardless: the height was set by the avatar button,
-# so trimming that is what buys the space back while the numbers grow.
-# 64 to match the avatar on the other end of the row. The band's height is
-# set by the avatar button (64 + 8 of frame = 72), so the logo can grow to
-# this without making the header any taller. Its left edge is fixed by
-# `HEADER_SIDE_MARGIN`, not by its size, so scaling it doesn't shift the
-# alignment — `scaledToHeight` keeps the aspect ratio and the widget stays
-# the first item in the row.
-LOGO_HEIGHT = 64
+LOGO_HEIGHT = 60
 
-# Widened from 300/380: event names are long ("Achievement of the Week
-# 2026", console names appended) and were being elided mid-word inside the
-# Events panel. The floor is what actually widens it — the sidebar sits at
-# `stretch=0`, so it never claims more than its content asks for.
-SIDEBAR_MIN_WIDTH = 400
-SIDEBAR_MAX_WIDTH = 480
+# Keep room for the game grid while leaving event titles readable.
+SIDEBAR_MIN_WIDTH = 280
+SIDEBAR_MAX_WIDTH = 340
 COVER_SIZE_BASELINE = 75
 # Frame border + card margins + grid spacing around the cover, so the column
 # count reflects the space a card really takes rather than the art alone.
@@ -208,13 +192,13 @@ MAX_BANNER_EVENT_NAMES = 3
 # Opened externally rather than rebuilt in-app: RA exposes no API for this
 # ranking, and scraping it isn't something this project does.
 BEATEN_GAMES_LEADERBOARD_URL = "https://retroachievements.org/ranking/beaten-games"
-USER_AVATAR_SIZE = 58
+USER_AVATAR_SIZE = 36
 # The header band's height is **pinned**, not derived from whatever is
 # tallest inside it. It used to come from the avatar button, which meant
 # resizing the photo silently resized the whole top of every page — a change
 # nobody asked for each time. Now the photo can change freely and the band
 # stays put; this constant is the only thing that moves it.
-HEADER_HEIGHT = 104
+HEADER_HEIGHT = 96
 # Gap between the points block and the photo.
 POINTS_AVATAR_GAP = 8
 # How far the points+photo group sits below the top of the band.
@@ -224,19 +208,14 @@ RIGHT_GROUP_DROP = 16
 AVATAR_FRAME_PAD = 8
 # Matches the page's own layout margin so header and content share one left
 # edge, and keeps the avatar off the right-hand window edge.
-HEADER_SIDE_MARGIN = 11
-# Blue, not the gold accent — gold is reserved for things you can click.
+HEADER_SIDE_MARGIN = 24
+# Profile totals use the mint accent and neutral heading color.
 POINTS_COLOR = styles.POINTS_BLUE
 TRUE_POINTS_COLOR = styles.HEADING
 POINTS_FONT_SIZE = 18
 TRUE_POINTS_FONT_SIZE = 12
-# Scaled to sit alongside the 64px logo rather than under it. Both are
-# bottom-aligned in `top_bar`, so the wordmark's baseline lines up with the
-# bottom of the "RC" artwork and the pair reads as one lockup. The left edge
-# is still `HEADER_SIDE_MARGIN`, unaffected by either one's size.
 APP_NAME_FONT_SIZE = 26
-# Gap between the "RC" artwork and the wordmark. The logo's own left edge
-# stays put — this only moves the text.
+# Gap between the emblem and the wordmark.
 LOGO_TEXT_GAP = 14
 # Twice the height the stats line takes below `top_bar` — a top margin of
 # this size shifts the lockup's centre down by half of it, landing it on the
@@ -361,172 +340,55 @@ class HomePage(Page):
         # `time.monotonic()` of the last fetch *attempt*, or None if none yet.
         self._activity_last_attempt: Optional[float] = None
 
-        # Sized via stylesheet, not `setFont`. `gui/styles.py` sets
-        # `font-size` on `QWidget`, and in Qt a stylesheet font declaration
-        # **overrides** anything passed to `setFont()` — so the delta this
-        # used to apply did nothing at all and the wordmark stayed at body
-        # size next to a 64px logo. Measured: 15px tall where the font asked
-        # for ~33px.
-        app_name_label = QLabel("Retrocheevos")
-        app_name_label.setStyleSheet(
-            f"font-size: {APP_NAME_FONT_SIZE}pt; font-weight: bold;"
-        )
-        # Clamped to the font's *ascent*, so the widget's bottom edge is the
-        # text baseline. `AlignBottom` then lands that baseline on the bottom
-        # of the "RC" artwork; without this the label also reserves descent
-        # space below the glyphs, and the word visibly floats above the logo
-        # even though the two widgets share a bottom edge. Same trick the
-        # points labels use. Safe here because "Retrocheevos" has no
-        # descenders — no g, j, p, q or y.
-        app_name_label.ensurePolished()
-        app_name_label.setFixedHeight(QFontMetrics(app_name_label.font()).ascent())
-
-        # Logo + name side by side, matching RetroAchievements' own site
-        # header — falls back to name-only if the asset is ever missing,
-        # rather than crashing the page over a missing image file.
         logo_label = QLabel()
+        logo_label.setObjectName("brandMark")
         logo_pixmap = QPixmap(str(LOGO_PATH))
         if not logo_pixmap.isNull():
-            logo_label.setPixmap(
-                logo_pixmap.scaledToHeight(
-                    LOGO_HEIGHT, Qt.TransformationMode.SmoothTransformation
-                )
-            )
-
-        # Points stacked vertically, no "pts"/parentheses — matches RA's own
-        # site (points in one color, RetroRatio-weighted true points below
-        # in another) rather than the earlier single-line "X pts (Y true
-        # pts)" text. Font set directly (not via stylesheet) so
-        # `QFontMetrics` below reflects the real rendered size — a QLabel's
-        # sizeHint() reserves a full line's leading above/below the glyphs,
-        # which reads as "too much gap" even with zero layout spacing;
-        # clamping each label to its font's actual ascent+descent removes it.
-        self._points_label = QLabel()
-        points_font = self._points_label.font()
-        points_font.setBold(True)
-        points_font.setPointSize(POINTS_FONT_SIZE)
-        self._points_label.setFont(points_font)
-        # Size in the stylesheet too — see `app_name_label` above: the
-        # `setFont` on the line before is overridden by `styles.py`'s
-        # `QWidget { font-size }`, so the points were rendering at body size
-        # despite `POINTS_FONT_SIZE`.
-        self._points_label.setStyleSheet(
-            f"color: {POINTS_COLOR}; font-size: {POINTS_FONT_SIZE}pt; font-weight: bold;"
-        )
-
-        self._true_points_label = QLabel()
-        true_points_font = self._true_points_label.font()
-        true_points_font.setPointSize(TRUE_POINTS_FONT_SIZE)
-        self._true_points_label.setFont(true_points_font)
-        self._true_points_label.setStyleSheet(
-            f"color: {TRUE_POINTS_COLOR}; font-size: {TRUE_POINTS_FONT_SIZE}pt;"
-        )
-
-        for points_display_label in (self._points_label, self._true_points_label):
-            points_display_label.setContentsMargins(0, 0, 0, 0)
-            # Polish first: the size now comes from the stylesheet set just
-            # above, and `font()` reports the old one until Qt applies it.
-            # Measuring unpolished would clamp the label to the *body* text's
-            # ascent and slice the tops off the digits.
-            points_display_label.ensurePolished()
-            metrics = QFontMetrics(points_display_label.font())
-            # Ascent only, no descent: these labels only ever hold digits
-            # and commas, which don't extend below the baseline, so
-            # reserving descent space was pure empty gap between the two
-            # stacked numbers.
-            points_display_label.setFixedHeight(metrics.ascent())
-
-        points_column = QVBoxLayout()
-        points_column.setContentsMargins(0, 0, 0, 0)
-        points_column.setSpacing(POINTS_SPACING)
-        # Without this, the two fixed-height labels were shorter than the
-        # row's tallest sibling (the 60px avatar button next to them), and
-        # `top_bar` (a QHBoxLayout) gave `points_column` that full row
-        # height — `QVBoxLayout` then distributed the *unused* leftover
-        # height as extra gap between the two labels rather than packing
-        # them together, even at `setSpacing(0)`. Confirmed via
-        # `QWidget.geometry()`: without `AlignTop` the measured gap was 9px
-        # regardless of the spacing value; with it, 0px.
-        # Stretches above and below, not `setAlignment(AlignVCenter)`. On a
-        # *nested* layout that alignment doesn't centre reliably — measured
-        # the two numbers sitting 8px above the photo's midpoint with it.
-        # Equal stretches split the leftover height evenly by construction,
-        # which is what actually centres the pair against the photo.
-        points_column.addStretch(1)
-        points_column.addWidget(self._points_label, alignment=Qt.AlignmentFlag.AlignRight)
-        points_column.addWidget(self._true_points_label, alignment=Qt.AlignmentFlag.AlignRight)
-        points_column.addStretch(1)
-
-        # Photo only, no name. **Hover** opens the destinations menu
-        # (`_show_user_menu`: Home/Library/Lists/Settings/Logout); **click**
-        # goes straight Home. They did the same thing (both opened the menu),
-        # which wasted the more deliberate of the two gestures — the menu is
-        # already one hover away, so the click is free to be the shortcut
-        # back to the root page. Icon is the real profile photo once
-        # `refresh()`'s background load finishes (`_on_photo_ready`) — the
-        # 👤 emoji is only the fallback for before that first completes, or
-        # if there's no cached/synced photo yet.
-        self._user_avatar_button = _HoverMenuButton("👤")
-        self._user_avatar_button.setIconSize(QSize(USER_AVATAR_SIZE, USER_AVATAR_SIZE))
-        self._user_avatar_button.setFixedSize(
-            USER_AVATAR_SIZE + AVATAR_FRAME_PAD, USER_AVATAR_SIZE + AVATAR_FRAME_PAD
-        )
-        self._user_avatar_button.clicked.connect(lambda: self.navigate_requested.emit("home"))
-        self._user_avatar_button.hovered.connect(self._show_user_menu)
-
-        # Logo and wordmark as one lockup: bottom-aligned *to each other*
-        # inside this row, so the word keeps sitting on the base of the "RC"
-        # — then the whole lockup is centred vertically in the band. Doing it
-        # in two steps is what allows both at once; centring them
-        # individually in `top_bar` would centre each by its own height and
-        # break the shared baseline.
+            logo_label.setPixmap(logo_pixmap.scaled(
+                LOGO_HEIGHT, LOGO_HEIGHT, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+        logo_label.setFixedSize(LOGO_HEIGHT, LOGO_HEIGHT)
+        app_name_label = QLabel("Retrocheevos")
+        app_name_label.setObjectName("brandName")
+        tagline = QLabel("Your games. Your achievements.")
+        tagline.setObjectName("brandTagline")
+        wordmark = QVBoxLayout()
+        wordmark.setSpacing(2)
+        wordmark.addWidget(app_name_label)
+        wordmark.addWidget(tagline)
         logo_row = QHBoxLayout()
-        # Top margin, so the lockup centres on the **whole band** rather than
-        # on `top_bar`. `top_bar` stops above the stats line, so centring
-        # inside it left the logo sitting high in the visible background —
-        # this pushes it down by half the height that line occupies.
-        logo_row.setContentsMargins(0, LOGO_BAND_OFFSET, 0, 0)
-        logo_row.addWidget(logo_label, alignment=Qt.AlignmentFlag.AlignBottom)
-        logo_row.addSpacing(LOGO_TEXT_GAP)
-        logo_row.addWidget(app_name_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        logo_row.setSpacing(10)
+        logo_row.addWidget(logo_label)
+        logo_row.addLayout(wordmark)
 
+        self._points_label = QLabel("—")
+        self._true_points_label = QLabel("—")
+        self._points_label.setStyleSheet(f"color: {styles.LINK}; font-size: 18pt; font-weight: 600;")
+        self._true_points_label.setStyleSheet(f"color: {styles.HEADING}; font-size: 18pt; font-weight: 600;")
+        right_row = QHBoxLayout()
+        right_row.setSpacing(24)
+        for caption, value in (("POINTS", self._points_label), ("RETRO POINTS", self._true_points_label)):
+            column = QVBoxLayout()
+            column.setSpacing(2)
+            label = QLabel(caption)
+            label.setObjectName("eyebrow")
+            column.addWidget(label)
+            column.addWidget(value)
+            right_row.addLayout(column)
+        self._user_avatar_button = _HoverMenuButton("●")
+        self._user_avatar_button.setObjectName("accountButton")
+        self._user_avatar_button.setAccessibleName("Account menu")
+        self._user_avatar_button.setToolTip("Accounts and session")
+        self._user_avatar_button.setIconSize(QSize(USER_AVATAR_SIZE, USER_AVATAR_SIZE))
+        self._user_avatar_button.setFixedSize(USER_AVATAR_SIZE + AVATAR_FRAME_PAD, USER_AVATAR_SIZE + AVATAR_FRAME_PAD)
+        self._user_avatar_button.clicked.connect(self._show_user_menu)
+        self._user_avatar_button.hovered.connect(self._show_user_menu)
+        right_row.addWidget(self._user_avatar_button)
         top_bar = QHBoxLayout()
         top_bar.addLayout(logo_row)
-        top_bar.setAlignment(logo_row, Qt.AlignmentFlag.AlignVCenter)
         top_bar.addStretch(1)
-        # Points and photo move down **as one group**, with their mutual
-        # centring untouched. Bottom-aligning them individually was tried and
-        # broke exactly that: each settled by its own height, so the numbers
-        # ended up 13px below the photo's midpoint. The pair keeps
-        # `AlignVCenter` inside `right_row`, and the spacer above pushes the
-        # whole row down inside the pinned band.
-        right_row = QHBoxLayout()
-        right_row.setContentsMargins(0, 0, 0, 0)
-        # Wrapped in a widget with the photo's exact height, rather than
-        # added as a bare nested layout. Two earlier attempts —
-        # `setAlignment(AlignVCenter)` on the nested layout, then internal
-        # stretches — both left the numbers ~7px above the photo's midpoint,
-        # because a nested layout doesn't reliably receive the row's full
-        # height to centre within. Matching heights makes "centred against
-        # the photo" arithmetic instead of a hint.
-        points_widget = QWidget()
-        points_widget.setLayout(points_column)
-        points_widget.setFixedHeight(USER_AVATAR_SIZE + AVATAR_FRAME_PAD)
-        right_row.addWidget(points_widget)
-        # Pulls the numbers off the photo — otherwise they sit flush against
-        # it, since the stretch above pushes the whole group right.
-        right_row.addSpacing(POINTS_AVATAR_GAP)
-        right_row.addWidget(
-            self._user_avatar_button, alignment=Qt.AlignmentFlag.AlignVCenter
-        )
-
-        right_group = QVBoxLayout()
-        right_group.setContentsMargins(0, 0, 0, 0)
-        right_group.addSpacing(RIGHT_GROUP_DROP)
-        right_group.addLayout(right_row)
-        top_bar.addLayout(right_group)
-        top_bar.setAlignment(logo_label, Qt.AlignmentFlag.AlignBottom)
-        top_bar.setAlignment(app_name_label, Qt.AlignmentFlag.AlignBottom)
+        top_bar.addLayout(right_row)
 
         # Always-visible real search field — typing (not a click-to-expand
         # step) is what reveals the embedded Explorer's results below, via
@@ -536,7 +398,8 @@ class HomePage(Page):
         # of typed text, just displayed as two widgets so the Explorer page
         # itself (used standalone from the nav sidebar too) isn't touched.
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("🔍  Search games…")
+        self._search_input.setObjectName("globalSearch")
+        self._search_input.setPlaceholderText("Search your next game…")
         self._search_input.textChanged.connect(self._on_search_text_changed)
 
         self._back_to_home_button = QPushButton("‹ Back to Home")
@@ -732,6 +595,7 @@ class HomePage(Page):
         # `refresh_header()` exists for MainWindow to freshen it when
         # navigating somewhere that isn't Home.
         self.header_widget = QWidget()
+        self.header_widget.setObjectName("brandHeader")
         header_layout = QVBoxLayout(self.header_widget)
         # Side margins matching the page below, so the logo starts on the
         # same vertical line as the search field and the avatar isn't jammed
@@ -794,17 +658,17 @@ class HomePage(Page):
         """
         account = self.app_context.active_account
         if account is None:
-            self._points_label.setText("No account selected.")
-            self._true_points_label.setText("")
+            self._points_label.setText("—")
+            self._true_points_label.setText("—")
             self._stats_row_label.setText("")
-            self._user_avatar_button.setText("👤")
+            self._user_avatar_button.setText("●")
             self._user_avatar_button.setIcon(QIcon())
             return
 
         stats = profile_service.get_profile_stats(account.id)
         if stats is None:
-            self._points_label.setText("No synced stats yet.")
-            self._true_points_label.setText("")
+            self._points_label.setText("—")
+            self._true_points_label.setText("—")
             self._stats_row_label.setText("")
             return
 
@@ -840,10 +704,10 @@ class HomePage(Page):
 
         account = self.app_context.active_account
         if account is None:
-            self._points_label.setText("No account selected.")
-            self._true_points_label.setText("")
+            self._points_label.setText("—")
+            self._true_points_label.setText("—")
             self._stats_row_label.setText("")
-            self._user_avatar_button.setText("👤")
+            self._user_avatar_button.setText("●")
             self._user_avatar_button.setIcon(QIcon())
             # Dropped on logout/account switch, or the next account would
             # briefly see the previous one's feed painted from cache.
@@ -872,8 +736,8 @@ class HomePage(Page):
                 self._photo_worker.finished_ok.connect(self._on_photo_ready)
                 self._photo_worker.start()
         else:
-            self._points_label.setText("No synced stats yet.")
-            self._true_points_label.setText("")
+            self._points_label.setText("—")
+            self._true_points_label.setText("—")
             self._stats_row_label.setText("")
 
         # Opportunistic, not periodic: only checked here, on activation/

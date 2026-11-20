@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.main_window import MainWindow
 from retrocheevos.gui.pages.home_page import ICON_PATH
-from retrocheevos.gui.styles import APP_STYLESHEET
+from retrocheevos.gui.styles import apply_theme
 from retrocheevos.services import credential_store
 from retrocheevos.utils.logging_setup import LOG_DIR, configure_logging
 
@@ -220,7 +220,7 @@ def main() -> int:
     if sys.platform == "win32":
         app._icon_query_logger = _IconQueryLogger()  # type: ignore[attr-defined]
         app.installNativeEventFilter(app._icon_query_logger)  # type: ignore[attr-defined]
-    app.setStyleSheet(APP_STYLESHEET)
+    apply_theme(app)
     # Belt-and-suspenders with `MainWindow.setWindowIcon`: the app-level
     # icon is what some Windows UI (Alt-Tab, taskbar) reads directly,
     # rather than falling back to the per-window one.
