@@ -2,216 +2,197 @@
 > earlier application behavior. Use the [current roadmap](../planning/DevelopmentRoadmap.md)
 > and [documentation index](../README.md) for active work and file locations.
 
-# TrophyTracker — Handoff de sessão
+# TrophyTracker — Session handoff
 
-Estado do projecto para retomar numa sessão nova sem contexto prévio.
-Última actualização: fim do Bloco 10.
-
----
-
-## 0. Contexto rápido para quem chega agora
-
-App de desktop (Python 3.14 + PySide6) que acompanha uma conta
-RetroAchievements: catálogo pesquisável, jogos instalados localmente,
-progresso, eventos e lançamento em emulador.
-
-- **Correr:** `.venv/Scripts/python.exe -m retrocheevos.main` (ou `src/retrocheevos/main.py`)
-- **BD:** `database/retrocheevos.db` (SQLite), migrações em `src/retrocheevos/database/migrations.py` — **versão actual: 14**
-- **Camadas:** `gui/` → `services/` → `core/` → `database/` + `api/`. A GUI nunca fala com `api/` directamente.
-- **Testes:** só existem em `tests/library/`, e **não há `pytest` instalado no venv**. A verificação tem sido feita com `py_compile`, import da app inteira, e scripts pontuais contra a BD real e a API ao vivo.
-- **Nota:** os documentos em `docs/` (UI.md, Architecture.md, Database.md, DevelopmentRoadmap.md) descrevem parcialmente estados já ultrapassados. Este ficheiro é a fonte mais actual.
+Project state for resuming in a new session without prior context.
+Last updated: end of Block 10. Later implementation notes follow below.
 
 ---
 
-## 1. Onde estamos: Bloco 10 (concluído)
+## 0. Quick context for a new contributor
 
-O trabalho está organizado em blocos numerados. Os blocos 1 a 9 estão
-feitos. O **Bloco 10** (correcções e ajustes de UI) está concluído.
+A desktop app (Python 3.14 + PySide6) tracking a RetroAchievements account:
+searchable catalog, locally installed games, progress, events, and emulator launching.
 
-### Feito e verificado no Bloco 10
+- **Run:** `.venv/Scripts/python.exe -m retrocheevos.main` (or `src/retrocheevos/main.py`).
+- **Database:** `database/retrocheevos.db` (SQLite), migrations in `src/retrocheevos/database/migrations.py` — **version at this point: 14**.
+- **Layers:** `gui/` → `services/` → `core/` → `database/` + `api/`. The GUI never calls `api/` directly.
+- **Tests at this point:** only `tests/library/`; **pytest was not installed in the venv**. Verification used `py_compile`, importing the entire app, and targeted scripts against the real database and live API.
+- **Historical note:** at the time of writing, parts of UI.md, Architecture.md, Database.md, and DevelopmentRoadmap.md were outdated, and this handoff was the latest account. The current roadmap now takes precedence.
 
-| # | Item | Estado |
+---
+
+## 1. Current milestone: Block 10 (complete)
+
+Work was organized into numbered blocks. Blocks 1–9 and **Block 10** (UI fixes and adjustments) were complete.
+
+### Implemented and verified in Block 10
+
+| # | Item | Status |
 |---|---|---|
-| 1 | Barra de sync sempre visível (não colapsa com a pesquisa) | ✅ |
-| 2 | Continue Playing a 6 colunas + barra lateral mais larga | ✅ |
-| 3 | Secção de badges removida da Home | ✅ |
-| 4+8 | Dropdown de consolas removido; `sync_median_times` global | ✅ |
-| 5 | Ícone da app com 7 resoluções pré-escaladas (16→256) | ⚠️ ver §4 |
-| 6 | Barras de progresso em escala fixa 0-100 com percentagem | ✅ |
-| 7 | Opção "All" no filtro Type, com exclusão mútua | ✅ |
-| 9 | Botão "Beaten Games Leaderboard" (abre no browser) | ✅ |
+| 1 | Sync bar always visible, including during search | Complete |
+| 2 | Six-column Continue Playing grid and wider sidebar | Complete |
+| 3 | Badges section removed from Home | Complete |
+| 4+8 | Console dropdown removed; global `sync_median_times` | Complete |
+| 5 | App icon with seven pre-scaled resolutions, 16–256 px | See §4 |
+| 6 | Progress bars on a fixed 0–100 scale with percentages | Complete |
+| 7 | Mutually exclusive All option in the Type filter | Complete |
+| 9 | Beaten Games Leaderboard button opens the browser | Complete |
 
-### Segunda ronda de correcções do Bloco 10
+### Second round of Block 10 fixes
 
-| # | Item | Estado |
+| # | Item | Status |
 |---|---|---|
-| 1 | Larguras trocadas (barra lateral espalmada) | ✅ era `setMaximumWidth` sem `setMinimumWidth` |
-| 2 | Faltava o 6º jogo no Continue Playing | ✅ era o Diablo a 100%, excluído por regra |
-| 3 | Botão "Leaderboards" fora da navegação | ✅ página apagada |
-| 4 | Formato "1.5h (n=33)" | ✅ agora "1h 30m" |
-| 5 | Botão Download ainda visível | ✅ removido a sério (sinal, handler, pintura) |
-| 6 | Falta barra de progresso visual no Continue Playing | ✅ voltou a ser `QProgressBar` |
-| 7 | Estatísticas diferentes do site | ✅ ver §2 |
+| 1 | Incorrect widths flattened the sidebar | Fixed: `setMaximumWidth` without `setMinimumWidth` |
+| 2 | Sixth Continue Playing game missing | Diablo was at 100% and excluded by a rule |
+| 3 | Leaderboards button outside navigation | Page deleted |
+| 4 | Duration displayed as 1.5h (n=33) | Changed to 1h 30m |
+| 5 | Download button still visible | Signal, handler, and painting removed |
+| 6 | Continue Playing lacked a visual progress bar | `QProgressBar` restored |
+| 7 | Statistics differed from the website | See §2 |
 
 ---
 
-## 2. O que falta — leitura honesta do estado
+## 2. Remaining work — an evidence-based account
 
-> **Atenção:** o pedido que originou este ficheiro listava três pontos como
-> "por corrigir". Dois deles **já estão resolvidos e confirmados**; o
-> terceiro tem um limite externo que não consigo contornar. O detalhe está
-> abaixo, com evidência, para a próxima sessão não repetir trabalho feito.
+> The request behind this handoff listed three unresolved issues. Two were
+> already resolved and confirmed; the third encountered an external limit.
+> The evidence below records the investigation so later sessions do not repeat it.
 
-### 2.1 Estatísticas (Beaten/Mastered/Completion) — ✅ RESOLVIDO E CONFIRMADO
+### 2.1 Statistics (Beaten/Mastered/Completion) — resolved and confirmed
 
-Eram duas causas encadeadas, ambas corrigidas:
+The initial causes and the reason the fix was not visible were:
 
-1. **A API estava paginada e só líamos a 1ª página.**
-   `API_GetUserCompletionProgress.php` devolve no máximo 100 jogos e reporta
-   o real em `Total` (confirmado ao vivo: 100 devolvidos, `Total` = 147).
-   Todas as estatísticas saíam de dois terços da conta.
-   → `api/profile.py::get_user_completion_progress` passou a seguir as páginas.
+1. **Only the first API page was read.** `API_GetUserCompletionProgress.php`
+   returns at most 100 games and reports the actual count in `Total` (live
+   check: 100 returned, `Total = 147`). Statistics therefore covered only
+   about two-thirds of the account. `api/profile.py::get_user_completion_progress`
+   was changed to follow pagination.
+2. **Mastered games did not count as beaten.** `highest_award_kind` stores
+   only the highest award, so the 46 mastered games were excluded from the
+   beaten total. `BEATEN_AWARD_KINDS` now includes `completed` and `mastered`.
+3. **The corrected formula did not reach the screen.** `profile_stats` was
+   validated only by age (`PROFILE_SYNC_STALE_AFTER = 6h`). Its row was only
+   22 minutes old, so synchronization was skipped. Age cannot detect a
+   formula change. Migration v14 added `profile_stats.stats_revision`,
+   compared with `sync_service.PROFILE_STATS_REVISION` (then `1`). A revision
+   mismatch forces synchronization regardless of age.
 
-2. **Jogos *mastered* não contavam como *beaten*.**
-   `highest_award_kind` guarda só o prémio **mais alto**, por isso os 46
-   masterizados não entravam no total de batidos.
-   → `BEATEN_AWARD_KINDS` passou a incluir `completed` e `mastered`.
+Database evidence after the first fix:
 
-3. **A correcção não chegava ao ecrã** — a razão pela qual parecia não ter
-   funcionado. `profile_stats` é uma cache validada **só por idade**
-   (`PROFILE_SYNC_STALE_AFTER = 6h`); a linha tinha 22 minutos, logo era
-   considerada fresca e o sync era saltado. Uma cache que só pergunta "que
-   idade tem isto?" não detecta uma mudança de *fórmula*.
-   → **Migração v14** acrescenta `profile_stats.stats_revision`, comparada
-   com `sync_service.PROFILE_STATS_REVISION` (actualmente `1`). Revisão
-   diferente ⇒ re-sync forçado, independentemente da idade.
-
-**Evidência de que está resolvido** — estado actual da BD:
-```
+```text
 stored stats: beaten=98 mastered=56 completion=42.21 revision=1
 ```
-(eram 28 / 46 / 63,12 % com revisão 0)
 
-#### Completion% — ✅ RESOLVIDO, bate exactamente (2026-08-06)
+Previously: 28 / 46 / 63.12%, revision 0.
 
-O site tem um campo "Average completion" = **56,75 %**. Nenhuma das duas
-fórmulas anteriores batia, e os dois erros puxavam em sentidos opostos:
+#### Completion percentage — resolved, exact website match (2026-08-06)
 
-| Fórmula | Valor |
+The website displayed Average completion = **56.75%**. Neither earlier
+formula matched, and the errors worked in opposite directions:
+
+| Formula | Value |
 |---|---|
-| Média não ponderada, só a 1ª página (original) | 63,12 % |
-| `sum(obtidas) / sum(disponíveis)` (ponderada, revisão 1) | 42,21 % |
-| Média não ponderada, todos os 147 jogos | 56,37 % |
-| **Média não ponderada, todos menos subsets** | **56,75 %** ✅ |
+| Unweighted average, first page only (original) | 63.12% |
+| `sum(earned) / sum(available)`, weighted, revision 1 | 42.21% |
+| Unweighted average, all 147 games | 56.37% |
+| **Unweighted average, all games except subsets** | **56.75%** |
 
-Ou seja: **a média não ponderada estava certa desde o início**. O que a fazia
-ler alto era a paginação em falta; trocá-la por um rácio ponderado substituiu
-um erro por outro maior. A diferença final de 0,38 pp era uma única linha —
-`Dragon Ball Z: Budokai [Subset - Martial Arts Tournament]` a 1,43 %.
-Excluída, dá 56,7470 → **56,75 %**, e é coerente com o `_BROWSABLE_GAME_CLAUSES`
-que já ignora subsets em todo o lado.
+The unweighted formula was correct originally; missing pagination inflated
+it. Replacing it with a weighted ratio introduced a larger error. The final
+0.38 percentage-point difference came from one row:
+`Dragon Ball Z: Budokai [Subset - Martial Arts Tournament]`, at 1.43%.
+Excluding it gives 56.7470 → **56.75%**, consistent with the subset exclusions
+already used by `_BROWSABLE_GAME_CLAUSES`.
 
-Verificado pelo caminho real do código:
+Verified through the actual code path:
+
+```text
+games_beaten          : 98      (website: 98)
+games_mastered        : 56      (website: 56)
+completion_percentage : 56.7470 (website: 56.75%)
 ```
-games_beaten          : 98      (site: 98)
-games_mastered        : 56      (site: 56)
-completion_percentage : 56.7470 (site: 56,75 %)
-```
 
-**`PROFILE_STATS_REVISION` foi para 2** — sem isso a correcção não chegava ao
-ecrã.
+**`PROFILE_STATS_REVISION` increased to 2** so the corrected result would reach the UI.
 
-**Duas coisas que esta conta não consegue distinguir** (ficam como nota, não
-como palpite aplicado): tem 0 pontos softcore, logo `NumAwarded` e
-`NumAwardedHardcore` são idênticos em todas as linhas e qualquer um podia ser
-o campo que a RA usa; e não tem jogos de evento/standalone (consola 101/102),
-logo não dá para saber se a RA também os exclui. Só a exclusão de subsets tem
-prova, e só essa foi aplicada.
+Two questions could not be distinguished using this account: it had no
+softcore points, making `NumAwarded` and `NumAwardedHardcore` identical; and
+it had no event/standalone games (consoles 101/102), so their exclusion could
+not be tested. Only the proven subset exclusion was applied.
 
-### 2.2 Recent Activity — ✅ RESOLVIDO E ENCERRADO
+### 2.2 Recent Activity — resolved and closed
 
-Investiguei e **não encontrei avaria**: o `QTimer` arranca no `showEvent`,
-pára no `hideEvent` (confirmado por teste headless com `QStackedWidget`), e
-o fetch demora ~5,7 s contra a API real, portanto cabe folgadamente no
-intervalo.
+The first investigation found no malfunction: the `QTimer` starts in
+`showEvent` and stops in `hideEvent`, confirmed headlessly with
+`QStackedWidget`. A live fetch took about 5.7 seconds, well within the interval.
 
-Melhorias aplicadas mesmo assim:
-- Intervalo 60 s → **30 s**
-- Refresh **imediato** ao mostrar a página (antes esperava um intervalo
-  inteiro se voltasses à janela sem navegar)
-- **Bug real corrigido:** uma chamada durante um fetch em curso limpava
-  `_activity_entries` sem arrancar worker novo, deixando o ecrã
-  dessincronizado do que estava a carregar. Agora sai cedo, antes de tocar
-  no estado.
+Improvements applied anyway:
 
-#### Segunda investigação — agora do lado dos **dados** (2026-08-06)
+- Refresh interval reduced from 60 to **30 seconds**.
+- **Immediate** refresh when showing the page, rather than waiting a whole interval after returning to the window without navigation.
+- **Actual bug fixed:** refreshing during an ongoing fetch cleared `_activity_entries` without starting a new worker. It now returns before modifying state.
 
-O utilizador reportou que a entrada do Theodoro mostrava `2026-08-06 00:45`
-com 74/88, quando antes tinha mostrado `2026-08-06 10:53` com 75/88 — ou
-seja, actividade **mais antiga e com menos progresso** do que já aparecera.
-Foram verificados ao vivo os três suspeitos apontados:
+#### Second investigation — the data itself (2026-08-06)
 
-| Suspeito | Resultado medido |
+The user reported that Theodoro's entry showed `2026-08-06 00:45`, 74/88,
+after previously showing `2026-08-06 10:53`, 75/88: older activity with less
+progress. Three suspected causes were checked live:
+
+| Suspect | Measured result |
 |---|---|
-| Ordenação | `API_GetUserRecentAchievements.php` devolve **estritamente decrescente** (84 linhas verificadas, `dates == sorted(dates, reverse=True)`) |
-| Paginação | Não há. Com `m=10080` vêm as 84 linhas da janela; a mais recente está no índice 0 |
-| Cache | Duas chamadas seguidas a `API_GetGameInfoAndUserProgress.php` devolvem o mesmo valor; `requests.Session` não cacheia e o serviço não persiste nada |
+| Ordering | `API_GetUserRecentAchievements.php` returned strictly descending timestamps: 84 rows, `dates == sorted(dates, reverse=True)` |
+| Pagination | None: `m=10080` returned all 84 rows in the window, newest at index 0 |
+| Cache | Two consecutive `API_GetGameInfoAndUserProgress.php` calls returned identical values; `requests.Session` does not cache and the service persisted nothing |
 
-**A API concorda com o que o ecrã mostra.** O último unlock do Theodoro é
-mesmo `2026-08-06 00:45:40` (Jak 3) e o progresso é mesmo `NumAwardedToUser
-= 74` de 88. Não existe nenhum unlock às 10:53 nem nenhum 75/88 em lado
-nenhum dos dados dele — o único outro jogo na janela de 7 dias é
-Metal Gear Solid: Ghost Babel, que está a 13/106, portanto não é confusão
-de jogo.
+**The API agreed with the UI.** Theodoro's latest unlock was
+`2026-08-06 00:45:40` in Jak 3, with `NumAwardedToUser = 74` of 88. No 10:53
+unlock or 75/88 result existed in the returned data. The only other game in
+the seven-day window was Metal Gear Solid: Ghost Babel at 13/106, ruling out
+a game mix-up.
 
-**Explicação mais provável do 75/88 anterior:** a RA revogou/repôs um
-unlock. 74 + 1 = 75 e de volta a 74, com o unlock das 10:53 a desaparecer,
-é internamente consistente e não é detectável pela API. A app estava certa
-das duas vezes.
+**Most likely explanation for the earlier 75/88:** RetroAchievements revoked
+or reset an unlock. A return from 75 to 74, with the 10:53 unlock disappearing,
+is internally consistent and cannot be detected from the remaining API data.
+The app could have been correct on both occasions.
 
-#### Bug real encontrado nesta ronda: fuso horário
+#### Actual bug found in that round: time zones
 
-`API_GetUserRecentAchievements.php` devolve `Date` **em UTC**, sem offset —
-provado por cruzamento: o award `2026-08-05T10:11:40+00:00` (jogo 757,
-`API_GetUserAwards.php`, offset explícito) é o mesmo evento que este
-endpoint reporta como `2026-08-05 10:11:40`. O `ActivityEntryCard` imprimia
-esse valor em bruto, logo mostrava **menos uma hora** do que o relógio local
-(UTC+1) — que é exactamente o aspecto de "dados velhos".
+`API_GetUserRecentAchievements.php` returns `Date` in **UTC**, without an
+offset. Cross-check: the award `2026-08-05T10:11:40+00:00` for game 757 from
+`API_GetUserAwards.php` is the same event reported as `2026-08-05 10:11:40`.
+`ActivityEntryCard` displayed the raw value, one hour behind the local UTC+1
+clock, which looked like stale data.
 
-> **Nota:** o `_as_utc()`/`_format_local()` descritos aqui foram
-> **revertidos** mais abaixo, por decisão do utilizador — hoje mostra-se UTC
-> em bruto. O facto de os timestamps serem UTC continua verdadeiro e provado.
+> The `_as_utc()` / `_format_local()` changes described here were later
+> reverted at the user's request; raw UTC is displayed. The evidence that
+> the timestamps are UTC still stands.
 
-Correcções aplicadas (parcialmente revertidas — ver acima):
-- `api/profile.py` — `_as_utc()` marcava os timestamps naive como UTC.
-- `widgets/activity_entry_card.py` — `_format_local()` convertia para o fuso
-  da máquina antes de imprimir.
-- `services/activity_feed_service.py` — `_latest_unlock()` escolhe o unlock
-  mais recente **por timestamp**, já não por `[0]`. A ordenação da RA está
-  certa hoje mas não é documentada, e confiar na posição era precisamente o
-  que produziria o sintoma reportado.
+Changes made in that round, partly reverted later:
 
-#### Quarta ronda — o card passou a girar à volta do **jogo**, não do unlock
+- `api/profile.py`: `_as_utc()` marked naive timestamps as UTC.
+- `widgets/activity_entry_card.py`: `_format_local()` converted them to the machine's time zone.
+- `services/activity_feed_service.py`: `_latest_unlock()` selected by timestamp rather than index `[0]`. The observed API ordering was correct but undocumented; relying on position could produce the reported symptom.
 
-Pedido: tirar a linha "Last unlock" e pôr o último/actual jogo por baixo do
-"Last seen". Isso mudou a *fonte* dos dados, não só a ordem:
+#### Fourth round — center the card on the game rather than the unlock
 
-- O jogo vinha de `API_GetUserRecentAchievements.php` — era o jogo do
-  **último unlock**. Passou a vir do `LastGame` do `API_GetUserSummary.php`,
-  que é o jogo que a pessoa esteve mesmo a jogar. Não são a mesma coisa: uma
-  sessão pode durar horas sem desbloquear nada.
-- Isso tornou a chamada a `get_recent_achievements` desnecessária no feed, e
-  com ela o campo `last_achievement_at` e o `_latest_unlock`. **Passou de 3
-  para 2 chamadas por utilizador** — com ~31 utilizadores e 0,3 s de
-  intervalo, é cerca de um terço menos de tempo por refresh.
-- `RawUserSummary` ganhou `last_game_title` / `last_game_console` /
-  `last_game_icon_path`. A ordenação (`core/activity_feed.py`) já era por
-  `last_seen_at` e deixou de ter fallback para o unlock.
+The user requested removing Last unlock and placing the last/current game
+below Last seen. This changed the data source as well as the order:
 
-O card ficou: utilizador → "Last seen" → jogo (ícone, título, consola) →
-progresso → rich presence. Verificado com o payload real do summary:
+- The game formerly came from `API_GetUserRecentAchievements.php`, meaning
+  the game of the **last unlock**. It now comes from `LastGame` in
+  `API_GetUserSummary.php`, the game the person was actually playing. A
+  session can last hours without an unlock.
+- This removed the feed's `get_recent_achievements` call, `last_achievement_at`,
+  and `_latest_unlock`: **three calls became two per user**. With about 31
+  users and 0.3-second pacing, this cuts refresh time by roughly one-third.
+- `RawUserSummary` gained `last_game_title`, `last_game_console`, and
+  `last_game_icon_path`. `core/activity_feed.py` already sorted by
+  `last_seen_at`; the unlock fallback was removed.
 
-```
+Card order: user → Last seen → game (icon, title, console) → progress → rich
+presence. Verified with the real summary payload:
+
+```text
 Theodoro
     Last seen: 2026-08-06 18:09
     Jak 3 — PlayStation 2
@@ -219,422 +200,391 @@ Theodoro
     Story Missions: 60/60 | Orbs: 449
 ```
 
-#### Menu "+" marca as listas onde o jogo já está
+#### The + menu marks lists that already contain the game
 
-`ActionsDelegate.set_membership_provider(fn)` — `fn(game_id) -> set[list_id]`,
-fornecido pela `ExplorerPage`. **Callback e não um dicionário empurrado**: a
-tabela tem milhares de linhas e pré-calcular a pertença de todas para
-responder a um menu seria trabalho deitado fora; assim só corre quando o
-menu abre, que já era construído tardiamente.
+`ActionsDelegate.set_membership_provider(fn)` receives
+`fn(game_id) -> set[list_id]` from `ExplorerPage`. It uses a callback rather
+than a pushed dictionary: calculating membership for thousands of table
+rows to answer one lazily constructed menu would waste work. Membership is
+queried only when the menu opens.
 
-As entradas não marcadas levam um ` ` (figure space) em vez de nada,
-senão as marcadas deslocam-se para a direita e o menu fica desalinhado. Não
-se usaram acções *checkable* do Qt de propósito: clicar **adiciona** à lista,
-e uma caixa de visto lê-se como um interruptor que também tiraria.
+Unchecked entries receive a figure space (` `) to align them with checked
+entries. Qt checkable actions were intentionally avoided: clicking adds to
+a list, while a checkbox would imply toggling membership off as well.
 
-#### Terceira ronda — a causa real: **"Last seen" ≠ "último unlock"**
+#### Third round — the actual cause: Last seen differs from last unlock
 
-O utilizador comparou lado a lado: site dizia `Last seen 06 Aug 2026, 17:21`,
-a app dizia `Last activity: 2026-08-06 01:45`. 16 horas de diferença.
+The user's side-by-side comparison showed `Last seen 06 Aug 2026, 17:21` on
+the website and `Last activity: 2026-08-06 01:45` in the app: a 16-hour gap.
+The app displayed the last **unlock**; the website displayed the last time
+**playing**. Theodoro had been playing for hours without unlocking anything.
 
-**Não era cache nem filtro nem ordenação — eram dois relógios diferentes.**
-A app mostrava a hora do último *unlock*; o site mostra a hora em que a
-pessoa esteve pela última vez a *jogar*. O Theodoro estava em sessão há
-horas sem desbloquear nada, por isso os dois números divergiram muito.
+`API_GetUserProfile.php` has no last-seen field, which explains the earlier
+unlock-based fallback. `API_GetUserSummary.php` provides:
 
-`API_GetUserProfile.php` **não tem** campo de "last seen" nenhum — foi por
-isso que o feed acabou a usar o unlock. `API_GetUserSummary.php` tem:
-
-```
-RichPresenceMsgDate          = 2026-08-06 17:31:50   <- é este
-RecentlyPlayed[0].LastPlayed = 2026-08-06 17:31:50   <- concorda
-LastActivity.lastupdate      = None                  <- beco sem saída
+```text
+RichPresenceMsgDate          = 2026-08-06 17:31:50   <- use this
+RecentlyPlayed[0].LastPlayed = 2026-08-06 17:31:50   <- agrees
+LastActivity.lastupdate      = None                  <- dead end
 ```
 
-Cuidado com o `LastActivity`: parece o candidato óbvio e **todas as chaves
-vêm a null**. Usa-se `RichPresenceMsgDate` por ser um campo simples, em vez
-do primeiro elemento de uma lista que vem vazia para quem nunca jogou.
+Every key in `LastActivity` was null. `RichPresenceMsgDate` is a scalar and
+avoids indexing a list that is empty for users who have never played.
 
-Correcções:
-- `api/profile.py` — `get_user_summary()` + `RawUserSummary`
-- `models/activity_feed.py` — campo `last_seen_at` a par de `last_achievement_at`
-- `services/activity_feed_service.py` — usa o summary em vez do profile
-  (mesmo número de chamadas: 3 por utilizador)
-- `core/activity_feed.py` — ordena por `last_seen_at`, como a página Following
-- `widgets/activity_entry_card.py` — duas linhas, "Last seen" e "Last unlock"
+Changes:
 
-Verificado ponta a ponta contra a API ao vivo:
-```
+- `api/profile.py`: `get_user_summary()` and `RawUserSummary`.
+- `models/activity_feed.py`: `last_seen_at` alongside `last_achievement_at`.
+- `services/activity_feed_service.py`: summary instead of profile; still three calls per user at that stage.
+- `core/activity_feed.py`: sort by `last_seen_at`, like the Following page.
+- `widgets/activity_entry_card.py`: separate Last seen and Last unlock lines.
+
+Verified end to end against the live API:
+
+```text
 Theodoro   seen=2026-08-06 18:36  unlock=2026-08-06 18:36  75/88  Jak 3
 Gmendes    seen=2026-08-06 08:23  unlock=2026-08-05 11:11  1/31   DBZ: Taiketsu
 Zynlar     seen=2026-07-30 02:14  unlock=-
 ```
-(a linha do Gmendes mostra bem a diferença entre os dois relógios)
 
-#### Fusos horários — decidido: **mostrar UTC em bruto, sem converter**
+Gmendes's row demonstrates the difference between the two clocks.
 
-**Decisão final do utilizador (2026-08-06), depois de todo o percurso abaixo:
-o Recent Activity mostra o valor exactamente como a API o devolve, sem
-qualquer conversão de fuso.** A conversão UTC→local foi removida:
+#### Time-zone decision: display raw UTC without conversion
 
-- `api/profile.py` — o helper `_as_utc` foi **apagado**; `get_user_summary` e
-  `get_recent_achievements` devolvem datas naive, tal como a RA as manda.
-- `widgets/activity_entry_card.py` — `_format_local` deu lugar a
-  `_format_timestamp`, que imprime sem `astimezone()`.
-- `core/activity_feed.py` — a ordenação deixou de usar `datetime.timestamp()`
-  (que lê datas naive como hora *local*) e passa a subtrair `_SORT_EPOCH`, para
-  a ordem não depender do fuso da máquina.
+**Final user decision (2026-08-06): Recent Activity displays the exact value
+returned by the API, without time-zone conversion.** UTC-to-local conversion
+was removed:
 
-Verificado ao vivo: `API raw = 2026-08-06 18:41:51` → `card shows =
-2026-08-06 18:41`, idêntico.
+- `api/profile.py`: `_as_utc` deleted; summary and recent-achievement dates remain naive as returned by RetroAchievements.
+- `widgets/activity_entry_card.py`: `_format_timestamp` replaces `_format_local`, without `astimezone()`.
+- `core/activity_feed.py`: subtract `_SORT_EPOCH` instead of using `datetime.timestamp()`, which interprets naive dates as local time.
 
-**Consequência assumida:** a app fica uma hora atrás do relógio local em
-UTC+1 — quem foi visto há um minuto aparece como "há uma hora". Isto é
-intencional; o critério escolhido foi **bater certo com o site**, não com o
-relógio de parede. Não voltar a introduzir `astimezone()` aqui.
+Live verification: `API raw = 2026-08-06 18:41:51` →
+`card shows = 2026-08-06 18:41`.
 
-##### Percurso até esta decisão (para não se repetir a investigação)
+**Accepted consequence:** the display is one hour behind the UTC+1 wall
+clock; a user seen a minute ago can appear to have been seen an hour ago.
+The chosen criterion was matching the website. Do not reintroduce
+`astimezone()` here.
 
-Houve três rondas a reportar a app como "1 h adiantada" face ao site. O
-diagnóstico técnico dessas rondas mantém-se válido e é o que justifica os
-comentários no código:
+##### Investigation leading to this decision
 
-**O site mostra as horas em UTC, em formato absoluto, igual ao valor cru da
-API** — confirmado pelo utilizador com o print da página Following. Quando a
-app convertia para local, ambas estavam correctas, cada uma no seu fuso; a
-diferença de uma hora era esperada, não um bug. A decisão acima elimina a
-divergência escolhendo o fuso do site.
+Three rounds reported the app as one hour ahead of the website. The
+technical diagnosis remains valid and explains the code comments:
 
-**A API devolve sempre UTC, independentemente do Locale da conta RA** —
-testado com a preferência antes e depois de mudada para Lisboa, o output não
-mexeu.
+- **The website displays absolute UTC, matching the raw API value**,
+  confirmed by the user's Following-page screenshot. Local conversion
+  made both displays individually correct in different time zones; the
+  final decision chose the website's time zone.
+- **The API returns UTC regardless of account Locale.** Changing that
+  preference to Lisbon did not change the output.
 
-##### Como provar isto sem cair em raciocínio circular
+##### Proving the time zone without circular reasoning
 
-O primeiro argumento usado aqui **não servia**: "o campo está a segundos do
-`utc now`, logo é UTC" pressupõe que a pessoa estava a jogar naquele
-instante, e essa premissa vinha de assumir que o campo era UTC. Com "esteve
-online há 1 hora" as duas leituras encaixam igualmente bem. Os dois
-argumentos abaixo são independentes disso.
+The initial argument, that a value close to `utc now` must be UTC, assumed
+the person was currently playing. That assumption itself relied on the
+UTC interpretation. A person last online an hour earlier could fit either
+reading. Independent evidence was required:
 
-**1. O campo avança em tempo real.** Três leituras do mesmo `RichPresenceMsgDate`:
+**1. The field advances in real time.** Repeated `RichPresenceMsgDate` reads:
 
-| Medição (UTC) | Valor lido | Distância |
+| Measurement (UTC) | Returned value | Difference |
 |---|---|---|
 | 17:54:00 | 17:53:51 | 9 s |
 | 18:07:42 | 18:05:51 | 1m51s |
 | 18:11:40 | 18:09:51 | 1m49s |
 
-Subiu 4m00s enquanto passavam 3m58s de relógio. Um "last seen" de há uma hora
-é um evento passado e fixo — **não avança**. Este está colado ao presente.
+The field advanced 4m00s while 3m58s elapsed. A fixed last-seen event an hour
+in the past would not advance this way.
 
-**2. Cruzamento com um unlock cujo fuso já está provado.** Entre a 1ª e a 2ª
-medição apareceu uma conquista nova, a `264251` às `17:58:29` — mesmo campo
-`Date` que se provou ser UTC contra o `API_GetUserAwards` (offset `+00:00`
-explícito). O `LastPlayed` do mesmo jogo 3065 marcava `18:09:51`. Se esse
-campo fosse hora de Lisboa, valeria `17:09:51` em UTC, ou seja **49 minutos
-antes de um unlock nesse mesmo jogo** — impossível.
+**2. Cross-check an unlock with an established time zone.** Between the first
+and second measurements, achievement `264251` appeared at `17:58:29`. Its
+`Date` field had already been proven UTC using an award with explicit
+`+00:00`. `LastPlayed` for the same game, 3065, was `18:09:51`. If that were
+Lisbon local time, it would mean `17:09:51` UTC: **49 minutes before an
+unlock in that same game**, which is inconsistent.
 
-**Regra prática:** nunca inferir o fuso a partir da diferença app-vs-site.
-Ancorar sempre num evento cujo fuso já está provado (um unlock), ou medir o
-campo duas vezes e ver se avança.
+Practical rule: establish time zones using a proven event or repeated
+measurements, not an app-versus-website difference. If activity looks stale
+again, inspect `RECENT_ACHIEVEMENTS_WINDOW_MINUTES` (seven days) and
+`FOLLOWED_USERS_LIMIT = 30` in `activity_feed_service.py`.
 
-Se voltar a parecer desactualizado, resta olhar para
-`RECENT_ACHIEVEMENTS_WINDOW_MINUTES = 7 dias` e `FOLLOWED_USERS_LIMIT = 30`
-em `activity_feed_service.py`.
+### 2.3 Median-time synchronization — external limit
 
-### 2.3 Sync de tempos médios — ⚠️ LIMITE EXTERNO, não contornável
+**This was not delivered at the requested speed.** These approaches were tested live:
 
-**Isto não foi entregue como pedido, e é importante que a próxima sessão não
-volte a tentar as mesmas abordagens.** Foram testadas ao vivo:
-
-| Estratégia | Resultado medido |
+| Strategy | Measured result |
 |---|---|
-| Sequencial 0,30 s | ~3,3 jogos/s — estável |
-| Sequencial 0,25 s | **8 de 60 com HTTP 429** |
-| Sequencial 0,10 s | **429 ao fim de ~9 chamadas** |
-| 4 threads em paralelo, 0,30 s cada | **26 de 40 com 429** |
+| Sequential, 0.30 s | About 3.3 games/s, stable |
+| Sequential, 0.25 s | HTTP 429 for 8 of 60 games |
+| Sequential, 0.10 s | HTTP 429 after about 9 calls |
+| Four parallel threads, 0.30 s each | HTTP 429 for 26 of 40 games |
 
-O limitador da RetroAchievements é sobre a **taxa total**, não por ligação —
-paralelizar piora. O tecto real é ~3 pedidos/segundo, logo ~11.800 jogos
-≈ 1 hora. Acelerar mais implica arriscar bloqueio da conta.
+RetroAchievements limits the **aggregate rate**, not each connection.
+Parallelism makes this worse. The effective ceiling is about three requests
+per second, so roughly 11,800 games require about an hour. Going faster
+risks an account block.
 
-**Mitigação aplicada:** `GameRepository.list_ids_missing_median_time()`
-passou a ordenar por relevância — (1) jogos instalados, (2) jogos de
-consolas de que há ROMs, (3) o resto. Os 6 jogos instalados ficam prontos em
-~2 s, tornando o filtro útil para a biblioteca real quase de imediato,
-mesmo com o resto ainda a decorrer. Também aguenta 429 com recuo
-exponencial (1 s, 2 s, 4 s) em vez de abortar a corrida inteira.
+**Mitigation:** `GameRepository.list_ids_missing_median_time()` prioritizes
+(1) installed games, (2) games on consoles with local ROMs, and (3) the rest.
+The six installed games finish in about two seconds, making the filter
+useful for the actual library before the full backfill finishes. HTTP 429
+responses receive exponential backoff (1 s, 2 s, 4 s), rather than aborting
+the entire run.
 
-**Alternativa por decidir com o utilizador:** limitar o backfill às consolas
-de que ele tem ROMs, em vez do catálogo inteiro — passaria de ~11.800 para
-algumas centenas de jogos. Foi proposto e ainda não teve resposta.
+**Alternative awaiting the user's decision:** backfill only consoles with
+local ROMs, reducing about 11,800 games to a few hundred. This was proposed
+but had not received an answer.
 
 ---
 
-## 3. Ficheiros tocados nestas últimas correcções
+## 3. Files touched by the latest fixes
 
-**Estatísticas (§2.1):**
-- `src/retrocheevos/api/profile.py` — paginação + `COMPLETION_PROGRESS_PAGE_SIZE`
-- `src/retrocheevos/core/profile_stats.py` — `BEATEN_AWARD_KINDS`, completion ponderada
-- `src/retrocheevos/database/schema.py` — `ALTER_TABLES_V14`
-- `src/retrocheevos/database/migrations.py` — registo da v14
-- `src/retrocheevos/models/profile.py` — campo `stats_revision`
-- `src/retrocheevos/database/repositories/profile_repository.py` — persistir/ler a coluna
-- `src/retrocheevos/services/sync_service.py` — `PROFILE_STATS_REVISION` + invalidação
+**Statistics (§2.1):**
+
+- `src/retrocheevos/api/profile.py`: pagination and `COMPLETION_PROGRESS_PAGE_SIZE`.
+- `src/retrocheevos/core/profile_stats.py`: `BEATEN_AWARD_KINDS`, weighted completion at that stage.
+- `src/retrocheevos/database/schema.py`: `ALTER_TABLES_V14`.
+- `src/retrocheevos/database/migrations.py`: register v14.
+- `src/retrocheevos/models/profile.py`: `stats_revision`.
+- `src/retrocheevos/database/repositories/profile_repository.py`: persist/read the column.
+- `src/retrocheevos/services/sync_service.py`: `PROFILE_STATS_REVISION` and invalidation.
 
 **Recent Activity (§2.2):**
-- `src/retrocheevos/gui/pages/home_page.py` — intervalo, `showEvent`, guarda de reentrância
-- `src/retrocheevos/api/profile.py` — `get_user_summary`, `RawUserSummary`, datas naive
-- `src/retrocheevos/services/activity_feed_service.py` — `_latest_unlock`, usa o summary
-- `src/retrocheevos/models/activity_feed.py` — campo `last_seen_at`
-- `src/retrocheevos/core/activity_feed.py` — ordena por `last_seen_at`, `_SORT_EPOCH`
-- `src/retrocheevos/widgets/activity_entry_card.py` — `_format_timestamp`, "Last seen"/"Last unlock"
 
-**Tempos médios (§2.3):**
-- `src/retrocheevos/database/repositories/game_repository.py` — ordenação por prioridade
-- `src/retrocheevos/services/sync_service.py` — `_fetch_median_time_with_retry`, backoff
+- `src/retrocheevos/gui/pages/home_page.py`: interval, `showEvent`, reentrancy guard.
+- `src/retrocheevos/api/profile.py`: `get_user_summary`, `RawUserSummary`, naive dates.
+- `src/retrocheevos/services/activity_feed_service.py`: `_latest_unlock`, summary-based reads.
+- `src/retrocheevos/models/activity_feed.py`: `last_seen_at`.
+- `src/retrocheevos/core/activity_feed.py`: sort by `last_seen_at`, `_SORT_EPOCH`.
+- `src/retrocheevos/widgets/activity_entry_card.py`: `_format_timestamp`, Last seen / Last unlock.
 
-**Bloco 11 (§5):**
-- `src/retrocheevos/gui/pages/rom_location_page.py` — **novo** (substitui `library_page.py`)
-- `src/retrocheevos/services/library_service.py` — `scan_rom_folder`, `_hash_in_place`
-- `src/retrocheevos/models/library.py` — `RomFolderScanResult` (substitui os `WatchFolder*`)
-- `src/retrocheevos/gui/pages/settings_page.py` — 2 secções removidas
-- `src/retrocheevos/gui/main_window.py` + `gui/pages/home_page.py` — chave `rom_location`
-- `src/retrocheevos/library/console_detection.py`, `gui/dialogs/match_rom_dialog.py` — docstrings
+**Median times (§2.3):**
 
-**Restantes correcções do Bloco 10:**
-- `src/retrocheevos/gui/main_window.py` — `NAV_ITEMS = ["Home"]`
-- `src/retrocheevos/gui/pages/leaderboards_page.py` — **apagado**
-- `src/retrocheevos/gui/pages/explorer_page.py` — Download removido, barra sempre visível
-- `src/retrocheevos/gui/delegates/explorer_delegates.py` — sem `download_requested`
-- `src/retrocheevos/gui/models/explorer_table_model.py` — formato "1h 30m"
-- `src/retrocheevos/widgets/continue_playing_game_row.py` — `QProgressBar` de volta
-- `src/retrocheevos/core/dashboard.py` — deixa de excluir jogos a 100%
-- `src/retrocheevos/main.py` — ícone multi-resolução
+- `src/retrocheevos/database/repositories/game_repository.py`: priority ordering.
+- `src/retrocheevos/services/sync_service.py`: `_fetch_median_time_with_retry`, backoff.
 
----
+**Block 11 (§5):**
 
-## 4. Decisões e descobertas importantes (não repetir investigação)
+- `src/retrocheevos/gui/pages/rom_location_page.py`: new, replaces `library_page.py`.
+- `src/retrocheevos/services/library_service.py`: `scan_rom_folder`, `_hash_in_place`.
+- `src/retrocheevos/models/library.py`: `RomFolderScanResult` replaces `WatchFolder*`.
+- `src/retrocheevos/gui/pages/settings_page.py`: two sections removed.
+- `src/retrocheevos/gui/main_window.py` and `gui/pages/home_page.py`: `rom_location` key.
+- `src/retrocheevos/library/console_detection.py`, `gui/dialogs/match_rom_dialog.py`: docstrings.
 
-- **Paginação da API** — `API_GetUserCompletionProgress.php` corta aos 100 e
-  reporta `Total`. Se outro endpoint parecer truncado, verificar
-  `Count`/`Total` antes de assumir que os dados estão errados.
-- **`API_GetUserSummary.php` é o endpoint rico.** Numa só chamada traz
-  `UserPic`, `RichPresenceMsg`, `RichPresenceMsgDate` ("last seen"),
-  `LastGame` (título/consola/ícone), `Awarded` (obtidas/totais do último
-  jogo) e `RecentAchievements`. Cobre tudo o que o feed precisa **menos o
-  playtime**, que continua a obrigar a `API_GetGameInfoAndUserProgress.php`.
-  Optimização por fazer, se algum dia interessar: 3 chamadas/utilizador → 2.
-- **Timestamps naive da RA são UTC.** Provado por cruzamento entre
-  `API_GetUserAwards.php` (offset explícito `+00:00`) e
-  `API_GetUserRecentAchievements.php` (naive) para o mesmo evento. Qualquer
-  campo novo de data que venha sem offset deve ser tratado como UTC e
-  convertido só na camada de apresentação.
-- **Rate limit** — ~3 pedidos/segundo é o tecto. `CATALOG_SYNC_CALL_DELAY_SECONDS
-  = 0.3` está perto do mínimo viável. Não paralelizar.
-- **Qualquer chamada nova à API tem de passar por `_with_rate_limit_retry`.**
-  O espaçamento sozinho não chega: reduz a probabilidade de 429, não a
-  elimina. Só o sync de tempos médios tinha recuo exponencial; `sync_consoles`,
-  `sync_games_for_console`, `sync_profile` (3 chamadas seguidas sem pausa
-  nenhuma) e o progresso de eventos não tinham, e um único 429 abortava um
-  "Sync Everything" inteiro. Pior no sítio pior: uma conta nova faz a maior
-  sincronização de todas (~84 + 3 + ~237 pedidos), portanto é a mais provável
-  de disparar o limitador e a que menos pode perder a corrida.
-  Duas políticas distintas ao esgotar as tentativas, de propósito:
-  `_with_rate_limit_retry` **relança** (um console em falta é um buraco no
-  catálogo que ninguém repara nem repara depois), `_fetch_median_time_with_retry`
-  devolve `None` (uma célula vazia que a próxima corrida volta a oferecer).
-- **`API_GetGameProgression.php` existe** e devolve `MedianTimeToBeatHardcore`
-  (confirmado ao vivo, ex.: Diablo → 326 s). Um pedido por jogo.
-- **`achievements` / `user_achievements` estão sempre vazias.** `sync_game_details`
-  e `sync_account_progress` **não têm chamadores em lado nenhum**. Por isso
-  `AchievementRepository.get_mastered_game_ids()` devolve sempre `set()` — está
-  documentado no próprio método. Qualquer filtro de mastery deve usar
-  `GameCompletionRepository.get_finished_game_ids()`, que lê `highest_award_kind`.
-- **Contagem do catálogo** — 12.041 sincronizados vs 11.307 no site. A diferença
-  são 237 Events (consola 101) + 13 Standalone (102) + 498 subsets
-  (`[Subset - …]`). Excluídos os três: 11.304. As exclusões vivem em
-  `_BROWSABLE_GAME_CLAUSES` (`game_repository.py`), partilhadas por
-  `search()` e `count_all()` para os dois números não divergirem.
-- **Eventos são jogos** na consola 101, com `retroachievements_url` já
-  correcto — por isso a secção Events não precisou de API nova.
-- **Ícone da taskbar (item 5)** — o utilizador reportou como regressão, mas
-  **não foi encontrada nenhuma**: `main.py` estava intocado face ao commit,
-  `icon.png` carrega (889×889, `QIcon.isNull()` False), `AppUserModelID`
-  definido. Foi acrescentado um ícone multi-resolução como melhoria
-  plausível, **mas o problema nunca foi reproduzido** e pode não estar
-  resolvido. Próximo passo, se persistir: limpar a cache de ícones do Windows
-  (fora do código).
-- **Continue Playing vs Library** — decidido que coexistem: Continue Playing
-  é o atalho rápido na Home (cards pequenos, por recência); a lista "Library"
-  (Bloco 13) é a vista completa em frames grandes.
+**Other Block 10 fixes:**
+
+- `src/retrocheevos/gui/main_window.py`: `NAV_ITEMS = ["Home"]`.
+- `src/retrocheevos/gui/pages/leaderboards_page.py`: deleted.
+- `src/retrocheevos/gui/pages/explorer_page.py`: Download removed, bar always visible.
+- `src/retrocheevos/gui/delegates/explorer_delegates.py`: no `download_requested`.
+- `src/retrocheevos/gui/models/explorer_table_model.py`: 1h 30m formatting.
+- `src/retrocheevos/widgets/continue_playing_game_row.py`: `QProgressBar` restored.
+- `src/retrocheevos/core/dashboard.py`: no longer excludes games at 100%.
+- `src/retrocheevos/main.py`: multi-resolution icon.
 
 ---
 
-## 5. Blocos que faltam
+## 4. Important decisions and findings
 
-### Bloco 11 — ROM Location — ✅ CONCLUÍDO (2026-08-06)
+- **API pagination:** `API_GetUserCompletionProgress.php` caps results at 100
+  and reports `Total`. Check `Count` / `Total` before treating a seemingly
+  truncated endpoint as incorrect data.
+- **`API_GetUserSummary.php` is the rich endpoint.** A single call provides
+  `UserPic`, `RichPresenceMsg`, `RichPresenceMsgDate` (last seen), `LastGame`
+  (title/console/icon), `Awarded` (last-game earned/total), and
+  `RecentAchievements`. It covers the feed except playtime, which still
+  needs `API_GetGameInfoAndUserProgress.php`. At this historical point,
+  reducing three calls per user to two remained an optimization opportunity.
+- **Naive RetroAchievements timestamps are UTC**, proven by comparing the
+  same event in `API_GetUserAwards.php` (explicit `+00:00`) and
+  `API_GetUserRecentAchievements.php` (naive). Treat new offset-free date
+  fields as UTC; any conversion belongs only in presentation, subject to
+  the raw-UTC display decision in §2.2.
+- **Rate limit:** roughly three requests per second.
+  `CATALOG_SYNC_CALL_DELAY_SECONDS = 0.3` is near the usable minimum. Do not parallelize.
+- **New API calls must use `_with_rate_limit_retry`.** Spacing reduces but
+  does not eliminate HTTP 429. Previously only median-time synchronization
+  had backoff; `sync_consoles`, `sync_games_for_console`, `sync_profile`
+  (three unpaced calls), and event progress could abort Sync Everything on
+  a single 429. A new account makes the largest initial run, about
+  84 + 3 + 237 requests, making it particularly vulnerable. Exhausted
+  retries intentionally have different policies: `_with_rate_limit_retry`
+  **raises**, because a missing console creates a persistent catalog gap;
+  `_fetch_median_time_with_retry` returns `None`, leaving a cell for the next run.
+- **`API_GetGameProgression.php` exists** and returns
+  `MedianTimeToBeatHardcore` (live example: Diablo → 326 seconds). One request per game.
+- **At this point, `achievements` / `user_achievements` were always empty.**
+  `sync_game_details` and `sync_account_progress` had no callers.
+  `AchievementRepository.get_mastered_game_ids()` therefore returned
+  `set()`, as documented in the method. Mastery filters needed
+  `GameCompletionRepository.get_finished_game_ids()`, reading `highest_award_kind`.
+- **Catalog counts:** 12,041 synced versus 11,307 on the website. The
+  difference included 237 Events (console 101), 13 Standalone entries (102),
+  and 498 subsets (`[Subset - …]`); excluding them gave 11,304. The shared
+  `_BROWSABLE_GAME_CLAUSES` in `game_repository.py` governs both `search()`
+  and `count_all()` so those counts remain consistent.
+- **Events are games** on console 101, already carrying the correct
+  `retroachievements_url`; the Events section needed no new API.
+- **Taskbar icon (item 5):** no regression was reproduced. `main.py` matched
+  the commit, the 889×889 `icon.png` loaded with `QIcon.isNull() == False`,
+  and `AppUserModelID` was set. A multi-resolution icon was a plausible
+  improvement, not a confirmed fix. If it persisted, the suggested next
+  investigation was the Windows icon cache outside the code.
+- **Continue Playing and Library coexist by design.** Continue Playing is
+  the quick Home shortcut with small, recent-game cards; Library (Block 13)
+  is the full view with larger frames.
 
-A página "Library" passou a **"ROM Location"** e deixou de organizar
-ficheiros: só aponta para pastas que o utilizador já organizou e deteta o
-que lá está.
+---
 
-**Renomeado:** `library_page.py` → `rom_location_page.py`, `LibraryPage` →
-`RomLocationPage`, chave `"library"` → `"rom_location"` em
-`main_window.py::_menu_pages` e em `home_page.py::USER_MENU_DESTINATIONS`
-(o `USER_MENU_DESTINATIONS` está em `home_page.py`, não em `main_window.py`
-como o plano dizia).
+## 5. Remaining blocks
 
-**Apagados:** `gui/dialogs/watch_folder_scan_dialog.py`,
-`library/organizer.py`, `models/rom_destination.py`,
-`database/repositories/rom_destination_repository.py`,
+### Block 11 — ROM Location — complete (2026-08-06)
+
+Library became **ROM Location** and stopped organizing files. It points to
+folders already organized by the user and detects their contents.
+
+**Renamed:** `library_page.py` → `rom_location_page.py`, `LibraryPage` →
+`RomLocationPage`, and the `library` key → `rom_location` in
+`main_window.py::_menu_pages` and `home_page.py::USER_MENU_DESTINATIONS`.
+The latter constant is in `home_page.py`, not `main_window.py` as the plan claimed.
+
+**Deleted:** `gui/dialogs/watch_folder_scan_dialog.py`, `library/organizer.py`,
+`models/rom_destination.py`, `database/repositories/rom_destination_repository.py`,
 `library/quick_link_suggestions.py`, `models/quick_link.py`,
-`database/repositories/quick_link_repository.py`,
-`tests/library/test_organizer.py`.
+`database/repositories/quick_link_repository.py`, and `tests/library/test_organizer.py`.
 
-> **Desvio deliberado ao plano:** o `tests/library/test_zip_extraction.py`
-> **não** foi apagado. O plano mandava apagá-lo, mas o `zip_extraction`
-> continua a ser usado — `find_single_rom_member` pelo `console_detection` e
-> `extract_member` pelo `_hash_in_place` novo. Apagar o teste tirava
-> cobertura a código vivo.
+> **Deliberate deviation:** `tests/library/test_zip_extraction.py` was kept.
+> Although the plan called for deleting it, `zip_extraction` still serves
+> `console_detection` through `find_single_rom_member` and the new
+> `_hash_in_place` through `extract_member`. Removing it would remove coverage of live code.
 
-**Limpo:** `library_service.py` perdeu `preview_watch_folder_scan`,
+**Cleanup:** `library_service.py` lost `preview_watch_folder_scan`,
 `apply_watch_folder_scan`, `ALREADY_EXTRACTED_DIRNAME`,
-`RomDestinationNotConfiguredError` e as 7 funções de destinations/quick
-links (o `RomFolderNotFoundError` **ficou** — a varredura nova usa-o).
-`models/library.py` perdeu os 3 dataclasses `WatchFolder*`.
-`settings_page.py` perdeu as secções "ROM Destinations" e "Quick Links".
+`RomDestinationNotConfiguredError`, and seven destination/quick-link
+functions. `RomFolderNotFoundError` stayed because the new scan uses it.
+`models/library.py` lost three `WatchFolder*` dataclasses; Settings lost
+ROM Destinations and Quick Links.
 
-**Novo:** `library_service.scan_rom_folder(rom_folder_id, progress_callback)`
-+ `RomFolderScanResult` em `models/library.py`. Percorre com `rglob`, salta o
-já registado, deteta consola, faz hash e regista **sem mover, renomear ou
-apagar nada**. Só regista deteções confiantes; ambíguos e não reconhecidos
-voltam no resultado para a página os mostrar, em vez de serem adivinhados.
+**Added:** `library_service.scan_rom_folder(rom_folder_id, progress_callback)`
+and `models/library.py::RomFolderScanResult`. It traversed with `rglob`,
+skipped registered files, detected the console, hashed, and registered
+**without moving, renaming, or deleting files**. Only confident detections
+were registered. Ambiguous and unknown files were returned for display,
+rather than guessed.
 
-- **Zips:** `_hash_in_place` extrai o membro único para uma pasta temporária,
-  faz o hash **desse** membro (é o que a RA faz) e deita fora a cópia. O
-  `file_path` registado continua a ser o zip, que é o que está em disco e o
-  que o emulador recebe.
-- **Sem diálogo de revisão:** o antigo existia porque o passo seguinte movia
-  ficheiros e precisava de aprovação. Já não move nada, logo não há nada a
-  aprovar — a varredura corre directa.
+- **ZIPs:** `_hash_in_place` extracts the single member into a temporary
+  directory, hashes that member as RetroAchievements does, then discards
+  the copy. The registered `file_path` remains the ZIP on disk, which is
+  also the path passed to the emulator.
+- **No review dialog:** the old dialog requested approval because the next
+  step moved files. The new scan does not move anything and runs directly.
 
-**Não mexido:** as tabelas `rom_destinations` e `console_quick_links`
-continuam em `schema.py`. Ficam órfãs mas inertes; apagá-las exigia uma
-migração destrutiva que o bloco não pedia.
+**Unchanged:** `rom_destinations` and `console_quick_links` remained in
+`schema.py`, orphaned but inert. Dropping them would require a destructive
+migration outside this block.
 
-**Verificado** com BD temporária e ficheiros reais (nunca contra
-`database/retrocheevos.db`): 3 ROMs registadas de 5 ficheiros, `.iso`
-ambíguo e `.txt` reportados sem serem adivinhados, subpastas percorridas,
-hash do zip igual ao do membro interno e diferente do zip, **os 5 ficheiros
-intactos no disco**, e a segunda passagem a registar 0 e a saltar 3. Os 24
-testes existentes passam (`PYTHONPATH=src python -m unittest discover -s
-tests -t .` — sem isso falham por não encontrarem o pacote).
+**Verification:** a temporary database and real files, never the user's
+`database/retrocheevos.db`: three ROMs registered from five files; ambiguous
+`.iso` and unknown `.txt` reported without guessing; subfolders traversed;
+ZIP hash matched its member and differed from the ZIP itself; **all five
+files remained intact**; the second pass registered zero and skipped three.
+All 24 existing tests passed with
+`PYTHONPATH=src python -m unittest discover -s tests -t .`; omitting the path
+configuration prevented package discovery.
 
-### Blocos 12 + 13 — Listas — ✅ CONCLUÍDOS (2026-08-06)
+### Blocks 12 + 13 — Lists — complete (2026-08-06)
 
-Feitos juntos, a pedido do utilizador, antes de testar o Bloco 11 a fundo.
+Implemented together at the user's request before deeper Block 11 testing.
 
-**Migração v15** (`CREATE_TABLES_V15`): tabela `user_list_definitions
-(id, account_id, name, slug, is_predefined, created_at)` com índice único
-`(account_id, name)`, coluna `user_lists.list_id`, e conversão dos dados
-existentes — cada `list_type` que já tinha linhas vira uma definição e as
-linhas são apontadas para ela. **Nada se perde.** O índice único v2
-`(account_id, game_id, list_type)` foi deixado em paz; o novo é parcial,
-`... (account_id, game_id, list_id) WHERE list_id IS NOT NULL`.
+**Migration v15** (`CREATE_TABLES_V15`):
+`user_list_definitions(id, account_id, name, slug, is_predefined, created_at)`
+with unique `(account_id, name)`, `user_lists.list_id`, and conversion of
+existing rows. Each populated `list_type` became a definition and existing
+memberships referenced it. **No data was lost.** The v2 unique index on
+`(account_id, game_id, list_type)` initially remained; the new partial index
+was `(account_id, game_id, list_id) WHERE list_id IS NOT NULL`.
 
-> ⚠️ **Índice parcial ⇒ `ON CONFLICT` tem de repetir o predicado.** Este foi
-> apanhado ao correr o teste, não à vista: `ON CONFLICT(account_id, game_id,
-> list_id) DO NOTHING` rebenta com *"ON CONFLICT clause does not match any
-> PRIMARY KEY or UNIQUE constraint"*. Tem de ser
-> `ON CONFLICT(...) WHERE list_id IS NOT NULL DO NOTHING`.
+> **Partial indexes require the predicate in `ON CONFLICT`.** Runtime tests
+> caught `ON CONFLICT(account_id, game_id, list_id) DO NOTHING` failing with
+> `ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`.
+> The correct form is `ON CONFLICT(...) WHERE list_id IS NOT NULL DO NOTHING`.
 
-**`slug` é o que separa os dois tipos de lista.** As predefinidas levam um
-valor de `ListType` porque há código que raciocina sobre elas (Explorer
-esconde as bloqueadas, Library resolve-se a partir das ROMs). As que o
-utilizador cria têm `slug = NULL` e nenhum código ramifica nelas. O
-`ListType` ganhou `LIBRARY`.
+**`slug` distinguishes predefined and user-created lists.** Predefined
+slugs use `ListType` because code reasons about their behavior (Explorer
+hides blocked entries; Library derives from ROMs). User lists have
+`slug = NULL`, with no name-based branching. `ListType` gained `LIBRARY`.
 
-**A armadilha do handoff antigo está resolvida:** o
-`get_list_types_for_game` fazia `ListType(row["list_type"])` e rebentava com
-qualquer nome fora do enum — ou seja, assim que o utilizador criasse uma
-lista. Foi substituído por `get_list_ids_for_game`. O `_row_to_definition`
-também é tolerante a slugs desconhecidos em vez de levantar.
+**The old handoff's enum trap was fixed:** `get_list_types_for_game` called
+`ListType(row['list_type'])` and failed for arbitrary user list names. It
+was replaced by `get_list_ids_for_game`. `_row_to_definition` also tolerates
+unknown slugs instead of raising.
 
-**Library** (Bloco 13) é **calculada**, não guardada: o conteúdo é o que tem
-ROM local *neste momento*. Guardar linhas obrigaria cada varredura a
-adicioná-las e removê-las para se manter verdadeira. `add_to_list` recusa-a
-com um `ValueError` explicativo. Widget novo `widgets/installed_game_frame.py`
-— capa grande, **imagem inteira clicável** a lançar (`mousePressEvent`),
-sem botão por baixo; o botão direito fica livre para um menu futuro.
+**Library** (Block 13) is calculated from ROMs currently installed, not
+stored in membership rows. Storing memberships would require every scan
+to maintain them. `add_to_list` rejects Library with an explanatory
+`ValueError`. New `widgets/installed_game_frame.py` provides a large cover
+whose entire image launches the game through `mousePressEvent`, without a
+button underneath; right-click remains available for a future menu.
 
-**Blocked** é uma lista como as outras, com botão "−" nos cards
-(`GameCard(show_remove=True)`). **Saiu das Settings** — geri-la em dois
-sítios seria duas implementações da mesma coisa. O "Block" do Explorer
-resolve-se **por slug**, num sinal `block_requested` próprio, para continuar
-a funcionar se o utilizador renomear a lista Blocked.
+**Blocked** is a regular list with a minus button on
+`GameCard(show_remove=True)`. Its duplicate Settings management was removed.
+Explorer resolves Block **by slug** through `block_requested`, so renaming
+Blocked does not break blocking.
 
-**Sobreposição confirmada e evitada:** o "path por consola" pedido para a
-Library **já existia** — `rom_folders` tem coluna `console_id` desde sempre
-(schema.py), só a UI não a expunha. A secção sob a grelha da Library escreve
-nessa tabela, não numa nova; uma pasta lá adicionada fica logo varrível pelo
-ROM Location. As `rom_destinations` do Bloco 11 **não** foram ressuscitadas.
+**Existing storage reused:** the requested per-console folder path already
+existed in `rom_folders.console_id`; only its UI was missing. The section
+below Library writes to that table, making folders immediately scannable
+through ROM Location. `rom_destinations` was not revived.
 
-**Os 4 mapas `LIST_ACTION_LABELS` duplicados** reduziram-se: `game_card.py` e
-`explorer_delegates.py` recebem agora as opções de fora
-(`list_options` / `set_list_options`), e o do `lists_page.py` desapareceu. Só
-resta o do `explorer_filter_bar.py`, que filtra por slug e é outra coisa.
+**Four duplicate `LIST_ACTION_LABELS` maps reduced:** `game_card.py` and
+`explorer_delegates.py` receive `list_options` / `set_list_options`; the map
+in `lists_page.py` was removed. The remaining `explorer_filter_bar.py` map
+filtered by slug and served a different purpose.
 
-**Erros de validação são levantados fora do `get_connection`** — lá dentro,
-o `except` registava cada recusa normal ("já tens uma lista com esse nome")
-como *"Database operation failed, rolled back"* com traceback, o que é falso
-e enterraria falhas a sério nos `logs/`.
+**Validation errors are raised outside `get_connection`.** Inside that
+context, ordinary refusals such as duplicate names were logged as database
+rollback failures with tracebacks, obscuring actual failures.
 
-**Verificado** com BD temporária construída em v14 com dados legados e depois
-migrada: 0 linhas sem `list_id`, jogo bloqueado escondido das outras listas e
-de volta ao ser desbloqueado, Library a passar de vazia a `['Delta']` ao
-inserir uma ROM, adição manual à Library recusada, nomes duplicados
-(insensível a maiúsculas) e vazios recusados, apagar predefinida recusada, e
-uma lista chamada "blocked list" a **não** se fundir com a Blocked real. Os
-24 testes existentes passam.
+**Verification:** a temporary v14 database with legacy data migrated
+successfully: no missing `list_id`; blocked games hidden from other lists
+and restored after unblocking; Library changed from empty to `['Delta']`
+after inserting a ROM; manual Library insertion refused; empty and
+case-insensitively duplicate names refused; predefined-list deletion
+refused; a user list named blocked list did not merge with Blocked. All
+24 existing tests passed.
 
-#### Ronda de ajustes de UI (2026-08-06, depois de Library e Blocked a funcionar)
+#### UI adjustments after Library and Blocked worked (2026-08-06)
 
-1. **Grelha da Library a 8 colunas** (era 3). O `InstalledGameFrame.COVER_SIZE`
-   desceu de 180 para 104 em conjunto — os dois números estão acoplados, se
-   mexeres num mexe no outro ou a página passa a fazer scroll horizontal.
-2. **Só Library e Blocked são especiais no topo.** Rename desativado nessas
-   duas; Delete só para listas do utilizador. Botão ativo que dá sempre erro
-   é pior do que botão desativado — o serviço já recusava, agora a UI não
-   convida.
-3. **Blocked e listas custom usam `widgets/list_entry_row.py`** (novo): capa,
-   título, consola e "−". Sem Play e sem "...". As predefinidas restantes
-   (Want to Play, Playing, Completed, Abandoned) continuam com `GameCard`.
-4. **Settings perdeu ROM Folders.** Agora são por consola e vivem sob a
-   Library, ao lado da grelha que enchem.
-5. **A página ROM Location foi apagada** e a entrada saiu do menu. As duas
-   metades dela estão na Library: a vista do que está instalado é a grelha,
-   e a gestão de pastas + varredura + "Match to Game" é a secção por baixo.
+1. **Library grid increased from three to eight columns**, with
+   `InstalledGameFrame.COVER_SIZE` reduced from 180 to 104. These values
+   were coupled; changing only one caused horizontal scrolling.
+2. **Only Library and Blocked were special entries at the top.** Rename
+   disabled for both; Delete restricted to user lists. The UI no longer
+   offered actions the service always rejected.
+3. **Blocked and custom lists use new `widgets/list_entry_row.py`:** cover,
+   title, console, and minus; no Play or overflow menu. The remaining
+   predefined Want to Play, Playing, Completed, and Abandoned lists still
+   used `GameCard` at this stage.
+4. **ROM Folders removed from Settings**, now per-console below Library's grid.
+5. **ROM Location page and menu entry removed.** Library absorbed both the
+   installed-game grid and folder management, scanning, and Match to Game.
 
-> ⚠️ **O "Match to Game" e os ROMs não emparelhados tiveram de vir juntos.**
-> Apagar a página sem os trazer teria deixado uma ROM cujo hash não bateu
-> **invisível em todo o lado** — não aparece na grelha (que só lista jogos
-> com match), logo não haveria forma de dizer à app o que ela é. A lista
-> "Unmatched ROMs" sob a Library existe por isso.
+> **Match to Game and unmatched ROMs had to move together.** Otherwise a
+> ROM with an unmatched hash would be invisible: it is absent from the
+> matched-game grid, leaving no way to identify it. This is why Library has
+> an Unmatched ROMs section below the grid.
 
-6. **A lista de navegação primária foi removida.** Tinha só "Home" desde que
-   Explorer/Profile/Leaderboards foram absorvidos, ou seja era uma coluna de
-   160px que só navegava para a página já no ecrã. O layout passou de
-   horizontal a vertical (barra de histórico em cima, páginas por baixo)
-   para a largura libertada ir para o conteúdo. Isto também **retira** o
-   perigo documentado do `currentRowChanged`/`itemClicked` que causou o
-   crash de arranque por destruir um `QThread` vivo — sem lista, sem sinal.
+6. **Primary navigation list removed.** It contained only Home after other
+   destinations were absorbed, consuming 160 px to navigate to the current
+   page. The main layout became vertical: history bar above pages. Removing
+   the list also removed its `currentRowChanged` / `itemClicked` path,
+   previously implicated in destroying a live `QThread` during startup.
 
-**Verificado headless** (`QT_QPA_PLATFORM=offscreen`), com os 7 modos do
-selector:
+Headless verification (`QT_QPA_PLATFORM=offscreen`), with seven selector modes:
 
-```
+```text
 Blocked      widgets={ListEntryRow}       rename=False delete=False
 Library      widgets={InstalledGameFrame} rename=False delete=False folders_shown=True
 Playing      widgets={GameCard}           rename=True  delete=False
@@ -642,713 +592,629 @@ My Backlog   widgets={ListEntryRow}       rename=True  delete=True
 user menu: [('lists', 'Lists'), ('settings', 'Settings')]
 ```
 
-> **Lição de método, registada porque custou um crash ao utilizador:**
-> `import` de um módulo **não** corre o `__init__` de um widget. Foi assim
-> que um `ImageLoader(self)` — construtor que não aceita parent — chegou ao
-> utilizador com a app a não abrir de todo. A verificação mínima para
-> alterações de GUI é construir `MainWindow` e cada página offscreen e
-> chamar-lhes `refresh()`. O script está em
-> `scratchpad/verify_ui.py` do histórico desta sessão; vale a pena recriá-lo.
-> (Nota: exige teardown explícito dos widgets antes do fim do processo,
-> senão o Qt aborta no shutdown e mascara o resultado com um exit code
-> enganador.)
+> **Verification lesson:** importing a module does not run widget
+> constructors. An invalid `ImageLoader(self)` call reached the user and
+> prevented startup because that constructor accepts no parent. At minimum,
+> GUI checks must construct `MainWindow` and every page offscreen and call
+> `refresh()`. The historical session used `scratchpad/verify_ui.py`; recreate
+> it if useful. Explicitly tear down widgets before process exit, or Qt can
+> abort during shutdown and mask the outcome with a misleading exit code.
 
-### Overhaul visual — tema da RetroAchievements (2026-08-07)
+### Visual overhaul — RetroAchievements theme (2026-08-07)
 
-**De onde vieram as cores.** O site tem Cloudflare à frente e devolve **HTTP
-403** a qualquer pedido que não seja um browser — tanto `requests` como o
-WebFetch. E as ferramentas de browser rebentam a app do Claude nesta máquina
-(ver §4). A saída foi melhor do que raspar páginas: **o site é open source**
-(`RetroAchievements/RAWeb`) e `resources/css/theme.css` define o esquema todo
-em CSS custom properties. Nenhuma cor foi inferida de um screenshot.
+**Color sources:** the website's Cloudflare protection returned HTTP 403 for
+non-browser requests, including `requests` and WebFetch. Browser tools also
+crashed the Claude app on this machine (as noted in §4). The alternative was
+the open-source `RetroAchievements/RAWeb` repository:
+`resources/css/theme.css` defines the palette with CSS custom properties.
+No colors were inferred from screenshots.
 
-Ficheiros úteis do repo, via `raw.githubusercontent.com` (não tem Cloudflare):
-`resources/css/theme.css`, `typography.css`, `button.css`, `table.css`,
-`progress.css`.
+Useful upstream files through `raw.githubusercontent.com`, without
+Cloudflare: `resources/css/theme.css`, `typography.css`, `button.css`,
+`table.css`, and `progress.css`.
 
-**`gui/styles.py`** passou de "folha de scrollbars" a módulo de tema: as
-constantes têm o nome da variável CSS equivalente, para a correspondência
-continuar verificável. Esquema **dark + acento gold**, que é o que uma conta
-por configurar vê.
+**`gui/styles.py`** grew from a scrollbar stylesheet into a theme module.
+Constants mirror upstream CSS variable names so the mapping stays
+verifiable. It uses the default unconfigured-account **dark/gold** palette:
 
-```
+```text
 --bg-color              #1a1a1a      --link-color (gold)   #cc9900
 --box-bg-color          #232323      --link-hover-color    #eeeeee
 --embed-color           #161616      --text-color          #c8c8c8
 --embed-highlight-color #2a2a2a      --heading-color       #d2d2d2
 --divider-color         #5a5a5a      --text-color-muted    #4b4b4b
 ```
-Tipografia: Verdana/Arial, CSS `small`. Botões: raio 4px, fundo *embed*, texto
-no acento, borda *embed-highlight*; hover troca para *embed-highlight* +
-`link-hover`. Tabelas: linhas ímpares `rgba(50,50,50,.3)`, hover
-`rgba(128,128,128,.2)`, células 4/8px. Progresso: 6px, hardcore gold
-`#cc9900`, softcore azul `#0b71c1`.
 
-**Duas divergências deliberadas**, porque o Qt não é um browser:
-`--text-color-muted` (#4b4b4b) é quase invisível em painéis planos do Qt, por
-isso existe um `TEXT_DIM` para texto secundário e o *muted* fica só para
-desativado; e `FONT_SIZE_PT` substitui o `small` do CSS, que é relativo à
-raiz do browser.
+Typography: Verdana/Arial, CSS `small`. Buttons: 4 px radius, embed
+background, accent text, embed-highlight border; hover uses embed-highlight
+and link-hover. Tables: odd rows `rgba(50,50,50,.3)`, hover
+`rgba(128,128,128,.2)`, 4/8 px cell padding. Progress: 6 px, hardcore gold
+`#cc9900`, softcore blue `#0b71c1`.
 
-**Todas as cores inventadas desapareceram** dos widgets — o roxo `#8a63d2`
-do Recent Activity, os azuis `#4a90e2` da Home e dos eventos, os cinzentos
-`#b0b0b0`. Um `grep` por hex literais fora do `styles.py` não devolve nada.
+**Two deliberate Qt adaptations:** muted `#4b4b4b` was nearly invisible on
+flat Qt panels, so `TEXT_DIM` handles secondary text and muted is reserved
+for disabled content. `FONT_SIZE_PT` replaces browser-root-relative `small`.
 
-> ⚠️ **Em Qt, `QLabel` herda de `QFrame`.** A regra de painel
-> (`QFrame { border: ... }`) aplicava-se a *todas* as etiquetas e a UI
-> renderizava como uma grelha de rectângulos vazios à volta do texto. Não
-> basta escrever a regra `QLabel { border: none }`: com igual especificidade
-> o **QSS resolve por ordem no ficheiro, ganha a última**, por isso ela tem
-> de vir *depois* do bloco `QFrame` ou é ignorada em silêncio. Ambos os
-> erros foram cometidos e ambos só se viram na imagem. O mesmo vale para
-> `QLineEdit`/`QListWidget`/`QScrollArea`, todos subclasses de `QFrame`.
+Invented widget colors were removed: Recent Activity purple `#8a63d2`,
+Home/event blues `#4a90e2`, and grays such as `#b0b0b0`. At this stage a
+hex-literal search outside `styles.py` returned no matches.
 
-> **Verificação de trabalho visual: renderizar e olhar.** "Compila" e
-> "constrói headless" não dizem nada sobre uma folha de estilos — o QSS falha
-> em silêncio. O método que funcionou: `page.grab().save(...)` e ler o PNG.
-> **Não usar o plugin `offscreen` para isto** — não desenha glifos nenhuns e
-> todas as imagens saem cheias de quadrados (*tofu*), o que parece um
-> problema de fontes e não é. O plugin normal do Windows consegue `grab()` de
-> um widget que nunca foi mostrado.
+> **`QLabel` inherits `QFrame`.** A generic panel-border rule applied to
+> every label, surrounding text with empty rectangles. A `QLabel { border:
+> none }` rule alone was insufficient: equal-specificity QSS rules are
+> resolved by file order, so it had to appear **after** the `QFrame` block.
+> Both errors became visible only in a rendered image. `QLineEdit`,
+> `QListWidget`, and `QScrollArea` also inherit `QFrame`.
 
-Também corrigido pela imagem: a grelha de capas estava espremida a uma fila
-e meia porque as duas `QListWidget` da secção de pastas reclamavam o seu
-`sizeHint` inteiro — agora têm `setMaximumHeight`.
+> **Verify visual work by rendering and inspecting it.** Compilation or
+> headless construction cannot validate a stylesheet because QSS can fail
+> silently. The effective method was `page.grab().save(...)` followed by
+> viewing the PNG. On the Windows setup used here, the offscreen plugin
+> produced missing-glyph boxes, misleadingly suggesting a font problem.
+> The normal Windows plugin could grab a widget that had never been shown.
 
-#### Setas de navegação removidas (2026-08-07, décima segunda)
+Image inspection also exposed the cover grid being squeezed into one and a
+half rows: both folder-section `QListWidget`s requested their entire
+`sizeHint`. They received `setMaximumHeight` limits.
 
-Saíram os botões `‹ ›` **e todo o código que os servia**: `_history`,
-`_history_index`, `_on_back`, `_on_forward`, `_update_history_buttons`, o
-parâmetro `record_history` do `_show_page` e as constantes
-`HISTORY_BUTTON_*`. Com quatro destinos, todos a um hover no menu da foto
-(que agora inclui Home), um histórico de browser era mais cromo do que a
-navegação que descrevia. O `_show_page` voltou a ser uma troca de página.
+#### Navigation arrows removed (2026-08-07, twelfth round)
 
-O topo encolheu junto: `WINDOW_MARGIN = 0` e `setSpacing(0)` no layout
-central, com um `HEADER_GAP` de 4px antes da página. O cabeçalho já traz as
-suas margens laterais e a página as dela, portanto o resto era espaço morto.
+The `‹ ›` buttons and all supporting code were removed: `_history`,
+`_history_index`, `_on_back`, `_on_forward`, `_update_history_buttons`, the
+`record_history` argument to `_show_page`, and `HISTORY_BUTTON_*` constants.
+With four destinations available from the avatar menu, now including Home,
+browser history added unnecessary interface overhead. `_show_page` returned
+to simply switching pages.
 
-Medido: 0 botões de seta, cabeçalho em `y=0` com 99px, página a começar em
-`y=103`.
+The top layout also shrank: `WINDOW_MARGIN = 0`, central `setSpacing(0)`,
+and `HEADER_GAP = 4` before the page. Header and pages already own their
+side margins. Measurements: zero arrow buttons; header at `y=0`, height
+99 px; page beginning at `y=103`.
 
-#### ⚠️ O QSS global anulava todos os `setFont()` (2026-08-07, décima primeira)
+#### Global QSS overrode every `setFont()` (2026-08-07, eleventh round)
 
-Encontrado ao medir por que razão o "TrophyTracker" não crescia: **em Qt uma
-declaração `font-size` num stylesheet sobrepõe-se a `setFont()`**. Como
-`gui/styles.py` põe `font-size` em `QWidget`, *todo* o dimensionamento de
-fonte feito por código nesta app estava a ser descartado em silêncio —
-`APP_NAME_FONT_DELTA`, `POINTS_FONT_SIZE`, `TRUE_POINTS_FONT_SIZE`. Medido:
-o nome da app renderizava a 15px quando a fonte pedia ~33px, e os pontos
-estavam no tamanho do texto corrido apesar de `POINTS_FONT_SIZE = 32`.
+Measuring why TrophyTracker would not grow revealed that stylesheet
+`font-size` overrides `setFont()`. Since `gui/styles.py` set it on `QWidget`,
+programmatic sizing throughout the app was silently discarded:
+`APP_NAME_FONT_DELTA`, `POINTS_FONT_SIZE`, and `TRUE_POINTS_FONT_SIZE`.
+The app name rendered at 15 px instead of about 33 px; points stayed at body
+size despite `POINTS_FONT_SIZE = 32`.
 
-Corrigido pondo o tamanho no `setStyleSheet` dessas etiquetas. **Cuidado ao
-medir depois:** o `setFixedHeight(metrics.ascent())` dos pontos passou a
-precisar de `ensurePolished()` antes do `QFontMetrics`, senão media a fonte
-antiga e cortava o topo dos dígitos — a mesma armadilha das legendas dos
-cartões.
+Sizes were moved into those labels' `setStyleSheet` declarations. For the
+points' `setFixedHeight(metrics.ascent())`, `ensurePolished()` must run
+before `QFontMetrics`; otherwise measurements use the previous font and
+clip digit tops, the same trap as card captions.
 
-Estado medido (janela 1200px, conta com stats):
-```
+Measured at window width 1200 px with account statistics:
+
+```text
 logo(RC)      101x64  x=11   bottom=71
-TrophyTracker  267x42  x=112  bottom=71   <- mesma linha de base do logo
+TrophyTracker 267x42  x=112  bottom=71   <- same baseline as logo
 12,132        169x43  x=930
 24,325         82x24  x=1017 bottom=71
-header height = 87px (inalterada)
+header height = 87px (unchanged)
 ```
 
-#### Cartões todos do mesmo tamanho (2026-08-07, décima)
+#### Uniform card sizes (2026-08-07, tenth round)
 
-A caixa da legenda era dimensionada com `lineSpacing() * len(lines)` — ou
-seja, pelas linhas que **aquele** título produziu. Um título de uma linha
-dava um cartão mais baixo que um de duas, e a grelha saía irregular. Passou
-a reservar sempre o pior caso (`CAPTION_LINES = MAX_TITLE_LINES + 1`), igual
-para todos: um título curto deixa a última linha em branco, e como o texto
-é alinhado ao topo, ele fica no sítio e é a linha da consola que desce nos
-cartões que precisam de duas.
+Caption height used `lineSpacing() * len(lines)`, depending on each title.
+One-line titles produced shorter cards than two-line titles and an uneven
+grid. All cards now reserve the worst case:
+`CAPTION_LINES = MAX_TITLE_LINES + 1`. Short titles leave a blank final line;
+top alignment keeps titles anchored while console text moves lower for
+long titles.
 
-> **O teste ganhou a verificação que lhe faltava.** Só media cortes, que era
-> por isso que a irregularidade lhe passou ao lado. Agora também compara o
-> `sizeHint()` de vários títulos com o mesmo tamanho de capa e falha se não
-> forem todos iguais — 3 tamanhos na Library, 3 no Continue Playing.
+> The verification previously checked only clipping and missed uneven
+> sizes. It now compares `sizeHint()` across titles at the same cover size,
+> for three Library sizes and three Continue Playing sizes.
 
-#### Quebra de linha antes de elidir (2026-08-07, nona)
+#### Wrap before eliding (2026-08-07, ninth round)
 
-`widgets/text_layout.py::wrap_lines` — quebra o título por palavras até um
-máximo de linhas e **só elide se ainda assim não couber**. Elidir à primeira
-deitava fora palavras que cabiam perfeitamente numa segunda linha.
+`widgets/text_layout.py::wrap_lines` wraps on words up to the maximum line
+count and elides only if the title still does not fit. Eliding immediately
+had discarded words that would fit on a second line.
 
-A caixa é dimensionada a partir das linhas **efectivamente produzidas**
-(`lineSpacing() * len(lines)`), não de um número decidido à partida — é isso
-que torna o corte impossível por construção, em vez de improvável.
+At this stage caption height came from the produced lines,
+`lineSpacing() * len(lines)`, rather than a predetermined value; the later
+uniform-card adjustment above reserved the worst case instead.
 
-```
+```text
  94px  Shadow of the Colossus  -> ['Shadow of the', 'Colossus']
 154px  Castlevania: Symphony…  -> ['Castlevania: Symphony', 'of the Night']
- 94px  Supercalifragilistic…   -> ['Supercalifrag…']   (uma palavra só: elide)
+ 94px  Supercalifragilistic…   -> ['Supercalifrag…']   (single word: elide)
 ```
 
-Título até 2 linhas, consola sempre na sua. Varrimento dos 24 tamanhos:
-zero cortes.
+Titles use up to two lines, console names their own line. The 24-size sweep
+reported zero clipping.
 
-#### O corte de texto, a sério desta vez (2026-08-07, oitava)
+#### The actual text-clipping fix (2026-08-07, eighth round)
 
-> ⚠️ **O teste que "provava" que não havia cortes não verificava nada.**
-> `scratchpad/verify_noclip.py` saltava etiquetas com
-> `if label.pixmap() is not None` — no PySide6 `.pixmap()` devolve um
-> `QPixmap` **vazio**, nunca `None`, portanto a condição era sempre
-> verdadeira e o varrimento inteiro passava sem medir uma única etiqueta.
-> Reportou "zero cortes" com 31 cortes reais lá dentro. A verificação certa
-> é `not label.pixmap().isNull()`.
+> **The earlier no-clipping test checked nothing.**
+> `scratchpad/verify_noclip.py` skipped labels when
+> `label.pixmap() is not None`. PySide6 returns an empty `QPixmap`, not
+> `None`, so the whole sweep skipped every label and reported zero clipping
+> while 31 labels clipped. The correct check is
+> `not label.pixmap().isNull()`.
 >
-> **A causa real do corte:** a elisão era calculada com
-> `QFontMetrics(label.font())` **antes de o widget ser polido**. Até
-> `ensurePolished()`, `font()` devolve a fonte *por omissão*, não a que o
-> stylesheet impõe — media-se contra uma fonte pequena e desenhava-se com
-> uma maior, por isso o texto transbordava mesmo estando "elidido". A ordem
-> correcta é `ensurePolished()` → medir → elidir → dimensionar. Também se
-> passou a usar `lineSpacing()` em vez de `height()` para a altura, e a
-> elidir contra `edge - 6px`, porque o layout do QLabel arredonda.
+> **Actual cause:** elision used `QFontMetrics(label.font())` before widget
+> polishing. Before `ensurePolished()`, `font()` reflects the default font,
+> not the stylesheet's font. Text was measured small and drawn larger.
+> Correct order: polish → measure → elide → size. Height now uses
+> `lineSpacing()` instead of `height()`, and elision allows `edge - 6px`
+> because QLabel rounds layout dimensions. The real sweep covered 13
+> Library sizes and 11 Continue Playing sizes with a long title: zero clipping.
+
+**Console abbreviations:** `library/console_names.py` maps PlayStation
+Portable → PSP, Game Boy Advance → GBA, and SNES/Super Famicom → SNES, only
+in captions. Tooltips retain full names. Unknown consoles pass through
+unchanged, producing at most a longer caption.
+
+**Header:** avatar increased from 54 to 64 px; `header_widget` received
+11 px side margins so the logo aligns vertically with search and the avatar
+has edge clearance. The header is in `MainWindow`, outside the page layout,
+so it did not inherit page margins.
+
+#### Elided captions and compact header (2026-08-07, seventh round)
+
+> Earlier caption attempts used a cover-height ratio (0.36), then three
+> font-derived lines, but still clipped at some sizes. Required line count
+> depends on both title and width; choosing height alone cannot solve all
+> combinations. The temporary solution replaced wrapping with
+> `QFontMetrics.elidedText`: one elided line fits the width, so two lines
+> fit two line heights. A deliberately long title was swept through all
+> 13 Library sizes and 11 Continue Playing sizes and reported zero clipping;
+> the eighth-round notes above explain the subsequent correction to that test.
+
+**Slider minima:** Continue Playing 75 px, Library 100 px; the former
+module-wide minimum became an instance parameter.
+
+**Header:** points 26→32, true points 17→18, while the band became shorter.
+Avatar 72→54 px with frame 12→8; logo 52→42; `header_layout.setSpacing(0)`
+removed excess spacing. `AlignBottom` aligned logo, name, points, and avatar
+across every page because `MainWindow` owns the shared header.
+
+#### Cards scale with the slider; larger header (2026-08-07, sixth round)
+
+> **The card must shrink with its image.** Even after deriving columns from
+> available width, fixed caption heights (Library 54 px, Continue Playing
+> 42 px) and constant margins left a 40 px cover inside a card sized for
+> 150 px artwork. Caption size, margins, and spacing were changed to cover
+> ratios. Below 90 px, the caption is hidden and the tooltip supplies its
+> name: readable two-line text does not fit thumbnail width.
 >
-> Confirmado no varrimento real: 13 tamanhos na Library, 11 no Continue
-> Playing, com um título longo — **zero**.
-
-**Consolas abreviadas** — `library/console_names.py`: "PlayStation Portable"
-→ PSP, "Game Boy Advance" → GBA, "SNES/Super Famicom" → SNES. Só na legenda
-dos cartões; o tooltip mantém o nome completo. Um nome desconhecido passa
-inalterado, portanto uma consola nova custa apenas uma legenda mais longa.
-
-**Cabeçalho** — avatar 54→64 e margens laterais de 11px no
-`header_widget`, para o logo arrancar na mesma linha vertical que a barra de
-pesquisa e a foto não ficar colada à borda da janela. O cabeçalho vive na
-`MainWindow`, fora do layout da página, por isso não herdava essas margens.
-
-#### Legendas elididas e cabeçalho compacto (2026-08-07, sétima)
-
-> ⚠️ **Texto cortado nos cartões: parem de ajustar a altura, mudem a
-> estratégia.** A legenda foi por três iterações — rácio da capa (0,36),
-> depois três linhas derivadas da fonte — e **cortava sempre nalgum
-> tamanho**. Tinha de cortar: quantas linhas um título precisa depende do
-> título *e* da largura, portanto qualquer altura escolhida à partida está
-> errada para alguma combinação. A correcção não é outro número, é deixar de
-> **quebrar** linhas e passar a **elidir**: `QFontMetrics.elidedText`
-> garante que uma linha cabe na largura, logo duas linhas cabem sempre em
-> duas alturas de linha, em todos os tamanhos e para todos os títulos.
+> Measured card scaling:
 >
-> Verificado por varrimento de toda a gama dos dois sliders com um título
-> propositadamente longo (`scratchpad/verify_noclip.py`): 13 tamanhos na
-> Library, 11 no Continue Playing, **zero cortes**.
-
-**Mínimos dos sliders** — Continue Playing **75px**, Library **100px**. O
-mínimo era uma constante do módulo; passou a parâmetro por instância.
-
-**Cabeçalho** — pontos 26→32, true points 17→18, e a banda ficou **mais
-baixa**: a altura era ditada pelo botão do avatar (72→54, com moldura de
-12→8) e o logo baixou de 52 para 42. O `header_layout` passou a
-`setSpacing(0)`, que era onde estava a maior parte da folga. Tudo
-`AlignBottom`, portanto logo, nome, pontos e foto assentam na mesma linha —
-e como o cabeçalho vive na `MainWindow`, isso aplica-se a todas as secções.
-
-#### Cartões proporcionais ao slider e cabeçalho maior (2026-08-07, sexta)
-
-> ⚠️ **O cartão tem de encolher, não só a imagem.** Depois de as colunas
-> passarem a sair da largura, o slider ainda parecia não funcionar: a caixa
-> da legenda tinha **altura fixa** (54px na Library, 42px no Continue
-> Playing) e as margens eram constantes, portanto uma capa de 40px continuava
-> num cartão dimensionado para uma de 150px — texto cortado pela sua própria
-> caixa e um chão que o cartão nunca conseguia furar. Agora legenda, margens
-> e espaçamento saem todos de rácios sobre a capa, e **abaixo de 90px a
-> legenda cai** (o tooltip diz o nome): duas linhas legíveis não cabem na
-> largura de uma miniatura.
->
-> Medido — um cartão que escala mantém o rácio aproximadamente constante;
-> com caixa fixa ele disparava à medida que a capa encolhia:
->
-> ```
-> capa    Library        Continue Playing
+> ```text
+> cover   Library        Continue Playing
 >   40    46x46  1.15x     46x62  1.55x
 >  160   174x238 1.49x    174x258 1.61x
 > ```
 >
-> **Segundo detalhe, do mesmo sintoma:** o `ContinuePlayingGameRow` tinha
-> política horizontal `Preferred`, por isso um cartão sozinho absorvia a
-> coluna inteira do grid — uma imagem minúscula numa caixa larguíssima, que
-> se lê exactamente como "o slider não faz nada". Passou a `Fixed` nos dois
-> eixos, como o `InstalledGameFrame` já era.
+> A second cause of the same symptom was `ContinuePlayingGameRow` using
+> horizontal `Preferred`: a single card absorbed a full grid column around
+> a tiny image. Both axes became `Fixed`, matching `InstalledGameFrame`.
 
-**Cabeçalho maior** — logo 32→52, avatar 48→72, pontos 13→20, true points
-11→14, nome da app +8, stats +2. Só o cabeçalho: a altura da banda já era
-ditada pelo botão do avatar, portanto crescer o resto não empurra nada.
+**Larger header:** logo 32→52, avatar 48→72, points 13→20, true points
+11→14, app name +8, statistics +2. The avatar already dictated band height,
+so enlarging the other elements did not displace content.
 
-#### Correcções do slider e do Recent Activity (2026-08-07, quinta)
+#### Slider and Recent Activity fixes (2026-08-07, fifth round)
 
-> ⚠️ **O slider "não redimensionava" porque as colunas não vinham da
-> largura.** No Continue Playing a contagem era
-> `6 * COVER_SIZE_BASELINE // cover_size` — uma proporção contra um baseline
-> fixo, que a 40px devolve sempre **exactamente 6**. As colunas do
-> `QGridLayout` esticam então para encher a linha, e o resultado eram seis
-> caixas quase vazias em vez das muitas pequenas que o slider pedia.
-> Substituído por `_continue_playing_columns()`, que mede o viewport. Medido:
+> **Column count ignored available width.** Continue Playing used
+> `6 * COVER_SIZE_BASELINE // cover_size`, a fixed-baseline ratio returning
+> exactly six columns at 40 px. `QGridLayout` stretched them into six mostly
+> empty boxes. `_continue_playing_columns()` now measures the viewport.
 >
-> ```
+> ```text
 > Continue Playing (viewport 920)     Library (viewport 1360)
->   40px -> 13 colunas                  40px -> 20 colunas
+>   40px -> 13 columns                  40px -> 20 columns
 >  125px ->  5                         160px ->  7
 > ```
 
-**Library a meia largura** — o `_grid_columns` já media o viewport, mas o
-`refresh()` corre a partir de `MainWindow._show_page` **antes de a página
-estar disposta**, quando o viewport ainda reporta um tamanho de
-substituição. A contagem estreita ficava se nenhum resize acontecesse a
-seguir. Resolvido com `showEvent`, que reavalia quando a página aparece de
-facto, e com o `refresh()` a actualizar `_last_grid_columns`.
+**Half-width Library:** `_grid_columns` already measured the viewport, but
+`MainWindow._show_page` called `refresh()` before layout, when the viewport
+reported a placeholder size. Without a later resize, that narrow count
+persisted. `showEvent` now recalculates on actual display, and `refresh()`
+updates `_last_grid_columns`.
 
-> ⚠️ **Recent Activity lento a voltar à Home: mesmo caminho do glitch
-> anterior.** O `refresh()` limpava a secção e forçava `show_loading=True`,
-> ou seja deitava fora entradas correctas para esperar ~6 s por outras
-> iguais, em **cada** navegação de volta. Agora há um `_activity_cache` com
-> o último feed completo: ao voltar, ele é pintado de imediato e o refresh
-> corre por trás em silêncio. O "Loading…" só aparece num arranque frio. O
-> cache é limpo quando não há conta activa, senão a conta seguinte via
-> brevemente o feed da anterior.
+> **Slow return to Home:** `refresh()` cleared Recent Activity and forced
+> `show_loading=True` on every visit, discarding correct entries and waiting
+> about six seconds for identical replacements. `_activity_cache` now keeps
+> the last complete feed, paints it immediately on return, and refreshes
+> quietly. Loading appears only on a cold start. Clear the cache without an
+> active account, or the next account briefly sees the previous feed.
 
-#### Ronda de ajustes visuais (2026-08-07, quarta)
+#### Visual adjustments (2026-08-07, fourth round)
 
-> ⚠️ **Bug real no Recent Activity: o "piscar" era o refresh silencioso.**
-> `_refresh_activity_feed(show_loading=False)` deixava a lista antiga no ecrã
-> de propósito — mas a **primeira** entrada nova a chegar disparava um
-> re-render que limpava a secção e deixava **um** cartão, que depois crescia
-> um a um. De 30 em 30 segundos, isso lê-se como o conteúdo a desaparecer e
-> a voltar. O streaming passou a acontecer só na carga inicial
-> (`_stream_activity_entries`); um refresh de fundo renderiza uma vez, com a
-> lista completa. O `_render_activity_entries` também suprime repaints
-> durante o teardown/rebuild, que valia um flash de um frame.
+> **Recent Activity flicker came from silent refresh.**
+> `_refresh_activity_feed(show_loading=False)` retained old cards, but the
+> first new streamed entry cleared them and showed one card, then added the
+> others one at a time. Every 30 seconds the content appeared to disappear
+> and return. Streaming now applies only to the initial load through
+> `_stream_activity_entries`; background refresh renders the complete list
+> once. `_render_activity_entries` suppresses repaint during teardown/rebuild,
+> avoiding a one-frame flash.
 
-- **Slider** agora em `valueChanged` (tempo real). O `STEP = 10` é o que
-  torna isso viável: o valor só assenta em múltiplos de 10, logo um arrasto
-  completo reconstrói a grelha uma dúzia de vezes e não centenas. Largura
-  fixa (160px) com `addStretch` a seguir — esticado ao ecrã lia-se como o
-  controlo principal da secção. Máximos: **125px** na Home, **160px** na
-  Library.
-- **Continue Playing na vertical** — capa em cima, título por baixo, barra de
-  progresso por baixo dessa, como a Library. Era uma faixa horizontal, que
-  deixou de fazer sentido quando a capa passou a ser o botão e ficou
-  redimensionável.
-- **Grelha da Library sem tecto fixo** — as colunas saem da largura real do
-  viewport, não de `GRID_TARGET_WIDTH = 980`, que limitava a fila a 4 capas
-  e deixava o lado direito vazio num ecrã largo. `resizeEvent` refaz a
-  grelha **só quando a contagem de colunas muda** — um resize dispara
-  continuamente e o rebuild é caro demais para correr a essa cadência.
-- **Setas de navegação acima do logo**, com espaçamento (`HISTORY_BAR_GAP`,
-  `HEADER_GAP`). Por baixo do cabeçalho liam-se como parte da página aberta.
-- **"Home" no menu da foto**, em primeiro. Não está em `_menu_pages` — é a
-  página raiz, tratada como caso especial em `_on_menu_navigate`; duplicá-la
-  ali daria duas instâncias de `HomePage` e dois timers de Recent Activity.
-  **Clique na foto vai directo à Home**; o menu abre-se no *hover*. Antes os
-  dois gestos faziam o mesmo, o que desperdiçava o mais deliberado deles.
+- **Slider:** moved to `valueChanged` for live resizing. `STEP = 10` limits
+  a complete drag to about a dozen rebuilds rather than hundreds. Width is
+  fixed at 160 px with `addStretch` afterward; a full-width slider looked
+  like the section's main control. Maximum cover sizes: Home 125 px,
+  Library 160 px.
+- **Vertical Continue Playing cards:** cover, title, then progress bar,
+  like Library. The old horizontal strip no longer suited a resizable,
+  clickable cover.
+- **No fixed Library grid cap:** columns use actual viewport width rather
+  than `GRID_TARGET_WIDTH = 980`, which limited wide windows to four covers
+  and wasted the right side. `resizeEvent` rebuilds only when column count changes.
+- **Navigation arrows above the logo**, with `HISTORY_BAR_GAP` and
+  `HEADER_GAP`, to distinguish them from page-specific controls.
+- **Home first in the avatar menu:** it is the root page, special-cased by
+  `_on_menu_navigate`, not duplicated in `_menu_pages`, which would create
+  two Home instances and two activity timers. Clicking the avatar goes
+  directly Home; hovering opens the menu. Previously both gestures did the same thing.
 
-#### Cabeçalho partilhado, slider de capas e afins (2026-08-07)
+#### Shared header, cover-size slider, and related work (2026-08-07)
 
-**Cabeçalho em todas as páginas** — o header (logo, nome, pontos, stats,
-avatar) foi empacotado como `HomePage.header_widget` e é montado pela
-`MainWindow` **acima do `QStackedWidget`**, não copiado para cada página.
-Uma instância em vez de quatro, cada uma com o seu fetch de perfil e a sua
-ligação de sinais. `refresh_header()` é separado do `refresh()` de propósito:
-este último arranca a busca do Recent Activity, vários segundos de chamadas
-à API, que não tem nada que correr por se abrir as Settings.
+**Header on every page:** `HomePage.header_widget` packages logo, name,
+points, statistics, and avatar; `MainWindow` mounts it above
+`QStackedWidget`. One instance avoids four profile fetches and signal sets.
+`refresh_header()` is separate from `refresh()`, since opening Settings
+should not trigger several seconds of Recent Activity API calls.
 
-**Slider de tamanho de capas** (`widgets/cover_size_slider.py`) na Library e
-no Continue Playing. Liga em `sliderReleased`, não em `valueChanged` — a
-grelha é reconstruída de raiz a cada mudança, e fazê-lo por cada pixel de um
-arrasto engasga a janela numa biblioteca grande; o número ao lado acompanha
-o arrasto na mesma. **Não é persistido**: não há tabela de preferências de
-vista, e inventar uma (com migração) para um slider que se reajusta com um
-arrasto não se justifica — se aparecerem mais preferências, é aí que se cria
-armazenamento para todas de uma vez.
+**Cover-size slider:** `widgets/cover_size_slider.py` serves Library and
+Continue Playing. Initially it connected `sliderReleased`, not
+`valueChanged`, because rebuilding a large library on every drag pixel
+stalled the window; the displayed number still followed dragging. It was
+not persisted: introducing a view-preference table and migration for one
+readily adjusted slider was deferred until more preferences justified storage.
+The later fourth-round notes describe the switch to stepped live updates.
 
-Na Library o número de colunas passou a **derivar** do tamanho da capa em vez
-de ser uma constante que tinha de ser mantida em sincronia à mão — foi
-precisamente esse par dessincronizado que fez a página deslizar na
-horizontal antes.
+Library columns became derived from cover size instead of a separately
+maintained constant, eliminating the mismatch that previously caused
+horizontal scrolling.
 
-**Cabeçalho "Events"** — QLabel com `styles.SECTION_HEADER_STYLESHEET`
-(mesma caixa/dourado do botão acima), centrado. Não é um `QPushButton`
-desativado de propósito: esse ficaria cinzento e leria como "ainda não podes
-fazer isto" em vez de "isto é um título".
+**Events heading:** a centered QLabel with
+`styles.SECTION_HEADER_STYLESHEET`, sharing the gold box styling above it.
+A disabled QPushButton would misleadingly look like an unavailable action.
 
-**Ícone da barra de tarefas** — a `MainWindow` definia um `QIcon` de tamanho
-único que o `main.py` depois substituía pelo multi-resolução. Dois ícones a
-competir pela mesma janela é exactamente a forma de um bug "às vezes
-aparece"; ficou só um. O `_build_app_icon` passou a registar em `logs/` o
-ficheiro, as dimensões e o AUMID — os dois relatos anteriores não foram
-reproduzíveis e sem esse rasto o próximo também não seria. **Nota:** o
-Windows guarda o ícone da barra de tarefas por AUMID, e o AUMID mudou nesta
-sessão (`TrophyTracker.App` → `TrophyTracker.App`), o que por si só faz o
-Windows tratar a app como nova até a cache actualizar.
+**Taskbar icon:** `MainWindow` set a single-size `QIcon`, later replaced by
+`main.py`'s multi-resolution icon. Removing the competing assignment left
+one source. `_build_app_icon` now logs path, dimensions, and AUMID because
+the previous two reports were not reproducible. Windows caches taskbar
+icons by AUMID. The historical note recorded an AUMID change as
+`TrophyTracker.App` → `TrophyTracker.App`; those identical recorded values
+cannot establish an actual identifier change.
 
-> ⚠️ **Espaçamento no Explorer: aumentar a constante não resolvia.** Os
-> botões eram dispostos da esquerda para a direita a partir da margem, por
-> isso sempre que a coluna Actions era mais larga que o `sizeHint()` (quase
-> sempre) a largura sobrante acumulava-se **à direita, sem uso**, e "Play" e
-> "+" ficavam encostados um ao outro. `_button_rects` passou a **distribuir**
-> os botões pela célula, com `_BUTTON_SPACING` a servir de mínimo. Dois
-> ajustes da constante falharam antes disto.
+> **Explorer button spacing required layout changes.** Buttons were laid
+> out left-to-right from a margin, leaving any width beyond `sizeHint()`
+> unused at the right while Play and + remained adjacent. `_button_rects`
+> now distributes buttons across the cell, using `_BUTTON_SPACING` as a
+> minimum. Two constant-only adjustments had failed.
 
-#### Ajustes visuais pós-tema (2026-08-07)
+#### Post-theme visual adjustments (2026-08-07)
 
-1. **Events com mais espaço** — `SIDEBAR_MIN_WIDTH` 300 → 400, `MAX` 380 →
-   480, `EVENTS_MIN_HEIGHT` 260 → 320. É o *mínimo* que faz efeito: a barra
-   lateral está a `stretch=0`, logo nunca pede mais do que o conteúdo.
-2. **Pontos a azul outra vez** — `styles.POINTS_BLUE` (#4a90e2). O dourado
-   fica reservado ao que é clicável (botões, links); usá-lo num número só de
-   leitura fazia o ecrã inteiro parecer coberto de controlos.
-3. **App renomeada para "TrophyTracker"** — título da janela, cabeçalho,
-   `APP_USER_MODEL_ID`, logs. ⚠️ Um *replace* global de `TrophyTracker` →
-   `TrophyTracker` **parte todos os imports**, porque o pacote é
-   `retrocheevos` em minúsculas: só as strings visíveis devem mudar.
-4. **Continue Playing e Recent Activity esticam na vertical** — o
-   `_center_column_filler` (widget vazio com `stretch=1`) era exactamente o
-   espaço morto, e foi removido. Os dois grupos levam `stretch=1` cada. O
-   explorer continua a funcionar sem ele: `_expand_explorer` esconde os dois
-   grupos, e um widget escondido não contribui stretch nenhum.
-5. **Continue Playing sem botão "Continue"** — a capa é o botão, como na
-   Library (`mousePressEvent`). A barra de progresso mantém-se.
-6. **Espaçamento no Explorer** — `_BUTTON_SPACING` 4 → 14, `_BUTTON_MARGIN`
-   4 → 8, para "Play" e "+" deixarem de se ler como um só controlo.
+1. **More room for Events:** `SIDEBAR_MIN_WIDTH` 300→400, maximum 380→480,
+   `EVENTS_MIN_HEIGHT` 260→320. Minimum width matters because a `stretch=0`
+   sidebar does not request extra space beyond its contents.
+2. **Blue points restored:** `styles.POINTS_BLUE = #4a90e2`. Gold remains
+   reserved for interactive buttons and links; gold read-only values made
+   the whole page look interactive.
+3. **Visible app name changed to TrophyTracker:** window title, header,
+   `APP_USER_MODEL_ID`, and logs. Only visible strings should change;
+   the lowercase Python package remains `retrocheevos`, and broad replacement
+   can break imports. The original recorded replacement pair repeated the
+   same display name and should not be treated as an executable instruction.
+4. **Continue Playing and Recent Activity expand vertically:** removed
+   `_center_column_filler` with `stretch=1`, giving each group `stretch=1`.
+   `_expand_explorer` still works because hidden widgets contribute no stretch.
+5. **Continue button removed:** the cover launches the game through
+   `mousePressEvent`, as in Library. The progress bar remains.
+6. **Explorer spacing:** `_BUTTON_SPACING` 4→14 and `_BUTTON_MARGIN` 4→8,
+   visually separating Play and +.
 
-> **Duas armadilhas de layout, ambas só visíveis na imagem.** Dar `stretch=1`
-> a um grupo faz o *conteúdo* dele inchar também: um único cartão do Continue
-> Playing passou a ocupar o painel inteiro à volta de uma capa de 40px.
-> `setAlignment(AlignTop)` no layout **não chega** — o widget tem de recusar
-> a altura extra, com `setSizePolicy(..., QSizePolicy.Policy.Fixed)` na
-> vertical. Foram precisas as duas coisas.
+> **Two layout traps visible only in rendered output:** giving a group
+> `stretch=1` also stretched a lone Continue Playing card around a 40 px
+> cover. `setAlignment(AlignTop)` alone was insufficient; the card also
+> needed a vertical `QSizePolicy.Policy.Fixed` to refuse extra height.
 
-### Reestruturação Library/Lists (2026-08-06, segunda ronda de ajustes)
+### Library/Lists restructuring (2026-08-06, second adjustment round)
 
-**Library saiu das Lists e é uma página própria** —
-`gui/pages/library_page.py`, no menu da foto: **Library, Lists, Settings**.
-Nunca se comportou como lista: não guarda linhas, não aceita adições
-manuais, e desenha uma grelha que mais nada usa. A `ListType.LIBRARY` deixou
-de ser usada como lista; a regra "bloqueado não aparece" vive em
-`core/lists.py::get_installed_games`, ao lado das regras das listas, para
-não haver duas cópias dela.
+**Library became its own page**, `gui/pages/library_page.py`, in the avatar
+menu alongside Lists and Settings. It never behaved like a regular list:
+no stored memberships or manual additions, and a unique grid renderer.
+`ListType.LIBRARY` stopped acting as a list. The blocked-game exclusion
+lives in `core/lists.py::get_installed_games` beside other list rules,
+avoiding duplicate logic.
 
-**Só a Blocked é predefinida.** `PREDEFINED_LISTS` reduziu-se a uma entrada.
-As quatro fixas (Want to Play, Playing, Completed, Abandoned) foram
-**apagadas** — decisão do utilizador, confirmou que estavam vazias e preferiu
-criar as suas de raiz.
+**Only Blocked remains predefined.** `PREDEFINED_LISTS` was reduced to one
+entry. The user confirmed Want to Play, Playing, Completed, and Abandoned
+were empty and preferred creating personal lists; those four were deleted.
 
-**Migração v16** apaga essas definições e as linhas delas.
-**Migração v17** larga o índice v2 `(account_id, game_id, list_type)`.
+**Migration v16** deletes those definitions and memberships.
+**Migration v17** drops the v2 `(account_id, game_id, list_type)` index.
 
-> ⚠️ **O índice v2 não era redundante — a v15 errou ao deixá-lo.** Todas as
-> listas do utilizador escrevem o mesmo `CUSTOM_LIST_TYPE_MARKER` em
-> `list_type`, por isso aquele índice significava na prática **"um jogo pode
-> estar no máximo numa lista tua, para sempre"**. Pôr o mesmo jogo em duas
-> listas próprias dava `UNIQUE constraint failed`. Foi o teste que o
-> apanhou, não a leitura do código. Está numa versão própria (17) e não
-> acrescentado à 16, porque uma BD que já tivesse corrido a 16 nunca mais o
-> veria.
+> **The v2 index was not redundant; retaining it in v15 was a mistake.**
+> All user lists store `CUSTOM_LIST_TYPE_MARKER` in `list_type`, so the
+> index effectively restricted each game to one user-created list forever.
+> Adding the same game to a second list raised `UNIQUE constraint failed`.
+> Tests caught it. The correction is migration 17, not an amendment to 16,
+> because databases already at 16 would never see an edited migration.
 
-**Consequência no Explorer, tratada:** a pill "Lists" filtrava por Want to
-Play/Playing e tinha toggles Completed/Abandoned. Com essas listas apagadas
-ficaria inerte. Passou a construir-se das listas reais da conta
-(`ExplorerFilterBar.set_list_options`), e `ExplorerFilters.list_types_any_of`
-deu lugar a `list_ids_any_of`. Os toggles Completed/Abandoned foram
-removidos — **nada se perde na pesquisa**, porque os jogos já terminados
-continuam excluídos incondicionalmente a partir de `game_completion`, que é
-o registo da própria RA e não uma lista mantida à mão. Isto elimina também
-o último dos 4 mapas `LIST_ACTION_LABELS` duplicados.
+**Explorer consequence:** the Lists pill previously offered Want to Play /
+Playing filters and Completed / Abandoned toggles. It now derives choices
+from the account's actual lists with `ExplorerFilterBar.set_list_options`.
+`ExplorerFilters.list_types_any_of` became `list_ids_any_of`. Completed /
+Abandoned toggles were removed without losing finished-game exclusions:
+`game_completion`, the RetroAchievements record rather than a manual list,
+still excludes finished games unconditionally. This also removed the last
+of four duplicate `LIST_ACTION_LABELS` maps.
 
-**Ajustes visuais:**
-- `InstalledGameFrame`: capa 104 → **150**, grelha 8 → **6 colunas** (os dois
-  números andam sempre juntos). O texto sobrepunha a imagem porque a label
-  crescia livremente; agora tem `setFixedSize` e alinhamento ao topo, numa
-  caixa reservada por baixo da capa (`TEXT_HEIGHT`).
-- `ListEntryRow`: passou por três iterações e a terceira é a boa. Empilhado
-  em `QVBoxLayout` (painéis gigantes) → capa 32 px em faixa de 40 px
-  (esticada e vazia) → **capa 64 px em faixa de 76 px**, que preenche a
-  linha sem voltar a ser um card. A consola deixou de ser uma label própria
-  alinhada à direita — está **entre parênteses a seguir ao título**, numa só
-  label (`"Beta (Game Boy Advance)"`), porque a label separada deixava um
-  vazio entre o nome e ela em todos os títulos curtos. O título leva todo o
-  `stretch`, portanto o "−" fica encostado à direita e o espaço do meio
-  pertence ao nome.
+**Visual adjustments:**
 
-**Verificado headless:**
-```
+- `InstalledGameFrame`: cover 104→150 px, grid eight→six columns; those
+  values remained coupled. An unconstrained text label overlapped the
+  image; fixed size and top alignment now reserve `TEXT_HEIGHT` below it.
+- `ListEntryRow`: three iterations progressed from huge vertical panels,
+  through a sparse 32 px cover in a 40 px row, to a **64 px cover in a
+  76 px row**. Console text moved from a separate right-aligned label into
+  parentheses after the title, such as `Beta (Game Boy Advance)`. The title
+  takes the stretch, keeping the minus button at the right without a large
+  gap before a separate console label.
+
+Headless verification:
+
+```text
 predefined lists shipped: ['Blocked']
 user menu: [('library','Library'), ('lists','Lists'), ('settings','Settings')]
-Lists dropdown: ['Blocked', 'My Backlog']        <- sem Library
+Lists dropdown: ['Blocked', 'My Backlog']        <- no Library
 Blocked      widgets={ListEntryRow}  rename=False delete=False
 My Backlog   widgets={ListEntryRow}  rename=True  delete=True
 LibraryPage grid: ['InstalledGameFrame']  cover=(150,150) frame=(164,222)
 Explorer Lists pill: ['My Backlog']
 ```
-Mais, na camada de dados: v14 → v17 numa BD com dados legados, só a Blocked
-sobrevive com as suas linhas, jogo bloqueado escondido de uma lista do
-utilizador e da grelha da Library, e **o mesmo jogo em duas listas próprias**.
 
-### Bloco 12 (plano original, agora histórico) — Listas criadas pelo utilizador (risco alto)
+Data checks migrated a legacy v14 database through v17: only Blocked and
+its memberships survived, blocked games were hidden from both a user list
+and Library, and the same game could belong to two user lists.
 
-- **Migração v15** (a v14 já foi usada): tabela
-  `user_list_definitions(id, account_id, name, is_predefined, created_at)`
-  com índice único `(account_id, name)`; coluna `list_id INTEGER` em
-  `user_lists`; índice único novo `(account_id, game_id, list_id)`.
-- **Porquê tabela nova:** guardar o nome em `list_type` faria uma lista
-  chamada "blocked" fundir-se com a predefinida, e não haveria onde guardar
-  metadados. O índice único v2 `(account_id, game_id, list_type)` já está
-  entregue e não se mexe.
-- **Migração de dados na mesma versão:** converter Want to Play / Playing /
-  Completed / Abandoned / Blocked em definições e preencher `list_id`.
-  Decidido com o utilizador: **nada se perde**.
-- **Cuidado:** `ListRepository.get_list_types_for_game` faz
-  `ListType(row["list_type"])` e rebenta com qualquer nome fora do enum.
-- **`ListType` reduz-se** a marcador das predefinidas (`BLOCKED`, e `LIBRARY`
-  no Bloco 13). Os filtros em `core/explorer.py` e `core/dashboard.py` passam
-  a usar `list_id`.
-- **UI:** `lists_page.py` ganha criar/renomear/apagar. O menu "+"
-  (`explorer_delegates.py`) e o do `GameCard` passam a construir-se a partir
-  das definições — hoje há **4 mapas `LIST_ACTION_LABELS` duplicados**
-  (game_card, explorer_delegates, lists_page, explorer_filter_bar). O sinal
-  `list_action_requested = Signal(int, object)` já passa o 2º argumento como
-  `object`, logo aceita um id sem mudar assinatura.
-- **Blocked sai das Settings** (3 blocos de widgets + 2 métodos, isolados).
+### Block 12 (original plan, now historical) — User-created lists (high risk)
 
-### Bloco 13 — Playlist "Library" (risco baixo, depende do 12)
+- **Migration v15** (v14 was already used):
+  `user_list_definitions(id, account_id, name, is_predefined, created_at)`,
+  unique `(account_id, name)`; `user_lists.list_id INTEGER`; new unique
+  `(account_id, game_id, list_id)` index.
+- **Why a new table:** putting names in `list_type` would merge a user list
+  named blocked with the predefined one and leave nowhere for metadata.
+  The original plan said not to touch the existing v2 index; the later v17
+  correction above supersedes that instruction.
+- **Migrate existing data in the same version:** convert Want to Play,
+  Playing, Completed, Abandoned, and Blocked into definitions and populate
+  `list_id`. The user explicitly required no data loss.
+- **Trap:** `ListRepository.get_list_types_for_game` converted values through
+  `ListType(row['list_type'])`, failing on names outside the enum.
+- **`ListType` becomes a predefined marker**, `BLOCKED` and later `LIBRARY`.
+  `core/explorer.py` and `core/dashboard.py` filters use `list_id`.
+- **UI:** create/rename/delete in `lists_page.py`; + menus in
+  `explorer_delegates.py` and `GameCard` derive from definitions. At this
+  point four duplicate `LIST_ACTION_LABELS` maps existed in game_card,
+  explorer_delegates, lists_page, and explorer_filter_bar.
+  `list_action_requested = Signal(int, object)` already accepted an ID as
+  its second argument without changing its signature.
+- **Blocked leaves Settings:** three isolated widget blocks and two methods.
 
-Segunda lista predefinida, **automática**: não guarda linhas em `user_lists`,
-é resolvida na hora a partir de `library_repository.get_installed_game_ids()`.
+### Block 13 — Library playlist (low risk, depends on Block 12)
 
-- **Novo** `widgets/installed_game_frame.py` — frame grande, capa a
-  preencher, título por baixo, **imagem inteira clicável** a lançar o jogo
-  (`mousePressEvent` → `play_requested`; nenhum widget actual faz isto, todos
-  usam botão explícito). Reaproveita o `ImageLoader` com filtro por `game_id`,
-  como o `ContinuePlayingGameRow`.
-- `lists_page.py` ganha um `ImageLoader` próprio (hoje não tem) e um ramo no
-  `refresh()` para a Library. `_clear_grid()` não muda, é agnóstico ao tipo.
-- O nome "Library" só fica livre depois do Bloco 11 renomear a página.
+The original plan called for a second predefined, automatic list, resolved
+from `library_repository.get_installed_game_ids()` without `user_lists` rows.
+
+- New `widgets/installed_game_frame.py`: large cover frame, title below,
+  the entire image clickable through `mousePressEvent` → `play_requested`.
+  Existing widgets used explicit buttons. Reuse `ImageLoader` with a
+  `game_id` filter as in `ContinuePlayingGameRow`.
+- Add an `ImageLoader` and Library-specific `refresh()` branch to
+  `lists_page.py`; `_clear_grid()` remains type-independent.
+- The name Library becomes available after Block 11 renames the old page.
 
 ---
 
-## 5b. Verificação de atualizações (só aviso)
+## 5b. Update checks (notification only)
 
-`version.py::APP_VERSION` é a **única** fonte de verdade da versão — nada mais
-deve fixar um número. Ao arrancar, `services/update_service.py` consulta
-`releases/latest` do GitHub numa `ServiceWorker` (nunca na thread da UI: uma
-chamada de rede no arranque congelaria a janela no pior momento possível) e,
-se houver versão mais recente, `widgets/update_banner.py` aparece por cima do
-header.
+`version.py::APP_VERSION` is the only version source; other code should not
+hardcode it. At startup, `services/update_service.py` checks GitHub's
+`releases/latest` in a `ServiceWorker`, never on the UI thread. A newer
+version displays `widgets/update_banner.py` above the header.
 
-Regras que não devem ser quebradas:
+Rules to preserve:
 
-- **Nunca autenticar este pedido.** O endpoint é público e a chave que a app
-  guarda é da RetroAchievements — não tem nada que fazer num pedido ao
-  GitHub. Há um teste que falha se alguém acrescentar um header `Authorization`
-  ou `params`.
-- **Todo o tipo de "não" devolve `None`**, incluindo estar offline. Um aviso
-  de erro no arranque porque o wifi está desligado é um bug. O motivo vai
-  para o log.
-- **Comparação numérica, nunca de strings.** `"1.10.0" < "1.9.0"` é verdade
-  para strings — um compare lexical deixaria de reportar updates exactamente
-  no décimo lançamento, sem sintoma nenhum. Coberto por teste.
-- **Tag ilegível lê-se como "sem update"**, nunca ao contrário: um banner
-  levantado por uma tag que ninguém consegue interpretar não desaparecia nem
-  actualizando.
-- **O "×" guarda a versão dispensada** em
-  `preferences_service.KEY_DISMISSED_UPDATE_VERSION` — a *versão*, não um
-  booleano, para que um release posterior volte a avisar sozinho em vez de
-  depender de alguém se lembrar de limpar uma flag.
-  `update_service.should_notify` tem o **viés oposto** ao de `is_newer`, de
-  propósito: aqui "não consigo interpretar" significa **mostrar**, porque uma
-  dispensa corrompida a silenciar todos os updates futuros teria como sintoma
-  não acontecer nada — o tipo de falha que nunca se dá por ela.
-- **Limitação conhecida:** `set_str` é no-op sem conta ativa, portanto uma
-  dispensa feita antes de iniciar sessão vale só para essa sessão. Não foi
-  contornado: as preferências são todas por conta, e inventar um segundo
-  armazenamento sem conta só para este valor era uma mudança maior do que o
-  incómodo justifica. Resolve-se sozinho assim que a pessoa entra.
+- **Never authenticate this request.** The endpoint is public; the stored
+  RetroAchievements key must not be sent to GitHub. A test rejects an
+  `Authorization` header or `params`.
+- **Every negative result, including offline operation, returns `None`.**
+  Startup should not show an error because Wi-Fi is disconnected. Log the reason.
+- **Compare versions numerically.** Lexically, `1.10.0 < 1.9.0`, which would
+  silently stop update notifications at the tenth release. Covered by tests.
+- **Unparseable release tags mean no update.** Otherwise the banner could
+  remain even after an update because the version cannot be understood.
+- **Dismissal stores a version**, not a boolean, in
+  `preferences_service.KEY_DISMISSED_UPDATE_VERSION`. Later releases then
+  notify automatically. `update_service.should_notify` intentionally makes
+  the opposite parsing choice from `is_newer`: an unreadable dismissal
+  means show the banner, so corrupt stored data cannot silently suppress
+  every future update.
+- **Known limitation:** `set_str` does nothing without an active account,
+  so a dismissal before login lasts only that session. Preferences are
+  account-scoped; adding separate anonymous storage for this one value was
+  considered disproportionate. Persistence works after login.
 
-Para lançar: subir `APP_VERSION`, criar a tag `v<APP_VERSION>` e **publicar um
-release** contra ela. O check lê *releases*, não tags — uma tag sem release é
-invisível de propósito, para a tag poder existir antes do build estar pronto.
+Historical release procedure: increment `APP_VERSION`, create
+`v<APP_VERSION>`, and publish a release against it. The checker reads
+releases, not tags, so a tag can exist while a build is still being prepared.
 
-## 5c. Ronda de segurança e limpeza final
+## 5c. Security and final cleanup
 
-**A chave da API ia parar ao log, em texto simples.** `client.py` fazia
-`logger.exception` no `except requests.RequestException`, e a mensagem do
-urllib3 dentro do traceback é `Max retries exceeded with url:
-/API/X.php?z=user&y=<chave>`. Bastava estar offline, um DNS lento ou um
-timeout. Ficava em `logs/retrocheevos.log` — precisamente o ficheiro que uma
-pessoa envia a outra a pedir ajuda. O docstring da classe prometia
-"Credentials are never logged"; era falso.
+**API keys leaked into plaintext logs.** `client.py` used
+`logger.exception` for `requests.RequestException`; urllib3's traceback
+included a URL such as `/API/X.php?z=user&y=<key>`. Offline operation, slow
+DNS, or a timeout could expose it in `logs/retrocheevos.log`, the file users
+share for troubleshooting. The class promise that credentials were never
+logged was therefore false.
 
-Duas vias, ambas fechadas:
-1. A directa: `logger.warning` com `redact_credentials(str(error), key)`.
-2. A indirecta: `raise ... from error` guardava o original em `__cause__`, e
-   `main.py::_log_uncaught_exception` regista com `exc_info` — o que imprime
-   também o traceback da causa, com o URL. Passou a `from None`, com o
-   diagnóstico útil preservado (já redigido) na mensagem nova.
+Both routes were closed:
 
-**Regra a manter:** nada derivado de um erro de request pode ser escrito sem
-passar por `redact_credentials`. Coberto por `tests/api/`.
+1. Direct logging now uses `logger.warning` and
+   `redact_credentials(str(error), key)`.
+2. `raise ... from error` preserved the original in `__cause__`;
+   `main.py::_log_uncaught_exception` logs `exc_info`, including that cause
+   and its URL. Changed to `from None`, preserving useful redacted
+   diagnostics in the new exception's message.
 
-**Os quatro caches de imagens escreviam para dentro do bundle.**
-`game_images`, `user_pics`, `local_covers` e `activity_icons` derivavam o
-directório de `__file__`, sem tratar `sys.frozen` — ao contrário do
-`connection.py`, que resolvia exactamente isto. Invisível a correr da fonte.
-No .exe: escrita ao lado do executável (falha silenciosa em Program Files),
-descartada a cada arranque num build one-file, e — o pior — **por instalação
-em vez de por utilizador**, ou seja dois utilizadores do Windows a partilhar
-fotos de perfil em cache. O `local_covers` era o mais grave por não ser
-re-descarregável: são capas escolhidas à mão. Agora tudo passa por
-`retrocheevos/paths.py`, que é o único sítio onde a decisão se toma.
+**Rule:** sanitize anything derived from a request error with
+`redact_credentials` before writing it. Covered by `tests/api/`.
 
-**Órfãos removidos** (3 passagens até convergir — remover a primeira camada
-expõe a seguinte): ficheiros `core/cache_policy.py`,
-`database/repositories/leaderboard_repository.py`, `models/leaderboard.py`;
-18 funções/classes; 8 imports. Restam só `rowCount`/`headerData`, que são
-overrides do Qt chamados pela framework.
+**Four image caches wrote inside the bundle:** `game_images`, `user_pics`,
+`local_covers`, and `activity_icons` derived paths from `__file__` without
+handling `sys.frozen`, unlike `connection.py`. Invisible from source, this
+caused writes beside the executable, silently failing in Program Files;
+one-file extraction discarded caches on each launch; and caches belonged
+to the installation instead of the user, potentially sharing profile
+photos between Windows users. `local_covers` was especially serious because
+manually selected covers cannot be downloaded again. All paths now go
+through the single decision point in `retrocheevos/paths.py`.
 
-**Migração v22 — tabelas órfãs apagadas.** `notification_settings` e
-`leaderboard_cache` (atenção ao nome: **não** é `leaderboards`, que não
-existe — confirmar sempre o nome real no schema antes de escrever um DROP).
-Ambas verificadas vazias nas duas bases de dados antes de apagar. A base
-existente migrou de 21→22 sem perder nada: `notifications`, `accounts`,
-`games` (12042) e `user_lists` com as contagens intactas, `integrity_check`
-ok, `foreign_key_check` limpo.
+**Orphan cleanup:** three passes converged as removing one dead layer
+exposed another. Deleted `core/cache_policy.py`,
+`database/repositories/leaderboard_repository.py`, `models/leaderboard.py`,
+18 functions/classes, and eight imports. Remaining apparently uncalled
+`rowCount` / `headerData` methods are Qt overrides invoked by the framework.
 
-Os `CREATE TABLE` históricos ficam de propósito, tal como no v20: uma base
-nova cria-as e o v22 apaga-as logo a seguir. Editar uma migração antiga
-dessincroniza todas as bases que já a aplicaram — o custo de as criar por um
-instante é muito menor que esse risco.
+**Migration v22 drops orphan tables:** `notification_settings` and
+`leaderboard_cache`. The name is not `leaderboards`; confirm actual schema
+names before writing DROP statements. Both tables were verified empty in
+two databases. Migration 21→22 preserved counts for notifications,
+accounts, games (12,042), and user_lists, with successful `integrity_check`
+and clean `foreign_key_check`.
 
-**Espaçamento Play/"+" no Explorer — regrediu duas vezes, agora com teste.**
-A causa nunca foi o `_BUTTON_SPACING`. Era o `sizeHint` do `ActionsDelegate`
-responder pela linha que recebia: linhas instaladas mostram "Play" + "+",
-as outras só "+". Mas a **largura da coluna é uma só, partilhada por todas as
-linhas** — e o `ResizeToContents` só amostra um número limitado de linhas
-(`resizeContentsPrecision`, 1000 por omissão) num catálogo de ~12k. Se as
-amostradas não estiverem instaladas, a coluna fica dimensionada para um
-botão e todas as instaladas abaixo pintam o "+" fora da coluna.
+Historical CREATE statements remain intentionally, as in v20: a fresh
+database creates those tables and v22 immediately drops them. Editing old
+migrations would desynchronize databases that already applied them; briefly
+creating an unused table is the smaller cost.
 
-Medido antes do fix: coluna 51px, `sizeHint` 69px, transbordo de 9px.
-Depois: coluna 70px, folga de 15px entre os dois, sem transbordo.
+**Explorer Play/+ spacing regressed twice and now has a test.** The cause
+was row-dependent `ActionsDelegate.sizeHint`, not `_BUTTON_SPACING`.
+Installed rows display Play and +; other rows only +. Column width is shared
+by every row, but `ResizeToContents` samples only a limited number
+(`resizeContentsPrecision`, default 1000) out of about 12,000. If none of
+the sampled rows are installed, the column fits one button and installed
+rows below paint + outside it.
 
-**Por isso é que volta:** depende dos dados. Um catálogo pequeno ou com outra
-ordenação esconde-o por completo. `tests/gui/test_actions_delegate_width.py`
-fixa a invariante que interessa — o `sizeHint` não pode depender da linha.
+Before: column 51 px, `sizeHint` 69 px, 9 px overflow. After: column 70 px,
+15 px button gap, no overflow. Small catalogs or different sorting can hide
+the bug. `tests/gui/test_actions_delegate_width.py` enforces the actual
+invariant: `sizeHint` must not depend on the row.
 
-**Associação de ROMs por hash — estava estruturalmente impossível.**
-`game_hashes` só tinha um escritor, `sync_game_details`, e essa função **não
-tinha chamadores em lado nenhum**. Tabela sempre vazia →
-`find_game_id_by_hash` nunca devolvia nada → todos os ROMs ficavam sem
-`game_id`. Daí o Explorer mostrar 2 instalados (associados à mão) contra 74
-na Library: os critérios estão ambos certos, o que falhava era a associação.
+**Hash-based ROM matching was structurally impossible.** The only writer
+of `game_hashes`, `sync_game_details`, had no callers. An empty table meant
+`find_game_id_by_hash` always failed and ROMs lacked `game_id`. This
+explained two installed games in Explorer (manually matched) versus 74 in
+Library: both counting rules were correct; matching was missing.
 
-`sync_all_game_hashes` (botão "Sync ROM Hashes" no Explorer) resolve:
-- **Resumível** via `list_ids_missing_hashes` — obrigatório numa corrida de
-  uma hora. Um jogo que genuinamente não tem hashes volta a ser pedido em
-  cada corrida, porque "pedido e vazio" e "nunca pedido" são
-  indistinguíveis; o preço é um pedido repetido, a alternativa era uma
-  coluna cuja única função era lembrar-se de uma resposta vazia.
-- **`replace_hashes`, não `add_hash`** — não há constraint única em
-  `(game_id, hash)`, portanto re-correr duplicava todas as linhas.
-- **Chama `library_service.rematch_unmatched_roms()` no fim.** Sem isto a
-  hora é desperdiçada: a associação só acontece no scan, e um rescan salta
-  ficheiros já registados de propósito. Não custa chamadas — o hash já está
-  guardado em `installed_roms.hash`.
+`sync_all_game_hashes`, exposed by Explorer's Sync ROM Hashes, addresses this:
 
-**Custo, para quem vier a seguir:** `sync_game_details` faz **3** pedidos por
-jogo (extended, tempo médio, hashes) → ~36k pedidos, ~3h. Só o terceiro serve
-a associação de ROMs. Por isso o modo por omissão é `full_details=False`, um
-pedido por jogo, ~12k, ~1h. O diálogo deixa escolher.
+- **Resumable** through `list_ids_missing_hashes`, essential for an hour-long
+  run. At this historical point, a genuinely hashless game was requested
+  again each time because fetched-empty and never-fetched were
+  indistinguishable. Repeating that request was chosen over a new marker
+  column; later work may supersede this tradeoff.
+- **`replace_hashes`, not `add_hash`:** no unique `(game_id, hash)` constraint
+  existed, so rerunning would duplicate rows.
+- **Finish with `library_service.rematch_unmatched_roms()`.** Matching
+  otherwise happened only during scanning, and rescans intentionally skip
+  registered files. No API calls are needed because `installed_roms.hash`
+  already stores the hash.
 
-**Chaves da API saíram do SQLite para o cofre do SO.**
-`services/credential_store.py` guarda-as no Windows Credential Manager
-(`WinVaultKeyring`), encriptadas pela conta de utilizador do SO. A coluna
-`accounts.api_key` **não** é código morto — é o segundo metade do desenho:
+**Cost:** `sync_game_details` makes three requests per game (extended
+metadata, median time, hashes): about 36,000 requests and three hours. Only
+the hash call supports ROM matching. Default `full_details=False` therefore
+makes one request per game, about 12,000 and one hour. The dialog allows choosing.
 
-- **Degradação graciosa.** O `keyring` resolve o backend em tempo de execução
-  e pode não haver nenhum. Sem cofre, a chave fica na coluna e a app funciona,
-  com aviso no log. Recusar arrancar por causa de uma *melhoria* de
-  armazenamento seria pior que o problema original.
-- **A coluna só é limpa depois de o cofre confirmar a escrita.** Uma chave
-  guardada em lado nenhum é uma conta que nunca mais autentica.
-- **`migrate_plaintext_keys()` corre no arranque**, não como migração de
-  schema: estas dependem do SO e podem falhar por máquina, coisa que o
-  `PRAGMA user_version` não sabe exprimir — uma base marcada como migrada
-  numa máquina sem cofre nunca mais tentaria.
-- **Faz `VACUUM` a seguir.** Um `UPDATE` limpa o *valor*, não os bytes:
-  o SQLite deixa o conteúdo antigo em páginas libertadas, legível com um
-  editor hexadecimal. Sem o VACUUM esta mudança era cosmética.
-- **`packaging/TrophyTracker.spec` precisa dos `hiddenimports`** (`keyring.backends.Windows`,
-  `win32ctypes.core`). O backend é resolvido por entry points, portanto a
-  análise estática do PyInstaller não o vê — sem isto o `.exe` cai
-  silenciosamente no caminho "sem cofre" e as chaves voltam à base de dados.
+**API keys moved from SQLite to the OS vault.**
+`services/credential_store.py` uses Windows Credential Manager
+(`WinVaultKeyring`), encrypted under the OS account. `accounts.api_key`
+remains a deliberate fallback, not dead code:
 
-**Fica por decidir (não mexido de propósito):**
-  sem integração com o cofre do SO, mas convém ser dito em vez de assumido.
-- 14 ficheiros `.py` têm BOM UTF-8. O Python importa-os bem; ferramentas de
-  análise não (partiu o scanner de código morto até usar `utf-8-sig`).
+- **Graceful degradation:** keyring resolves its backend at runtime, and a
+  backend may be unavailable. Without a vault, the key remains in SQLite
+  with a log warning; the storage improvement must not prevent startup.
+- **Clear the column only after confirmed vault storage.** A key stored
+  nowhere would permanently break account authentication.
+- **`migrate_plaintext_keys()` runs at startup, not as a schema migration.**
+  Vault availability varies by OS and machine; `PRAGMA user_version` cannot
+  represent it. A database migrated on a machine without a vault must retry later.
+- **Run `VACUUM` afterward.** UPDATE removes a logical value but SQLite can
+  retain its bytes in freed pages, readable with a hex editor; without
+  compaction the storage change would be cosmetic.
+- **`packaging/TrophyTracker.spec` needs hidden imports** for
+  `keyring.backends.Windows` and `win32ctypes.core`. Entry-point resolution
+  is invisible to PyInstaller's static analysis; without them the frozen
+  app silently falls back to database storage.
 
-## 5d. Hashing de ROMs: RAHasher e a decisão de licença
+**Deferred questions recorded at this point:** the original note contained
+an incomplete item about operation without OS-vault integration; it did
+not identify further action. Fourteen Python files had UTF-8 BOMs: Python
+imports them, but analysis tools may need `utf-8-sig`, as the dead-code
+scanner did.
 
-O `library/hashing.py` fazia MD5 do ficheiro inteiro e não implementava as
-regras por consola do RA (cabeçalhos NES/N64, faixas em discos, hash do
-executável no PlayStation). Reimplementar formato a formato foi abandonado
-a meio: `library/ciso.py` (`.cso`) chegou a ser escrito, o CHD e o RVZ não.
+## 5d. ROM hashing: RAHasher and the licensing decision
 
-**Decisão:** o hasher oficial do RetroAchievements, `RAHasher.exe`, invocado
-como subprocesso por `library/rahasher.py`. É construído das mesmas fontes
-`rcheevos/src/rhash` que o site usa, portanto está certo por construção em
-vez de por a nossa reimplementação ser cuidadosa que baste.
+`library/hashing.py` originally computed whole-file MD5 without
+RetroAchievements' console-specific rules (NES/N64 headers, disc tracks,
+PlayStation executable hashing). Reimplementing formats was abandoned
+partway: `library/ciso.py` for `.cso` was written; CHD and RVZ were not.
 
-**Licença — ler antes de distribuir.** RAHasher é compilado do RALibretro,
-que é **GPL-3.0** (o `rcheevos` por baixo é MIT, mas o binário distribuído
-não). Chamá-lo como processo separado é agregação, não linkagem: **não** torna
-o TrophyTracker GPL. Redistribuir o binário é que traz deveres — texto da
-licença e fonte correspondente (ou oferta escrita). Estão cumpridos em
-`tools/`: `RAHasher-COPYING.txt` e `RAHasher-SOURCE.txt`, e o
-`packaging/TrophyTracker.spec` **recusa-se a construir** um bundle com o .exe se algum
-deles faltar. Ao atualizar o binário, atualizar a versão e o SHA-256 no
-`RAHasher-SOURCE.txt` — deixá-los desatualizados é que é o problema de
-licença, não o .exe ser antigo.
+**Decision:** invoke the official `RAHasher.exe` through
+`library/rahasher.py` as a subprocess. It uses the same `rcheevos/src/rhash`
+sources as RetroAchievements, avoiding divergence from a separate implementation.
 
-**O que o RAHasher resolve** (verificado contra ROMs reais, 1.8.3 x64):
-`.chd` (PS1 e PS2), `.cue`, `.iso` de PS2, `.gdi` de Dreamcast — todos
-falhavam por completo antes. A build Windows oficial define `HAVE_CHD` no
-`src/RAHasher.vcxproj` (a de Linux no CI usa `HAVE_CHD=1`); sem essa flag o
-binário imprime "CHD not supported" e devolve 0, portanto não trocar por uma
-build própria sem confirmar isto.
+**Historical licensing decision:** RAHasher is built from RALibretro,
+GPL-3.0, although underlying rcheevos is MIT. The recorded design treats a
+separate subprocess as aggregation rather than linking and does not change
+TrophyTracker's license. Redistributing the binary still requires license
+text and corresponding source or a written offer. The bundled notices are
+`RAHasher-COPYING.txt` and `RAHasher-SOURCE.txt` under `tools/`.
+`packaging/TrophyTracker.spec` refuses to bundle the helper without both.
+When replacing it, update the version and SHA-256 in `RAHasher-SOURCE.txt`.
 
-**O que o RAHasher NÃO resolve, e é por isso que há fallback:**
-- `.cso` → "Could not open track". O `library/ciso.py` trata-o e dá o hash
-  certo (igual ao do `.iso` equivalente, que é o que o RA tem em catálogo).
-  O `ciso.py` não é redundante; é estritamente melhor aqui.
-- `.rvz` → "Not a Gamecube disc". Ninguém o suporta. Continua fora do
-  `console_catalog`, de propósito — um `.rvz` que chegasse ao hasher cairia
-  no MD5 do ficheiro inteiro e ficaria registado com um hash que não
-  corresponde a nada. **Este é o caso a vigiar** se alguém adicionar a
-  extensão ao catálogo.
+**Formats verified with real ROMs and RAHasher 1.8.3 x64:** PS1/PS2 `.chd`,
+`.cue`, PS2 `.iso`, and Dreamcast `.gdi`, all previously failing. The
+Windows project defines `HAVE_CHD` in `src/RAHasher.vcxproj`; Linux CI uses
+`HAVE_CHD=1`. Without this flag the helper prints CHD not supported and
+returns 0; verify it before substituting a custom build.
 
-**Estado sem o binário:** suportado, não é erro. A app usa o hashing interno
-de sempre. A procura (`rahasher.find_executable`) não é cacheada de propósito
-— largar o .exe em `tools/` ou ao lado do executável é apanhado sem
-reiniciar.
+**Fallbacks remain necessary:**
 
-## 6. Verificação sugerida ao retomar
+- `.cso`: RAHasher reports Could not open track. `library/ciso.py` returns
+  the correct hash, matching the equivalent ISO in the catalog; it is not redundant.
+- `.rvz`: RAHasher reports Not a Gamecube disc. At this historical point it
+  was deliberately excluded from `console_catalog`; otherwise whole-file
+  MD5 fallback would record an unusable hash. Revisit that behavior when
+  adding the extension. Later roadmap work supersedes the old RVZ support state.
 
-1. Abrir a app e confirmar que a Home mostra **98 / 56 / 56,75 %**. A revisão
-   subiu para 2, portanto o primeiro arranque re-sincroniza sozinho — a linha
-   em cache com a revisão 1 é invalidada independentemente da idade.
-2. Recent Activity está encerrado (§2.2) — as horas aparecem em **UTC em
-   bruto**, iguais às do site e uma hora atrás do relógio local. É
-   intencional. Não abrir isto outra vez sem ler o §2.2 primeiro.
-3. Confirmar as 6 colunas do Continue Playing e a barra lateral mais larga.
-4. Abrir Lists → Library, adicionar uma pasta real por consola e correr
-   "Scan Folder". Isto cobre de uma vez o que faltava do Bloco 11 (validado
-   só com ficheiros sintéticos) e a secção de pastas nova.
-5. Na mesma página: confirmar as 8 capas por fila, o clique na imagem a
-   lançar, o "−" na Blocked e numa lista própria, e criar/renomear/apagar.
-6. Decidir a alternativa do §2.3 (backfill só das consolas com ROMs).
-7. Os blocos numerados acabaram aqui — o que vier a seguir é novo.
+**Missing helper is supported.** The app falls back to built-in hashing.
+`rahasher.find_executable` intentionally does not cache discovery: placing
+an executable in `tools/` or beside the app is detected without restarting.
+
+## 6. Suggested checks when resuming this historical work
+
+1. Confirm Home statistics **98 / 56 / 56.75%**. Revision 2 forces a first-run
+   resync even when a revision-1 cache entry is recent.
+2. Treat Recent Activity time zones as closed (§2.2): **raw UTC**, matching
+   the website and one hour behind the local clock used in this session.
+   Read that decision before reopening the investigation.
+3. Check six Continue Playing columns and the wider sidebar.
+4. Open Lists → Library, add a real per-console folder, and run Scan Folder.
+   This covers the remaining real-ROM validation from Block 11, previously
+   tested with synthetic files, and the new folder section.
+5. Check eight covers per row, cover-click launching, minus buttons in
+   Blocked and a custom list, and create/rename/delete actions.
+6. Decide whether median-time backfill should cover only consoles with ROMs (§2.3).
+7. The numbered blocks ended here; subsequent work is new.

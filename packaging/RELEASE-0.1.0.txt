@@ -1,0 +1,43 @@
+TrophyTracker 0.1.0 — Linux x86_64
+
+A desktop companion for RetroAchievements: ROM library, achievement progress,
+custom lists, Now Playing, and emulator launch shortcuts.
+A fork of RetroCheevos, developed with AI assistance.
+
+This release targets Linux only. Windows remains experimental and is deferred
+until a future release following validation on native Windows.
+
+Download and run
+----------------
+Download TrophyTracker-0.1.0-x86_64.AppImage and SHA256SUMS into the same folder.
+Verify the download:
+  sha256sum --ignore-missing -c SHA256SUMS
+Then run:
+  chmod +x TrophyTracker-0.1.0-x86_64.AppImage
+  ./TrophyTracker-0.1.0-x86_64.AppImage
+Without FUSE, run:
+  APPIMAGE_EXTRACT_AND_RUN=1 ./TrophyTracker-0.1.0-x86_64.AppImage
+
+Compatibility
+-------------
+Linux x86_64, built on Ubuntu 22.04 / glibc 2.35. Python and Qt are bundled;
+no Python installation is required. Configure your emulators separately.
+The Windows RAHasher helper is not included in this AppImage.
+
+Maintenance changes
+-------------------
+- CI configured for tests and packaging smoke checks, with a Qt upgrade probe.
+- Release/build dependencies pinned by version and SHA-256 hash.
+- Fullscreen regression with an active account, 40 games, rendering, and scrolling.
+- Navigation and worker shutdown validation.
+- Roadmap reconciled to distinguish current behavior, history, and Android plans.
+- Test portability fixes and Windows cover-cache publication fixes.
+
+Validation
+----------
+298 tests passed on Linux. The AppImage and frozen folder initialized with an
+isolated database on Ubuntu 22.04 without writing crash reports. All 61 GUI
+tests also passed with PySide6 6.12.0; this release retains PySide6 6.10.1.
+BUILDINFO.json identifies the source commit and build tools.
+
+This application is not affiliated with or endorsed by RetroAchievements.

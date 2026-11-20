@@ -25,8 +25,7 @@ artifact; its screens are not yet implemented in the application.
 - [Proposed UI: Dashboard, Library, Game detail and Brand](design/ui-proposal.html)
 - [Historical Home preview](design/previews/home-1.1.0.png)
 
-The proposal was originally supplied as
-“RetroAchievements Tracker — Proposta de UI.html”. It is kept as
+The original UI proposal is kept as
 `docs/design/ui-proposal.html` for a stable, portable filename. The roadmap
 records the proposed A/C brand options; the runtime artwork remains under
 `assets/` until the brand implementation is selected and delivered.

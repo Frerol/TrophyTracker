@@ -271,7 +271,7 @@ longer exist — read that section as history, not as the current UI.
 - **Lists** — `gui/pages/lists_page.py` over `core/lists.py`; blocked games are
   `ListType.BLOCKED`, not a separate table.
 - **Settings** — `gui/pages/settings_page.py`: accounts, emulators and profile
-  sync. ROM Destinations and Quick Links were removed in Bloco 11; their tables
+  sync. ROM Destinations and Quick Links were removed in Block 11; their tables
   were dropped in schema v20.
 - **Per-account data** — `rom_folders` and `installed_roms` are account-scoped
   (migration v21); signing out preserves each account's library and lists.
@@ -296,7 +296,7 @@ independently.
 
 ### Removed or superseded (not active)
 
-- Quick Links per console and ROM Destinations — removed in Bloco 11; the
+- Quick Links per console and ROM Destinations — removed in Block 11; the
   tables were dropped in schema v20 (`database/schema.py`).
 - `ProfilePage` — removed; profile content lives on Home and Settings
   ([UI.md](../design/UI.md) §3.4).
@@ -316,9 +316,9 @@ prioritized P1–P3 backlog above is complete as of this revision.
 
 **Status:** planned; no UI implementation is implied by this section.
 The primary design reference is the checked-in
-[RetroAchievements Tracker — Proposta de UI.html](../design/ui-proposal.html),
-reviewed on 2026-11-20. It contains four 1240×780 boards: **Painel** (Dashboard),
-**Biblioteca** (Library), **Detalhe do jogo** (Game detail) and **Marca** (Brand).
+[RetroAchievements Tracker — UI Proposal](../design/ui-proposal.html),
+reviewed on 2026-11-20. It contains four 1240×780 boards: **Dashboard**,
+**Library**, **Game detail** and **Brand**.
 Their layouts and visual language supersede the earlier exploratory revamp
 proposal. The reference uses Portuguese labels and synthetic values; it is a
 visual specification, not a working integration or a localization commitment.
@@ -360,8 +360,8 @@ The 220 px sidebar, 28×32 px main padding and 16 px card gaps establish the
 reference proportions. Colored initial-letter covers are mockup placeholders;
 use real cached artwork with deliberate fallbacks in production.
 
-The reference sidebar contains **Painel, Biblioteca, Conquistas, Sistemas,
-Configurações**, with account/avatar controls anchored at the bottom. The
+In English, the reference sidebar destinations are **Dashboard, Library,
+Achievements, Systems, Settings**, with account/avatar controls anchored at the bottom. The
 Library board specifies a cover-card grid, not the current Explorer table.
 Game detail includes achievement rows, locked/unlocked filters and rarity
 sorting. These are target features: R16 must map their data requirements and
@@ -375,8 +375,8 @@ though the four boards do not draw every existing feature.
   Inventory the current screens/actions and annotate the local HTML boards,
   mapping each proposed element to existing widgets, services and stored fields.
   Record the changes from the current Home/Explorer/Library structure, including
-  the Library grid versus Explorer's suggestion table and the new Conquistas/
-  Sistemas destinations. Specify where Lists, global/Home search, Now Playing,
+  the Library grid versus Explorer's suggestion table and the new Achievements/
+  Systems destinations. Specify where Lists, global/Home search, Now Playing,
   badges, account switching and management dialogs remain accessible; the
   reference's Library search is local, so a global search is not assumed.
   Distinguish catalog eligibility from local-ROM visibility: Library's
@@ -396,7 +396,7 @@ though the four boards do not draw every existing feature.
   above into semantic tokens in `gui/styles.py`. Standardize sidebar items,
   metric cards, game cards, achievement rows, progress bars, search, chips,
   primary/secondary buttons, menus and dialogs, including interactive states.
-  Bundle licensed fonts with fallbacks so packaging works offline. The Marca
+  Bundle licensed fonts with fallbacks so packaging works offline. The Brand
   board offers A (pixel trophy), B (trophy with D-pad) and C (cartridge with
   pixel trophy); the user's expressed preference is **A and C**, with no final
   icon selection yet. Prioritize comparisons of those two. Evaluate A as the
@@ -413,9 +413,9 @@ though the four boards do not draw every existing feature.
 - [ ] **R18 — Build the sidebar shell and reconcile navigation/search.**
   Implement the reference sidebar with TrophyTracker branding, the five named
   destinations, selected-item treatment and bottom account/avatar area. Map
-  Painel to the redesigned Home, Biblioteca to local-game browsing, Conquistas
-  to achievement browsing in R21, Sistemas to console/library management in
-  R22 and Configurações to R24. Preserve direct access to existing Lists and
+  Dashboard to the redesigned Home, Library to local-game browsing, Achievements
+  to achievement browsing in R21, Systems to console/library management in
+  R22 and Settings to R24. Preserve direct access to existing Lists and
   Explorer through the secondary routes specified in R16. Retain account
   switching, logout and sync visibility. Support a compact sidebar at narrower
   widths and contextual Library search without duplicating a single flow's
@@ -427,7 +427,7 @@ though the four boards do not draw every existing feature.
 
 ### Main screens
 
-- [ ] **R19 — Rebuild the Dashboard from the Painel board.**
+- [ ] **R19 — Rebuild the Dashboard from the Dashboard board.**
   Use a page heading with last-sync freshness and a Sync now action, followed
   by four metric cards: Points/ranking, Achievements/available total, Mastered
   games/near-mastery count and Played games/system count. Define the scope of
@@ -459,13 +459,13 @@ though the four boards do not draw every existing feature.
   and resizing/fullscreen avoids the `setIndexWidget()` native-crash path.
 
 - [ ] **R21 — Deliver the proposed game detail and achievement browsing.**
-  Implement the Detalhe do jogo board: a roughly 300 px summary column with
+  Implement the Game detail board: a roughly 300 px summary column with
   return-to-Library affordance, large cover, game/system/year, unlocked/total
   achievements, earned/available points, progress, Play, configured emulator
   and local-ROM path. On the right, provide All/Unlocked/Missing count chips,
   rarity sorting and achievement rows with badge, title, description, points
   and percentage of players. Distinguish locked/unlocked states with labels
-  as well as gold/muted treatments. Add the functional Conquistas destination
+  as well as gold/muted treatments. Add the functional Achievements destination
   using the same components and account-specific achievement data; its overall
   layout/scope is an R16 extension because the HTML only draws per-game detail.
   Implement the explicit data dependencies from R16 before enabling rarity,
@@ -477,7 +477,7 @@ though the four boards do not draw every existing feature.
   image loading remains bounded; and returning restores the originating view.
 
 - [ ] **R22 — Implement the Library grid and Systems management.**
-  Follow the Biblioteca board: heading with indexed-game count/folder context,
+  Follow the Library board: heading with indexed-game count/folder context,
   Reindex folder action, game-name search, All/In progress/Mastered/No
   achievements chips and System filter. Build the reference four-column cover
   grid at 1240×780, with adaptive columns, game title, console, unlocked/total
@@ -486,7 +486,7 @@ though the four boards do not draw every existing feature.
   R07's bounded cache rather than allocating widgets for the entire catalog.
   Library includes playable local ROMs with no RA achievement set and mastered
   games; keep those cases distinct from an unmatched or unknown-progress ROM.
-  Provide the Sistemas destination for console-level library/folder/emulator
+  Provide the Systems destination for console-level library/folder/emulator
   management, with its layout defined in R16 because no separate Systems board
   exists. Integrate unmatched/missing-file status, manual matching, cover
   customization and the existing emulator/matching dialogs into these flows.
@@ -507,7 +507,7 @@ though the four boards do not draw every existing feature.
   deleting a ROM or removing an account.
 
 - [ ] **R24 — Extend the proposal to Settings, onboarding and account controls.**
-  Provide Configurações with coherent groups for Accounts, Library/Folders,
+  Provide Settings with coherent groups for Accounts, Library/Folders,
   Emulators, Appearance and About/Updates as supported by the app. Extend the
   proposed surfaces/type/control system to settings, menus, dialogs and
   `update_banner.py`; their detailed layouts are not supplied by the HTML.
@@ -554,7 +554,7 @@ though the four boards do not draw every existing feature.
   with synthetic fixtures comparing Dashboard, Library, Game detail and the
   selected brand treatment against the four HTML boards. Document intended
   differences caused by real data, accessibility and responsive layouts, plus
-  the extensions for Conquistas, Sistemas, Lists, Settings and secondary dialogs.
+  the extensions for Achievements, Systems, Lists, Settings and secondary dialogs.
   Repeat fullscreen, resize, active-worker close and account-switch scenarios;
   measure catalog/grid latency, artwork memory and activity rendering against
   R05–R10 baselines. Smoke-test Windows packaging and Linux AppImage with bundled
@@ -570,7 +570,7 @@ though the four boards do not draw every existing feature.
    tokens, components and A/C brand comparisons before committing icon assets.
 2. R18 builds the shell; R19 delivers the Dashboard and R22 the Library grid/
    Systems flow. Coordinate R20's Explorer/search handoff with those screens.
-3. R21 completes Game detail/Conquistas with its verified data dependencies;
+3. R21 completes Game detail/Achievements with its verified data dependencies;
    R23/R24 extend the design to Lists, Settings, onboarding and dialogs.
 4. Apply R25/R26 to each converted flow. R27 maintains screenshot/performance
    evidence throughout and finishes with the complete desktop/package review.

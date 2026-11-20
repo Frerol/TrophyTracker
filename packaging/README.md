@@ -51,5 +51,9 @@ The extraction option works without FUSE. For normal use mark the AppImage
 executable (`chmod +x TrophyTracker-0.1.0-x86_64.AppImage`) and launch it.
 The Linux build omits the Windows-only RAHasher helper.
 
+The canonical English release notes are tracked in `packaging/RELEASE-0.1.0.txt`.
+Copy them to `dist/release/RELEASE-0.1.0.txt` when preparing the release, and
+regenerate `SHA256SUMS` whenever release documentation changes.
+
 For Codeberg, attach the AppImage, `SHA256SUMS` and the prepared release notes
 from `dist/release/` to tag `v0.1.0`. Generated binaries remain outside Git.
