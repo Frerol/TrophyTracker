@@ -20,6 +20,9 @@ Build Windows bundles with `pyinstaller TrophyTracker.spec`.
 
 ## What it is
 
+An Android achievement-tracking companion is planned. See the
+[Android roadmap](docs/AndroidRoadmap.md) for scope, phases and release criteria.
+
 TrophyTracker is a desktop app for Windows and Linux that connects to your RetroAchievements account to:
 
 - Sync your game catalog, stats, and progress

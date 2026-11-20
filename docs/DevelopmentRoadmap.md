@@ -1,5 +1,8 @@
 # TrophyTracker — Development Roadmap
 
+The planned Android achievement-tracking companion has a separate
+[roadmap](AndroidRoadmap.md). It excludes ROM management and emulator launching.
+
 ## Current Status
 
 - Explorer filter/grid performance — resolved (superseded by the table
