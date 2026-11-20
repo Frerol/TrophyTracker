@@ -1,4 +1,5 @@
 """Debouncing, cover recovery and bounded long browsing in Explorer."""
+import time
 import unittest
 from types import SimpleNamespace
 from threading import Event
@@ -19,6 +20,12 @@ from retrocheevos.models.game import Game
 
 _app = QApplication.instance() or QApplication([])
 
+
+
+def _wait_until(condition, timeout_ms=3000):
+    deadline = time.monotonic() + timeout_ms / 1000
+    while not condition() and time.monotonic() < deadline:
+        QTest.qWait(10)
 
 class ExplorerResilienceTests(unittest.TestCase):
     def test_failure_expires_and_repaints_without_interaction(self):
@@ -70,12 +77,16 @@ class ExplorerResilienceTests(unittest.TestCase):
                     for text in ('m', 'ma', 'mar', 'mario'):
                         page.set_search_text(text)
                 self.assertEqual(query.call_count, 0)
-                QTest.qWait(220)
+                # Poll with a deadline instead of a fixed sleep: debounce plus
+                # the background read can exceed 220 ms on slow CI runners.
+                _wait_until(lambda: query.call_count >= 2)
+                QTest.qWait(50)
                 self.assertEqual(query.call_count, 2)
                 self.assertEqual(query.call_args.args[1].search_text, 'mario')
                 pages[0]._search_input.setText('zelda')
                 pages[0]._search_input.returnPressed.emit()
-                QTest.qWait(220)
+                _wait_until(lambda: query.call_count >= 3)
+                QTest.qWait(50)
                 self.assertEqual(query.call_count, 3)
             finally:
                 registry.shutdown()

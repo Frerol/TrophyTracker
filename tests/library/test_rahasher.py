@@ -83,7 +83,8 @@ class FindExecutableTests(unittest.TestCase):
 
     def test_source_lookup_prefers_organized_helper_and_keeps_legacy_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            # resolve(): Windows temp dirs may be 8.3 short paths (RUNNER~1).
+            root = Path(directory).resolve()
             modern = root / 'tools' / 'rahasher' / rahasher.EXECUTABLE_NAME
             legacy = root / 'tools' / rahasher.EXECUTABLE_NAME
             modern.parent.mkdir(parents=True)

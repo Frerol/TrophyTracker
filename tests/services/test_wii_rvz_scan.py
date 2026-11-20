@@ -22,7 +22,9 @@ class WiiRvzScanTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # resolve(): on Windows the temp dir may be an 8.3 short path
+        # (RUNNER~1) while the app stores resolved long paths.
+        self.root = Path(temporary.name).resolve()
         self.romdir = self.root / 'Emulation/roms/wii'
         self.romdir.mkdir(parents=True)
         real_create = db.create_connection

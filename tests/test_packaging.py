@@ -16,7 +16,8 @@ class PackagingPathsTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / 'project'
+        # resolve(): Windows temp dirs may be 8.3 short paths (RUNNER~1).
+        self.root = Path(temporary.name).resolve() / 'project'
         for directory in ('packaging', 'src/retrocheevos', 'assets', 'assets/reference', 'tools/rahasher'):
             (self.root / directory).mkdir(parents=True)
         for file in ('src/retrocheevos/main.py', 'assets/icon.png', 'assets/logo.png',
