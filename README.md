@@ -2,7 +2,9 @@
 
 Version **0.1.0**.
 
-A desktop companion for [RetroAchievements](https://retroachievements.org), for organizing your ROM library, tracking your progress, and launching games directly from the app.
+TrophyTracker is a desktop companion for [RetroAchievements](https://retroachievements.org) on Windows and Linux. It brings your local ROM library, achievement progress, account statistics and custom game lists into one place, with cover artwork and shortcuts to launch games through your configured emulators, including RetroArch.
+
+**TrophyTracker is a fork of [RetroCheevos](https://github.com/Gmendes223/Retrocheevos), developed with the assistance of artificial intelligence (AI).** This fork builds on the original project's work and is being independently adapted and expanded with AI-assisted changes.
 
 > **Note:** This project is not affiliated with, endorsed by, or in any way officially connected to RetroAchievements.org. It's a third-party tool built by a fan, using their public API.
 
@@ -10,7 +12,7 @@ A desktop companion for [RetroAchievements](https://retroachievements.org), for 
 
 ## Project origin and compatibility
 
-TrophyTracker is a continuation of [Retrocheevos](https://github.com/Gmendes223/Retrocheevos), with independent development.
+TrophyTracker preserves its origins as a fork of [RetroCheevos](https://github.com/Gmendes223/Retrocheevos); credit for the original application belongs to its author and contributors.
 The Python package remains `retrocheevos`; existing data directories, database
 filenames and credential-vault identifiers are retained for compatibility.
 Run from source with `PYTHONPATH=src .venv/bin/python -m retrocheevos.main`.
@@ -18,7 +20,7 @@ Build Windows bundles with `pyinstaller TrophyTracker.spec`.
 
 ## What it is
 
-TrophyTracker is a Windows desktop app that connects to your RetroAchievements account to:
+TrophyTracker is a desktop app for Windows and Linux that connects to your RetroAchievements account to:
 
 - Sync your game catalog, stats, and progress
 - Organize your installed library in a "Library" view with clickable covers
