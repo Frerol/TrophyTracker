@@ -35,8 +35,11 @@ from pathlib import Path
 from typing import Optional
 
 from retrocheevos.library import psp_hash
-from retrocheevos.library.console_catalog import get_candidate_console_ids
+from retrocheevos.library.console_catalog import GAMECUBE, WII, get_candidate_console_ids
 from retrocheevos.library.zip_extraction import find_single_rom_member
+
+DOLPHIN_DISC_TYPE_OFFSET = 0x48
+DOLPHIN_DISC_HEADER_SIZE = DOLPHIN_DISC_TYPE_OFFSET + 4
 
 
 @dataclass
@@ -81,11 +84,28 @@ def detect_console(
     if len(candidates) == 1:
         return DetectionResult(console_id=candidates[0])
 
+    if extension.lower() in ("rvz", "wia"):
+        console_id = _dolphin_disc_console(file_path)
+        if console_id is not None:
+            return DetectionResult(console_id=console_id)
+
     if extension.lower() == "iso" and psp_hash.PSP_CONSOLE_ID in candidates:
         if psp_hash.looks_like_psp_disc(file_path):
             return DetectionResult(console_id=psp_hash.PSP_CONSOLE_ID)
 
     return _resolve(candidates, folder_console_id)
+
+
+def _dolphin_disc_console(file_path: Path) -> Optional[int]:
+    """Dolphin's WIA/RVZ disc_type is a big-endian u32 at offset 0x48."""
+    try:
+        with file_path.open("rb") as source:
+            header = source.read(DOLPHIN_DISC_HEADER_SIZE)
+    except OSError:
+        return None
+    if len(header) != DOLPHIN_DISC_HEADER_SIZE or header[:4] not in (b"RVZ\x01", b"WIA\x01"):
+        return None
+    return {1: GAMECUBE, 2: WII}.get(int.from_bytes(header[DOLPHIN_DISC_TYPE_OFFSET:], "big"))
 
 
 def _resolve(

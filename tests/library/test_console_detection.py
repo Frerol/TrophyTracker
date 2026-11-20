@@ -151,18 +151,9 @@ class FolderConsoleTieBreakerTests(unittest.TestCase):
             self.assertNotIn(console_catalog.GAMEBOY_ADVANCE, result.candidate_console_ids)
 
     def test_unknown_extension_stays_unrecognized(self) -> None:
-        """`.rvz` is Dolphin's compressed GameCube/Wii container, which
-        nothing here can decode yet. A folder labelled GameCube must not
-        promote it into a whole-file MD5 that would never match anything —
-        an unmatched ROM in the library is worse than an honest "unsupported
-        format", because it looks like the scan worked.
-
-        (`.cso` used to be this test's example. It is now decoded properly by
-        `library.ciso`, which is the difference between a format being
-        unsupported and merely unrecognized.)
-        """
+        """An arbitrary extension still is not promoted by a folder label."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = self._write(tmpdir, "Super Mario Sunshine.rvz")
+            path = self._write(tmpdir, "Super Mario Sunshine.unsupported")
 
             result = detect_console(path, console_catalog.GAMECUBE)
 

@@ -162,6 +162,10 @@ SINGLE_CONSOLE_EXTENSIONS: dict[str, int] = {
 # here should be auto-picked without a successful content sniff (see
 # console_detection.py) — that's what "ambiguous" means.
 AMBIGUOUS_EXTENSION_CANDIDATES: dict[str, tuple[int, ...]] = {
+    # Installable Dolphin containers. Recognition does not imply that a
+    # compressed file's whole-file MD5 is a RetroAchievements game hash.
+    "rvz": (GAMECUBE, WII),
+    "wia": (GAMECUBE, WII),
     # rc_hash_initialize_iterator_bin: only checks size to pick a CD-track
     # guess vs. cartridge; still not something we should trust blindly.
     "bin": (THREE_DO, PLAYSTATION, PLAYSTATION_2, SEGA_CD, MEGA_DRIVE),
@@ -196,8 +200,8 @@ AMBIGUOUS_EXTENSION_CANDIDATES: dict[str, tuple[int, ...]] = {
 
 
 def get_candidate_console_ids(extension: str) -> tuple[int, ...]:
-    """`extension` without the leading dot, any case. Empty tuple means RA
-    has no known mapping for it at all.
+    """`extension` without the leading dot, any case. Empty tuple means no
+    known playable format. Hash compatibility is a separate concern.
     """
     extension = extension.lower()
     single = SINGLE_CONSOLE_EXTENSIONS.get(extension)

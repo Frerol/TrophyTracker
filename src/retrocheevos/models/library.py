@@ -1,6 +1,6 @@
 """Library DTOs — map to `rom_folders` and `installed_roms` (Database.md 3.1, 3.2)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -16,7 +16,7 @@ class RomFolder:
 @dataclass
 class InstalledRom:
     file_path: str
-    hash: str
+    hash: str  # Empty when the playable container has no compatible hasher.
     console_id: int
     game_id: Optional[int] = None
     detected_at: Optional[datetime] = None
@@ -47,6 +47,8 @@ class RomFolderScanResult:
     # Extension maps to no known console at all — saves, patches, box art,
     # readme files, and everything else that lives alongside real ROMs.
     unrecognized_paths: list[str]
+    failed_paths: list[str] = field(default_factory=list)
+    failed_folders: list[str] = field(default_factory=list)
 
 
 @dataclass

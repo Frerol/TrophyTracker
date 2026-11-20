@@ -69,6 +69,22 @@ intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
 is omitted; provide a native `tools/RAHasher` with its license/source files
 to bundle that optional helper, or use the app's built-in hashing.
 
+## Wii ROMs and live achievement tracking
+
+Wii folders can contain RVZ files, including nested folders. RVZ/WIA disc
+headers distinguish Wii from GameCube; a configured console is used when
+the header does not identify it. `~` is expanded in folder paths.
+These ROMs appear in the library even when no compatible achievement hash
+can be computed. Use **Match to Game** when a catalog entry is available;
+compressed-file MD5s are not used as substitutes for RetroAchievements hashes.
+
+Home's **Now Playing** panel follows locally launched games and recent
+RetroAchievements activity. It refreshes achievement counts, points, locked
+and unlocked achievements every minute while visible, highlights new unlocks,
+and offers **Refresh progress**. Progress reflects updates published by
+RetroAchievements; it does not read the emulator's memory. Network failures
+keep the last result visible and back off retries.
+
 ## Updates
 
 The app automatically checks whether a newer version has been published on GitHub and shows a small notice — it never downloads or installs anything on its own. You'll need to manually grab the new version when you want to update.

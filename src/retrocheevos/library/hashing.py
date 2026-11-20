@@ -61,6 +61,13 @@ def compute_rom_hash(file_path: Path, console_id: Optional[int] = None) -> str:
                 error,
             )
 
+    if file_path.suffix.lower() in {".rvz", ".wia"}:
+        # These containers are playable without being hashable here. Keep
+        # them in the library without inventing an RA hash or reading GBs
+        # of compressed data for an MD5 that cannot identify the game.
+        logger.info("No compatible compressed-disc hasher for %s; manual matching available", file_path)
+        return ""
+
     if console_id == PSP_CONSOLE_ID and file_path.suffix.lower() in _PSP_DISC_SUFFIXES:
         try:
             return compute_psp_iso_hash(file_path)

@@ -170,6 +170,7 @@ class LibraryPage(Page):
         )
         self._rehash_button.clicked.connect(self._on_rehash)
         self._scan_status_label = QLabel()
+        self._scan_status_label.setWordWrap(True)
         scan_row = QHBoxLayout()
         scan_row.addWidget(self._scan_button)
         scan_row.addWidget(self._scan_all_button)
@@ -609,12 +610,19 @@ def _describe_scan(result: RomFolderScanResult) -> str:
     indistinguishable from one where every file was ambiguous.
     """
     parts = [f"{len(result.recorded)} new ROM(s) found"]
+    unmatched = sum(rom.game_id is None for rom in result.recorded)
+    if unmatched:
+        parts.append(f"{unmatched} available in Library, not yet matched to a catalog game")
     if result.already_known_count:
         parts.append(f"{result.already_known_count} already known")
     if result.ambiguous_paths:
         parts.append(f"{len(result.ambiguous_paths)} ambiguous (console unclear)")
     if result.unrecognized_paths:
-        parts.append(f"{len(result.unrecognized_paths)} not ROM files")
+        parts.append(f"{len(result.unrecognized_paths)} unsupported/unrecognized file(s)")
+    if result.failed_paths:
+        parts.append(f"{len(result.failed_paths)} file(s) could not be read")
+    if result.failed_folders:
+        parts.append(f"{len(result.failed_folders)} folder(s) could not be scanned")
     return ", ".join(parts) + "."
 
 

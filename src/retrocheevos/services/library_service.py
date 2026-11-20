@@ -46,7 +46,7 @@ from retrocheevos.models.library import (
     RomFolder,
     RomFolderScanResult,
 )
-from retrocheevos.services import session_service
+from retrocheevos.services import session_service, play_session_service
 
 
 logger = logging.getLogger(__name__)
@@ -123,7 +123,7 @@ def _normalize_path_for_comparison(path: str) -> str:
     strings would let already-scanned files slip through as "new" and get
     re-hashed on every scan — normalize both sides before comparing.
     """
-    return os.path.normcase(str(Path(path).resolve()))
+    return os.path.normcase(str(Path(path).expanduser().resolve()))
 
 
 def add_rom_folder(
@@ -132,7 +132,7 @@ def add_rom_folder(
     with get_connection() as connection:
         _ensure_config_console(connection, console_id)
         return _library_repo(connection).add_rom_folder(
-            RomFolder(path=path, console_id=console_id, watch_enabled=watch_enabled)
+            RomFolder(path=str(Path(path).expanduser().resolve()), console_id=console_id, watch_enabled=watch_enabled)
         )
 
 
@@ -365,7 +365,7 @@ def _record_installed_rom_for_account(
     file_path: str, console_id: int, rom_hash: str, account_id: Optional[int]
 ) -> InstalledRom:
     with get_connection() as connection:
-        game_id = GameRepository(connection).find_game_id_by_hash(rom_hash)
+        game_id = GameRepository(connection).find_game_id_by_hash(rom_hash) if rom_hash else None
         return LibraryRepository(connection, account_id).add_installed_rom(
             InstalledRom(
                 file_path=file_path,
@@ -429,7 +429,7 @@ def list_emulator_configs() -> list[EmulatorConfig]:
 
 
 def _launch_installed_rom(
-    installed_rom: InstalledRom, connection: sqlite3.Connection
+    installed_rom: InstalledRom, connection: sqlite3.Connection, account_id: Optional[int]
 ) -> subprocess.Popen:
     """Shared by `launch_game`/`launch_installed_rom` once each has already
     resolved its `InstalledRom` — validates the file still exists and an
@@ -454,10 +454,10 @@ def _launch_installed_rom(
             "Set one in Settings > Emulators."
         )
 
-    _library_repo(connection).set_last_played(installed_rom.id, datetime.now())
+    LibraryRepository(connection, account_id).set_last_played(installed_rom.id, datetime.now())
     connection.commit()
 
-    return launch_emulator(
+    process = launch_emulator(
         Path(emulator_config.executable_path),
         rom_path,
         emulator_config.arguments_template,
@@ -465,6 +465,16 @@ def _launch_installed_rom(
         flatpak_app_id=emulator_config.flatpak_app_id,
         flatpak_installation=emulator_config.flatpak_installation,
     )
+    game = (
+        GameRepository(connection).get_by_id(installed_rom.game_id)
+        if installed_rom.game_id is not None else None
+    )
+    play_session_service.record_launch(
+        account_id, installed_rom.game_id,
+        game.title if game is not None else derive_title_from_filename(installed_rom.file_path),
+        process,
+    )
+    return process
 
 
 def launch_game(game_id: int) -> subprocess.Popen:
@@ -481,12 +491,13 @@ def launch_game(game_id: int) -> subprocess.Popen:
     log them as "Database operation failed, rolled back", which isn't true
     and would be misleading in `logs/`.
     """
+    account_id = _active_account_id()
     connection = create_connection()
     try:
-        installed_rom = _library_repo(connection).find_by_game_id(game_id)
+        installed_rom = LibraryRepository(connection, account_id).find_by_game_id(game_id)
         if installed_rom is None:
             raise GameNotInstalledError(f"Game {game_id} has no local ROM matched to it.")
-        return _launch_installed_rom(installed_rom, connection)
+        return _launch_installed_rom(installed_rom, connection, account_id)
     finally:
         connection.close()
 
@@ -498,12 +509,13 @@ def launch_installed_rom(installed_rom_id: int) -> subprocess.Popen:
     `InstalledRomNotFoundError`, `RomFileMissingError`, or
     `EmulatorNotConfiguredError`.
     """
+    account_id = _active_account_id()
     connection = create_connection()
     try:
-        installed_rom = _library_repo(connection).get_by_id(installed_rom_id)
+        installed_rom = LibraryRepository(connection, account_id).get_by_id(installed_rom_id)
         if installed_rom is None:
             raise InstalledRomNotFoundError(f"Installed ROM {installed_rom_id} not found.")
-        return _launch_installed_rom(installed_rom, connection)
+        return _launch_installed_rom(installed_rom, connection, account_id)
     finally:
         connection.close()
 
@@ -565,13 +577,17 @@ def _scan_rom_folder_for_account(
     recorded: list[InstalledRom] = []
     ambiguous_paths: list[str] = []
     unrecognized_paths: list[str] = []
+    failed_paths: list[str] = []
     already_known_count = 0
     scanned = 0
 
-    for file_path in sorted(Path(rom_folder.path).rglob("*")):
+    folder_path = Path(rom_folder.path).expanduser().resolve()
+    if not folder_path.is_dir():
+        raise FileNotFoundError(f"ROM folder is not accessible: {folder_path}")
+    for file_path in sorted(folder_path.rglob("*")):
         if not file_path.is_file():
             continue
-        if _is_not_a_rom(file_path):
+        if _is_not_a_rom(file_path.relative_to(folder_path)):
             continue
         if _normalize_path_for_comparison(str(file_path)) in already_installed:
             already_known_count += 1
@@ -589,7 +605,12 @@ def _scan_rom_folder_for_account(
         if progress_callback is not None:
             progress_callback(scanned, str(file_path))
 
-        rom_hash = _hash_in_place(file_path, detection.console_id, detection.inner_member)
+        try:
+            rom_hash = _hash_in_place(file_path, detection.console_id, detection.inner_member)
+        except (OSError, ValueError):
+            logger.exception("Could not scan ROM %s", file_path)
+            failed_paths.append(str(file_path))
+            continue
         recorded.append(
             _record_installed_rom_for_account(
                 str(file_path), detection.console_id, rom_hash, account_id
@@ -602,6 +623,7 @@ def _scan_rom_folder_for_account(
         already_known_count=already_known_count,
         ambiguous_paths=ambiguous_paths,
         unrecognized_paths=unrecognized_paths,
+        failed_paths=failed_paths,
     )
 
 
@@ -622,10 +644,17 @@ def purge_non_rom_entries() -> int:
     removed = 0
     with get_connection() as connection:
         repository = _library_repo(connection)
+        roots = sorted(
+            (Path(folder.path).expanduser().resolve() for folder in repository.list_rom_folders()),
+            key=lambda root: len(root.parts), reverse=True,
+        )
         for installed_rom in repository.list_installed_roms():
             if installed_rom.game_id is not None:
                 continue
-            if _is_not_a_rom(Path(installed_rom.file_path)):
+            path = Path(installed_rom.file_path).expanduser().resolve()
+            root = next((root for root in roots if path.is_relative_to(root)), None)
+            relative_path = path.relative_to(root) if root is not None else Path(path.name)
+            if _is_not_a_rom(relative_path):
                 repository.remove_installed_rom(installed_rom.id)
                 removed += 1
     if removed:
@@ -766,11 +795,13 @@ def scan_all_rom_folders(
             )
         except Exception:
             logger.exception("Scan failed for ROM folder %s", rom_folder.path)
+            combined.failed_folders.append(rom_folder.path)
             continue
         combined.recorded.extend(result.recorded)
         combined.already_known_count += result.already_known_count
         combined.ambiguous_paths.extend(result.ambiguous_paths)
         combined.unrecognized_paths.extend(result.unrecognized_paths)
+        combined.failed_paths.extend(result.failed_paths)
     return combined
 
 

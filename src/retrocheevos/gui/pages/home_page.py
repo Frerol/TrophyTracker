@@ -105,6 +105,7 @@ from retrocheevos.widgets.continue_playing_game_row import ContinuePlayingGameRo
 from retrocheevos.widgets.cover_size_slider import CoverSizeSlider
 from retrocheevos.widgets.event_row import EventRow
 from retrocheevos.widgets.unmatched_rom_card import UnmatchedRomCard
+from retrocheevos.widgets.now_playing_panel import NowPlayingPanel
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ CONTINUE_PLAYING_CARD_PADDING = 24
 CONTINUE_PLAYING_VIEWPORT_CHROME = 16
 MIN_CONTINUE_PLAYING_COLUMNS = 2
 MAX_CONTINUE_PLAYING_ENTRIES = 50
-CONTINUE_PLAYING_MIN_HEIGHT = 220
+CONTINUE_PLAYING_MIN_HEIGHT = 160
 REFRESH_BUTTON_TEXT = "Refresh"
 LOGOUT_ACTION_TEXT = "Logout"
 LOGIN_ACTION_TEXT = "Login"
@@ -628,9 +629,14 @@ class HomePage(Page):
         # own stretch back to 0 explicitly — it is never hidden (its filter
         # bar stays on screen), so it can't rely on that rule itself.
         self._center_column = QVBoxLayout()
+        self._now_playing = NowPlayingPanel()
+        self._now_playing.progress_updated.connect(self._refresh_continue_playing)
+        self.app_context.active_account_changed.connect(self._now_playing.set_account)
+        self._now_playing.set_account(self.app_context.active_account)
         self._center_column.addWidget(self._search_input)
         self._center_column.addWidget(self._back_to_home_button)
         self._center_column.addWidget(self._explorer_page)
+        self._center_column.addWidget(self._now_playing)
         self._center_column.addWidget(self._continue_playing_group, stretch=1)
         self._center_column.addWidget(self._recent_activity_group, stretch=1)
         center_column = self._center_column
@@ -693,7 +699,15 @@ class HomePage(Page):
         sidebar_layout.addWidget(events_group, stretch=1)
 
         content_row = QHBoxLayout()
-        content_row.addLayout(center_column, stretch=1)
+        # The live panel adds useful detail without imposing a taller minimum
+        # window than a laptop screen. Scroll the column when space is tight.
+        center_widget = QWidget()
+        center_widget.setLayout(center_column)
+        center_scroll = QScrollArea()
+        center_scroll.setWidgetResizable(True)
+        center_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        center_scroll.setWidget(center_widget)
+        content_row.addWidget(center_scroll, stretch=1)
         content_row.addWidget(sidebar_widget, stretch=0)
 
         # Beaten/Mastered/Completion %, absorbed from the since-removed
@@ -802,6 +816,7 @@ class HomePage(Page):
         )
 
     def refresh(self) -> None:
+        self._now_playing.set_account(self.app_context.active_account)
         # Always resets to collapsed — the embedded Explorer's own state
         # (filters, scroll position) isn't something Home tries to
         # remember across visits; matches "cache-only, must feel instant"
@@ -1172,6 +1187,7 @@ class HomePage(Page):
         return self._continue_playing_group.isHidden()
 
     def _expand_explorer(self) -> None:
+        self._now_playing.hide()
         # Neither `self._search_input` nor the embedded page's filter bar is
         # ever hidden — they're always on screen; only the results area
         # beneath them toggles.
@@ -1187,6 +1203,7 @@ class HomePage(Page):
         self._explorer_page.refresh()
 
     def _collapse_explorer(self) -> None:
+        self._now_playing.show()
         self._explorer_page.set_results_visible(False)
         self._center_column.setStretchFactor(self._explorer_page, 0)
         self._back_to_home_button.setVisible(False)
@@ -1308,6 +1325,7 @@ class HomePage(Page):
         QMessageBox.warning(self, "Couldn't launch game", message)
 
     def _on_play_started(self, _result: object) -> None:
+        self._now_playing.refresh_progress(force=True)
         # A successful launch stamps `installed_roms.last_played_at`, which
         # is what Continue Playing sorts by — without this the game the user
         # just started stays wherever it was until they navigate away and
