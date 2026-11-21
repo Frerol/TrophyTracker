@@ -21,15 +21,10 @@ behind it (`ActivityEntryCard` per entry, no Message/Unfollow/Block
 buttons). A loading label fills the section while that fetch (several
 seconds, real API calls) is in flight.
 
-A follow-up header pass: the user menu button is now a photo-only
-`_HoverMenuButton` (no name) — a click is a shortcut straight to Profile,
-hovering opens the same Profile/Library/Lists/Settings/Logout menu as
-before. Points are stacked vertically (points/true points, blue/white, no
-"pts"/parentheses) instead of one "X pts (Y true pts)" line, matching RA's
-own site layout more closely. Back/forward history navigation
-(browser-style, covering every page — nav and menu alike) lives in
-`gui/main_window.py`, not here, since it needs to work from any page, not
-just Home.
+R18 moved the brand, the displayed account and its menu into the
+application sidebar (`gui/sidebar.py`); Home keeps a compact profile summary
+(points, true points, beaten, mastered, completion) above the catalog search
+until R19 rebuilds it.
 
 Phase 5: the center search bar reveals a second, independent `ExplorerPage`
 instance (`self._explorer_page`) in place of Continue Playing/Recent
@@ -39,10 +34,12 @@ reparenting a `QTableView` between containers touches the same class of
 geometry-change code implicated in Explorer's earlier native crash
 (`gui/delegates/explorer_delegates.py`'s module docstring), so this phase
 doesn't attempt it. No animation, either, for the same reason — instant
-`setVisible()` toggling only. `HomePage.refresh()` always collapses back
-to the default state; the embedded page's own `refresh()` only runs while
-actually expanded (cache-only, cheap — see `ExplorerPage`'s own
-docstring — so it's safe to re-run on every expand, not just the first).
+`setVisible()` toggling only. Since R18 `HomePage.refresh()` keeps the
+search text and expanded results, so leaving Home and coming back restores
+them; `reset_to_root()` collapses back to the default state. The embedded
+page's own `refresh()` only runs while actually expanded (cache-only, cheap —
+see `ExplorerPage`'s own docstring — so it's safe to re-run on every expand,
+not just the first).
 
 A later pass (Bloco 5) replaced the click-to-expand launcher button with a
 real, always-visible `QLineEdit` (`self._search_input`) — typing into it is
@@ -58,20 +55,18 @@ from dataclasses import replace
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from retrocheevos.models.account import Account
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QCursor, QDesktopServices, QFontMetrics, QIcon, QPixmap
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -80,10 +75,8 @@ from PySide6.QtWidgets import (
 )
 
 from retrocheevos.core.activity_feed import build_activity_feed
-from retrocheevos.gui.assets import assets_dir
 from retrocheevos.gui import styles
 from retrocheevos.gui.app_context import AppContext
-from retrocheevos.gui.image_loader import ImageLoader
 from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.pages.explorer_page import ExplorerPage
 from retrocheevos.gui.workers import ServiceWorker
@@ -95,7 +88,6 @@ from retrocheevos.services import (
     console_service,
     dashboard_service,
     events_service,
-    image_service,
     library_service,
     notification_service,
     preferences_service,
@@ -111,29 +103,6 @@ from retrocheevos.widgets.unmatched_rom_card import UnmatchedRomCard
 from retrocheevos.widgets.now_playing_panel import NowPlayingPanel
 
 logger = logging.getLogger(__name__)
-
-USER_MENU_DESTINATIONS = [
-    # "home" isn't in `MainWindow._menu_pages` — it's the root page, handled
-    # as a special case in `_on_menu_navigate`. Listed first because it's
-    # where "get me back" belongs, and because clicking the photo (rather
-    # than hovering it) now goes straight here.
-    ("home", "Home"),
-    ("library", "Library"),
-    ("lists", "Lists"),
-    ("settings", "Settings"),
-]
-
-def _assets_dir() -> Path:
-    """Kept for existing callers; see `gui/assets.py::assets_dir`."""
-    return assets_dir()
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-LOGO_PATH = _assets_dir() / "logo.png"
-# The shared emblem is used in the header and as the desktop icon.
-ICON_PATH = _assets_dir() / "icon.png"
-# 64 px is half of the 128 px pixel-art emblem, so scaling keeps edges crisp.
-LOGO_HEIGHT = 64
 
 # Keep room for the game grid while leaving event titles readable.
 SIDEBAR_MIN_WIDTH = 280
@@ -151,9 +120,6 @@ MIN_CONTINUE_PLAYING_COLUMNS = 2
 MAX_CONTINUE_PLAYING_ENTRIES = 50
 CONTINUE_PLAYING_MIN_HEIGHT = 160
 REFRESH_BUTTON_TEXT = "Refresh"
-LOGOUT_ACTION_TEXT = "Logout"
-LOGIN_ACTION_TEXT = "Login"
-ADD_ACCOUNT_ACTION_TEXT = "Add an account…"
 ACTIVITY_LOADING_TEXT = "Loading recent activity…"
 ACTIVITY_ERROR_TEXT = "Couldn't load recent activity."
 # What one refresh actually costs, counted from `activity_feed_service`:
@@ -186,44 +152,7 @@ MAX_BANNER_EVENT_NAMES = 3
 # Opened externally rather than rebuilt in-app: RA exposes no API for this
 # ranking, and scraping it isn't something this project does.
 BEATEN_GAMES_LEADERBOARD_URL = "https://retroachievements.org/ranking/beaten-games"
-USER_AVATAR_SIZE = 36
-# The header band's height is **pinned**, not derived from whatever is
-# tallest inside it. It used to come from the avatar button, which meant
-# resizing the photo silently resized the whole top of every page — a change
-# nobody asked for each time. Now the photo can change freely and the band
-# stays put; this constant is the only thing that moves it.
-HEADER_HEIGHT = 96
-# Gap between the points block and the photo.
-POINTS_AVATAR_GAP = 8
-# How far the points+photo group sits below the top of the band.
-RIGHT_GROUP_DROP = 16
-# Frame around the avatar image inside its button. Shared with the points
-# block, which is pinned to the same total height so the two centre together.
-AVATAR_FRAME_PAD = 8
-# Matches the page's own layout margin so header and content share one left
-# edge, and keeps the avatar off the right-hand window edge.
-HEADER_SIDE_MARGIN = 24
-# Profile totals use the mint accent and neutral heading color.
-POINTS_COLOR = styles.POINTS_BLUE
-TRUE_POINTS_COLOR = styles.HEADING
-POINTS_FONT_SIZE = 18
-TRUE_POINTS_FONT_SIZE = 12
-APP_NAME_FONT_SIZE = 26
-# Gap between the emblem and the wordmark.
-LOGO_TEXT_GAP = 14
-# Twice the height the stats line takes below `top_bar` — a top margin of
-# this size shifts the lockup's centre down by half of it, landing it on the
-# centre of the full header band.
-LOGO_BAND_OFFSET = 18
-STATS_FONT_DELTA = 2
-# 0, not negative: confirmed via `QWidget.geometry()` measurements (same
-# finding as `HISTORY_BUTTON_SPACING` in `main_window.py`) that
-# `QLayout.setSpacing()` silently discards any negative value and
-# substitutes the platform style's own default spacing instead — measured
-# identical (+6px) for every value from -1 to -20 tried. `0` is the real
-# floor: measured a genuine 0px gap between the two labels.
-POINTS_SPACING = 0
-MENU_CLOSE_POLL_MS = 150
+UNKNOWN_POINTS = "—"
 
 
 def _continue_playing_sort_key(entry: tuple) -> tuple:
@@ -249,67 +178,21 @@ def _continue_playing_sort_key(entry: tuple) -> tuple:
     )
 
 
-HOVER_MENU_DELAY_MS = 120
-
 # Stable keys used with AppContext's WorkerRegistry so shutdown can cancel
 # every background job this page owns, and so "is a job already running?"
 # checks don't rely on a dangling QThread reference.
 HOME_WORKER_ACTIVITY = ("home", "activity")
-HOME_WORKER_PHOTO = ("home", "photo")
 HOME_WORKER_PROFILE_SYNC = ("home", "profile-sync")
 HOME_WORKER_PLAY = ("home", "play")
 
 
-class _HoverMenuButton(QPushButton):
-    """A QPushButton where hover and click do different things — click
-    still emits Qt's normal `clicked`, `hovered` is this class's own
-    addition for the destinations menu (see `HomePage._show_user_menu`).
-
-    `hovered` fires after a short delay, not immediately on `enterEvent`:
-    the menu it opens used to be a blocking `QMenu.exec()` call, and the
-    mouse always enters a widget before it can click it — firing `hovered`
-    immediately meant every click's press/release landed inside that
-    already-open menu instead of reaching the button, so a plain click
-    could never fire `clicked` at all. Delaying it and cancelling on
-    press/leave lets a normal quick click go through untouched, while a
-    genuine hover-and-wait still opens the menu — 120ms is short enough to
-    feel immediate for an intentional hover while still comfortably
-    outlasting a real click's press-to-release time.
-    """
-
-    hovered = Signal()
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setSingleShot(True)
-        self._hover_timer.timeout.connect(self.hovered.emit)
-
-    def enterEvent(self, event) -> None:  # noqa: N802 — Qt override
-        self._hover_timer.start(HOVER_MENU_DELAY_MS)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:  # noqa: N802 — Qt override
-        self._hover_timer.stop()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt override
-        self._hover_timer.stop()
-        super().mousePressEvent(event)
-
-
 class HomePage(Page):
-    # `str` is the key from USER_MENU_DESTINATIONS — `gui/main_window.py`
-    # owns the actual page instances/switching, this page only reports
-    # what was picked (same "emit, don't reach into MainWindow" shape as
-    # every other page's existing signals, e.g. ContinuePlayingGameRow.play_requested).
-    navigate_requested = Signal(str)
-    logout_requested = Signal()
-    login_requested = Signal(int)  # account_id
+    # New profile data landed (opportunistic sync); the sidebar reloads the
+    # avatar from it.
+    profile_updated = Signal()
 
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
-        self._user_menu: Optional[QMenu] = None
         self._activity_entries: list[ActivityEntry] = []
         self._activity_cards: dict[str, tuple[ActivityEntry, ActivityEntryCard]] = {}
         # See `_refresh_activity_feed`: only an initial load renders entries
@@ -336,7 +219,6 @@ class HomePage(Page):
         # Account generation of the activity fetch currently in flight.
         self._activity_request_account_gen: Optional[int] = None
         self._activity_refresh_pending = False
-        self._photo_worker_key = HOME_WORKER_PHOTO
         # One shared loader for every ContinuePlayingGameRow built by
         # refresh() — registered with AppContext so shutdown can wait for it.
         self._image_loader = app_context.create_image_loader()
@@ -360,55 +242,29 @@ class HomePage(Page):
         # `time.monotonic()` of the last fetch *attempt*, or None if none yet.
         self._activity_last_attempt: Optional[float] = None
 
-        logo_label = QLabel()
-        logo_label.setObjectName("brandMark")
-        logo_pixmap = QPixmap(str(LOGO_PATH))
-        if not logo_pixmap.isNull():
-            logo_label.setPixmap(logo_pixmap.scaled(
-                LOGO_HEIGHT, LOGO_HEIGHT, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
-        logo_label.setFixedSize(LOGO_HEIGHT, LOGO_HEIGHT)
-        app_name_label = QLabel("TrophyTracker")
-        app_name_label.setObjectName("brandName")
-        tagline = QLabel("Your games. Your achievements.")
-        tagline.setObjectName("brandTagline")
-        wordmark = QVBoxLayout()
-        wordmark.setSpacing(2)
-        wordmark.addWidget(app_name_label)
-        wordmark.addWidget(tagline)
-        logo_row = QHBoxLayout()
-        logo_row.setSpacing(10)
-        logo_row.addWidget(logo_label)
-        logo_row.addLayout(wordmark)
-
-        self._points_label = QLabel("—")
-        self._true_points_label = QLabel("—")
-        self._points_label.setStyleSheet(f"color: {styles.LINK}; font-size: 18pt; font-weight: 600;")
-        self._true_points_label.setStyleSheet(f"color: {styles.HEADING}; font-size: 18pt; font-weight: 600;")
-        right_row = QHBoxLayout()
-        right_row.setSpacing(24)
-        for caption, value in (("POINTS", self._points_label), ("RETRO POINTS", self._true_points_label)):
+        self._points_label = QLabel(UNKNOWN_POINTS)
+        self._true_points_label = QLabel(UNKNOWN_POINTS)
+        self._points_label.setStyleSheet(
+            f"color: {styles.ACCENT_GOLD}; font-size: 18pt; font-weight: 600;"
+        )
+        self._true_points_label.setStyleSheet(
+            f"color: {styles.TEXT_PRIMARY}; font-size: 18pt; font-weight: 600;"
+        )
+        # Beaten/Mastered/Completion %, from the same `get_profile_stats` row.
+        self._stats_row_label = QLabel()
+        self._stats_row_label.setProperty("role", "secondary")
+        profile_summary = QHBoxLayout()
+        profile_summary.setSpacing(24)
+        for caption, value in (("POINTS", self._points_label), ("TRUE POINTS", self._true_points_label)):
             column = QVBoxLayout()
             column.setSpacing(2)
             label = QLabel(caption)
             label.setObjectName("eyebrow")
             column.addWidget(label)
             column.addWidget(value)
-            right_row.addLayout(column)
-        self._user_avatar_button = _HoverMenuButton("●")
-        self._user_avatar_button.setObjectName("accountButton")
-        self._user_avatar_button.setAccessibleName("Account menu")
-        self._user_avatar_button.setToolTip("Accounts and session")
-        self._user_avatar_button.setIconSize(QSize(USER_AVATAR_SIZE, USER_AVATAR_SIZE))
-        self._user_avatar_button.setFixedSize(USER_AVATAR_SIZE + AVATAR_FRAME_PAD, USER_AVATAR_SIZE + AVATAR_FRAME_PAD)
-        self._user_avatar_button.clicked.connect(self._show_user_menu)
-        self._user_avatar_button.hovered.connect(self._show_user_menu)
-        right_row.addWidget(self._user_avatar_button)
-        top_bar = QHBoxLayout()
-        top_bar.addLayout(logo_row)
-        top_bar.addStretch(1)
-        top_bar.addLayout(right_row)
+            profile_summary.addLayout(column)
+        profile_summary.addWidget(self._stats_row_label, alignment=Qt.AlignmentFlag.AlignBottom)
+        profile_summary.addStretch(1)
 
         # Always-visible real search field — typing (not a click-to-expand
         # step) is what reveals the embedded Explorer's results below, via
@@ -516,6 +372,7 @@ class HomePage(Page):
         self._now_playing.progress_updated.connect(self._refresh_continue_playing)
         self.app_context.active_account_changed.connect(self._now_playing.set_account)
         self._now_playing.set_account(self.app_context.active_account)
+        self._center_column.addLayout(profile_summary)
         self._center_column.addWidget(self._search_input)
         self._center_column.addWidget(self._back_to_home_button)
         self._center_column.addWidget(self._explorer_page)
@@ -593,56 +450,6 @@ class HomePage(Page):
         content_row.addWidget(center_scroll, stretch=1)
         content_row.addWidget(sidebar_widget, stretch=0)
 
-        # Beaten/Mastered/Completion %, absorbed from the since-removed
-        # Profile page — same source data (`profile_service.get_profile_stats`,
-        # already fetched below for the points labels), sitting under
-        # photo/name/points.
-        self._stats_row_label = QLabel()
-        self._stats_row_label.setStyleSheet(f"color: {styles.TEXT_DIM};")
-        stats_font = self._stats_row_label.font()
-        stats_font.setPointSize(stats_font.pointSize() + STATS_FONT_DELTA)
-        self._stats_row_label.setFont(stats_font)
-        stats_row = QHBoxLayout()
-        self._displayed_account_label = QLabel()
-        account = self.app_context.active_account
-        self._displayed_account_label.setText(
-            f"Account: {account.username}" if account else "No account selected"
-        )
-        stats_row.addWidget(self._displayed_account_label)
-        stats_row.addStretch(1)
-        stats_row.addWidget(self._stats_row_label)
-
-        # The header (logo, name, points, stats, avatar menu) is packaged as
-        # a widget rather than added to this page's layout, so `MainWindow`
-        # can mount it *above the page stack* — one instance, visible on
-        # every page, instead of four copies each needing their own signal
-        # wiring and their own profile fetch. It still belongs to this page:
-        # the labels are updated by `refresh()`/`_on_photo_ready` here, and
-        # `refresh_header()` exists for MainWindow to freshen it when
-        # navigating somewhere that isn't Home.
-        self.header_widget = QWidget()
-        self.header_widget.setObjectName("brandHeader")
-        header_layout = QVBoxLayout(self.header_widget)
-        # Side margins matching the page below, so the logo starts on the
-        # same vertical line as the search field and the avatar isn't jammed
-        # against the window edge. The header sits in `MainWindow`, outside
-        # the page's own layout, so it doesn't inherit those margins.
-        header_layout.setContentsMargins(
-            HEADER_SIDE_MARGIN, 0, HEADER_SIDE_MARGIN, 0
-        )
-        # No gap between the logo row and the stats line under it — they read
-        # as one band, and the default layout spacing was most of the band's
-        # spare height.
-        header_layout.setSpacing(0)
-        # `stretch=1` so `top_bar` owns the band's spare height — otherwise
-        # it is only as tall as its contents and "centre the logo" would
-        # centre it in that smaller row, leaving it visibly high in the band.
-        header_layout.addLayout(top_bar, stretch=1)
-        header_layout.addLayout(stats_row)
-        # Fixed, so the band no longer resizes when the avatar or the fonts
-        # inside it change — see `HEADER_HEIGHT`.
-        self.header_widget.setFixedHeight(HEADER_HEIGHT)
-
         layout = QVBoxLayout(self)
         layout.addLayout(content_row, stretch=1)
 
@@ -677,18 +484,8 @@ class HomePage(Page):
         # R01: cancel anything account-bound before it can land on the wrong
         # user's screen, and drop the cached feed if the user changed.
         self._account_generation += 1
-        self._displayed_account_label.setText(
-            f"Account: {account.username}" if account else "No account selected"
-        )
         self.app_context.workers.cancel_key(HOME_WORKER_ACTIVITY)
-        self.app_context.workers.cancel_key(self._photo_worker_key)
-        self._photo_worker_key = (HOME_WORKER_PHOTO, self._account_generation)
         self._activity_refresh_pending = False
-        self._user_avatar_button.setIcon(QIcon())
-        self._user_avatar_button.setText("●")
-        self._user_avatar_button.setToolTip(
-            f"Displayed account: {account.username}" if account else "Choose an account"
-        )
         self.app_context.workers.cancel_key(HOME_WORKER_PROFILE_SYNC)
         new_id = account.id if account is not None else None
         if self._activity_cache_account_id != new_id:
@@ -700,31 +497,13 @@ class HomePage(Page):
             self._activity_retry_interval_ms = ACTIVITY_REFRESH_INTERVAL_MS
             self._activity_refresh_timer.setInterval(ACTIVITY_REFRESH_INTERVAL_MS)
 
-    def refresh_header(self) -> None:
-        """Update just the shared header — points, stats, avatar.
-
-        `MainWindow` calls this when navigating to a page that isn't Home, so
-        the header on Library/Lists/Settings shows current numbers. Split out
-        of `refresh()` deliberately: that one also kicks off the Recent
-        Activity fetch, which is several seconds of live API calls and has no
-        business running because someone opened Settings.
-        """
-        account = self.app_context.active_account
-        if account is None:
-            self._points_label.setText("—")
-            self._true_points_label.setText("—")
-            self._stats_row_label.setText("")
-            self._user_avatar_button.setText("●")
-            self._user_avatar_button.setIcon(QIcon())
-            return
-
-        stats = profile_service.get_profile_stats(account.id)
+    def _update_profile_summary(self, stats) -> None:
+        """Show `stats` (a `ProfileStats` or None) in the summary strip."""
         if stats is None:
-            self._points_label.setText("—")
-            self._true_points_label.setText("—")
+            self._points_label.setText(UNKNOWN_POINTS)
+            self._true_points_label.setText(UNKNOWN_POINTS)
             self._stats_row_label.setText("")
             return
-
         self._points_label.setText(f"{stats.points:,}")
         self._true_points_label.setText(f"{stats.true_points:,}")
         self._stats_row_label.setText(
@@ -732,16 +511,25 @@ class HomePage(Page):
             f"Completion: {stats.completion_percentage:.1f}%"
         )
 
-    def refresh(self) -> None:
-        self._now_playing.set_account(self.app_context.active_account)
-        # Always resets to collapsed — the embedded Explorer's own state
-        # (filters, scroll position) isn't something Home tries to
-        # remember across visits; matches "cache-only, must feel instant"
-        # (UI.md §5) better than re-showing a possibly-stale expanded view.
+    def reset_to_root(self) -> None:
+        """Clear the catalog search and collapse its results.
+
+        Used by "Back to Home", by selecting Home again in the sidebar and on
+        account changes; plain navigation keeps the search (R18).
+        """
         self._search_input.blockSignals(True)
         self._search_input.clear()
         self._search_input.blockSignals(False)
+        self._explorer_page.set_search_text("")
         self._collapse_explorer()
+
+    def refresh(self) -> None:
+        self._now_playing.set_account(self.app_context.active_account)
+        # The search and the embedded Explorer's results, filters, sorting
+        # and scroll are kept (R18). Re-query them from the cache when
+        # expanded so a sync made elsewhere shows up.
+        if self._results_expanded():
+            self._explorer_page.refresh()
         # The filter pills are on screen even while results are hidden, so
         # the Console pill needs its list now — `_expand_explorer`'s own
         # `refresh()` would populate it too, but only after the user has
@@ -757,11 +545,7 @@ class HomePage(Page):
 
         account = self.app_context.active_account
         if account is None:
-            self._points_label.setText("—")
-            self._true_points_label.setText("—")
-            self._stats_row_label.setText("")
-            self._user_avatar_button.setText("●")
-            self._user_avatar_button.setIcon(QIcon())
+            self._update_profile_summary(None)
             # Dropped on logout/account switch, or the next account would
             # briefly see the previous one's feed painted from cache.
             self._activity_cache = []
@@ -770,41 +554,14 @@ class HomePage(Page):
             self._clear_activity_feed()
             return
 
-        stats = profile_service.get_profile_stats(account.id)
-        if stats is not None:
-            self._points_label.setText(f"{stats.points:,}")
-            self._true_points_label.setText(f"{stats.true_points:,}")
-            self._stats_row_label.setText(
-                f"Beaten: {stats.games_beaten}  |  Mastered: {stats.games_mastered}  |  "
-                f"Completion: {stats.completion_percentage:.1f}%"
-            )
-            # Skip starting a new fetch if the previous one is still
-            # in flight (same "already pending, don't duplicate" idiom as
-            # `gui/image_loader.py::ImageLoader.request`) — replacing a
-            # still-running `QThread`'s only reference destroys it while
-            # `run()` is executing, which is what caused a native crash
-            # here once this fetch got slow (docs/archive/RoadmapHistory.md).
-            if not self.app_context.workers.has_key(self._photo_worker_key):
-                gen = self._account_generation
-                account_id = account.id
-                photo_worker = ServiceWorker(
-                    image_service.ensure_user_pic_cached, account.username, stats.user_pic_path
-                )
-                photo_worker.finished_ok.connect(
-                    lambda path: self._on_photo_ready_guarded(path, gen, account_id)
-                )
-                self.app_context.workers.start(photo_worker, key=self._photo_worker_key)
-        else:
-            self._points_label.setText("—")
-            self._true_points_label.setText("—")
-            self._stats_row_label.setText("")
+        self._update_profile_summary(profile_service.get_profile_stats(account.id))
 
         # Opportunistic, not periodic: only checked here, on activation/
         # revisit of Home, never on a timer. Cheap no-op if `profile_stats`
         # is still fresh (`sync_service.PROFILE_SYNC_STALE_AFTER`) — self-heals
         # stale points (e.g. `true_points` stuck at its migration-v8 backfill
         # default of 0) without hammering the API on every restart/switch.
-        # Same in-flight guard as `_photo_worker`/`_activity_worker` above.
+        # Same in-flight guard as the activity fetch.
         self._start_profile_sync(account)
 
         # Continue Playing lists installed ROMs too, so it needs the same
@@ -1214,14 +971,7 @@ class HomePage(Page):
             self._collapse_explorer()
 
     def _on_back_to_home_clicked(self) -> None:
-        # Blocked, not just cleared: `clear()` alone would re-enter
-        # `_on_search_text_changed` (harmlessly — it would just collapse
-        # again) but there's no reason to run that handler a second time
-        # for a state change already being driven from here.
-        self._search_input.blockSignals(True)
-        self._search_input.clear()
-        self._search_input.blockSignals(False)
-        self._collapse_explorer()
+        self.reset_to_root()
 
     def _on_activity_entry_ready(self, entry: ActivityEntry) -> None:
         self._activity_entries.append(entry)
@@ -1380,6 +1130,7 @@ class HomePage(Page):
         # `last_synced_at` and returns False immediately, so this can't loop.
         if synced:
             self.refresh()
+            self.profile_updated.emit()
 
     def _on_profile_sync_failed(self, message: str) -> None:
         # Never surfaced to the user (e.g. `QMessageBox`) — this is a
@@ -1387,115 +1138,3 @@ class HomePage(Page):
         # manual "Sync Profile" button on the Profile page is what reports
         # failures. Just log for diagnosis.
         logger.info("Opportunistic profile sync skipped/failed: %s", message)
-
-    def _on_photo_ready_guarded(self, cached_path, generation: int, account_id: int) -> None:
-        if generation != self._account_generation:
-            return
-        account = self.app_context.active_account
-        if account is None or account.id != account_id:
-            return
-        self._on_photo_ready(cached_path)
-
-    def _on_photo_ready(self, cached_path) -> None:
-        # `ensure_user_pic_cached` never raises (see image_service.py) —
-        # `None` means "no photo yet" or "download failed," not an error;
-        # the 👤 text fallback set in refresh() is already in place either way.
-        if not cached_path:
-            return
-        pixmap = QPixmap(str(cached_path))
-        if pixmap.isNull():
-            return
-        self._user_avatar_button.setIcon(QIcon(pixmap))
-        self._user_avatar_button.setText("")
-
-    def _show_user_menu(self) -> None:
-        if self._user_menu is not None:
-            return  # already open (e.g. re-entering the button while it's showing)
-
-        menu = QMenu(self._user_avatar_button)
-        for key, label in USER_MENU_DESTINATIONS:
-            action = menu.addAction(label)
-            action.triggered.connect(self._make_navigate_handler(key))
-        menu.addSeparator()
-        self._add_session_actions(menu)
-        self._user_menu = menu
-
-        # `QMenu` has no built-in "close when the cursor leaves" — only
-        # click-away/Escape/action-triggered. Polling the cursor against
-        # the button's and the menu's own rect and closing it once it's in
-        # neither is the standard way to get that hover-dropdown feel.
-        # `popup()` (non-blocking), not `exec()` (blocking): this poll
-        # timer needs the event loop free to keep firing while the menu is
-        # open.
-        close_poll_timer = QTimer(menu)
-        close_poll_timer.setInterval(MENU_CLOSE_POLL_MS)
-        close_poll_timer.timeout.connect(lambda: self._close_menu_if_cursor_left(menu))
-        menu.aboutToHide.connect(close_poll_timer.stop)
-        menu.aboutToHide.connect(self._on_user_menu_closed)
-        close_poll_timer.start()
-
-        menu.popup(self._user_avatar_button.mapToGlobal(self._user_avatar_button.rect().bottomLeft()))
-
-    def _add_session_actions(self, menu: QMenu) -> None:
-        """"Logout" when signed in, "Login" when not.
-
-        Offering "Logout" with nobody signed in was a dead entry, and the way
-        back in was buried in Settings — so the menu that got you out had no
-        matching way back. Three cases:
-
-        - signed in            -> Logout
-        - signed out, 1 account -> "Login as <name>", straight in
-        - signed out, several   -> one entry per account, so the choice is
-          made here rather than by going to Settings to switch first
-        """
-        active = self.app_context.active_account
-        if active is not None:
-            account_menu = QMenu(f"Displayed account: {active.username}", menu)
-            menu.addMenu(account_menu)
-            for account in session_service.list_accounts():
-                action = account_menu.addAction(
-                    account.username, self._make_login_handler(account.id)
-                )
-                action.setCheckable(True)
-                action.setChecked(account.id == active.id)
-            menu.addAction(LOGOUT_ACTION_TEXT, self.logout_requested.emit)
-            return
-
-        accounts = session_service.list_accounts()
-        if not accounts:
-            # Nothing to log into yet — send them where accounts are added
-            # instead of showing a Login that can't do anything.
-            menu.addAction(ADD_ACCOUNT_ACTION_TEXT, self._make_navigate_handler("settings"))
-            return
-
-        if len(accounts) == 1:
-            account = accounts[0]
-            menu.addAction(
-                f"{LOGIN_ACTION_TEXT} as {account.username}",
-                self._make_login_handler(account.id),
-            )
-            return
-
-        for account in accounts:
-            menu.addAction(
-                f"{LOGIN_ACTION_TEXT} as {account.username}",
-                self._make_login_handler(account.id),
-            )
-
-    def _make_login_handler(self, account_id: int):
-        return lambda: self.login_requested.emit(account_id)
-
-    def _close_menu_if_cursor_left(self, menu: QMenu) -> None:
-        pos = QCursor.pos()
-        over_button = self._user_avatar_button.rect().contains(
-            self._user_avatar_button.mapFromGlobal(pos)
-        )
-        over_menu = menu.geometry().contains(pos)
-        if not (over_button or over_menu):
-            menu.close()
-
-    def _on_user_menu_closed(self) -> None:
-        self._user_menu = None
-
-    def _make_navigate_handler(self, key: str):
-        return lambda: self.navigate_requested.emit(key)

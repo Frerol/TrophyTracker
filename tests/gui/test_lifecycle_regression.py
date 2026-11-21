@@ -97,9 +97,9 @@ class LifecycleRegressionTests(unittest.TestCase):
         self.window.app_context._active_account = Account('lifecycle', '', True, id=1)
         # Close workers before stopping mocks, even if an assertion fails.
         self.addCleanup(self.window.close)
-        pages = [self.window._nav_pages[0], *self.window._menu_pages.values()]
-        for page in pages:
-            self.window._show_page(page)
+        for key in ('home', 'library', 'lists', 'settings'):
+            page = self.window.destination(key)
+            self.window.navigate(key)
             self._pump()
             self.window.showFullScreen()
             self._pump()
@@ -111,8 +111,8 @@ class LifecycleRegressionTests(unittest.TestCase):
 
         # Enter fullscreen from Home's expanded Explorer, where the original
         # crash was reproduced.
-        home = self.window._nav_pages[0]
-        self.window._show_page(home)
+        home = self.window.destination('home')
+        self.window.navigate('home')
         home._search_input.setText("mario")
         explorer = home._explorer_page
         deadline = time.monotonic() + 5
@@ -145,24 +145,19 @@ class LifecycleRegressionTests(unittest.TestCase):
                 self._pump()
 
     def test_navigation_reaches_every_destination_and_keeps_selection(self) -> None:
-        for page, button in self.window._navigation_buttons.items():
-            self.window._show_page(page)
+        items = self.window._sidebar.items
+        for key, item in items.items():
+            item.click()
             self._pump()
-            self.assertIs(self.window._pages.currentWidget(), page)
-            self.assertTrue(button.isChecked())
-            self.assertEqual(
-                sum(item.isChecked() for item in self.window._navigation_buttons.values()), 1
-            )
+            self.assertIs(self.window._pages.currentWidget(), self.window.destination(key))
+            self.assertTrue(item.isChecked())
+            self.assertEqual(sum(other.isChecked() for other in items.values()), 1)
 
-        for key, page in self.window._menu_pages.items():
-            self.window._on_menu_navigate(key)
+        for key in items:
+            self.window.navigate(key)
             self._pump()
-            self.assertIs(self.window._pages.currentWidget(), page)
-            self.assertTrue(self.window._navigation_buttons[page].isChecked())
-
-        self.window._navigate_home()
-        self._pump()
-        self.assertIs(self.window._pages.currentWidget(), self.window._nav_pages[0])
+            self.assertIs(self.window._pages.currentWidget(), self.window.destination(key))
+            self.assertTrue(items[key].isChecked())
 
     def test_closing_the_window_stops_a_running_worker(self) -> None:
         """A close during a worker must not destroy a running QThread.

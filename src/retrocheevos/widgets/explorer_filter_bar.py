@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from retrocheevos.gui.flow_layout import FlowLayout
 from retrocheevos.core.explorer import ExplorerFilters
 from retrocheevos.models.console import Console
 from retrocheevos.utils.enums import GameType
@@ -129,8 +130,8 @@ class ExplorerFilterBar(QWidget):
         reset_button = QPushButton("Reset ✕")
         reset_button.clicked.connect(self._on_reset_clicked)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Wraps onto a second row in narrow windows instead of clipping.
+        layout = FlowLayout(self)
         for widget in (
             self._console_pill,
             self._type_pill,
@@ -140,7 +141,6 @@ class ExplorerFilterBar(QWidget):
             reset_button,
         ):
             layout.addWidget(widget)
-        layout.addStretch(1)
 
         self._update_console_pill_label()
         self._update_type_pill_label()

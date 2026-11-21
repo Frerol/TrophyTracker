@@ -79,7 +79,6 @@ class HomeAccountWorkerTests(unittest.TestCase):
         self.select(self.bob)
         self.assertEqual(self.home._activity_entries, [])
         self.assertEqual(self.home._activity_cache, [])
-        self.assertEqual(self.home._displayed_account_label.text(), 'Account: Bob')
         self.home._refresh_activity_feed(show_loading=True)
         self.assertIsNone(self.home._activity_last_attempt)
         self.assertTrue(self.home._activity_refresh_pending)
@@ -110,37 +109,33 @@ class HomeAccountWorkerTests(unittest.TestCase):
         self.assertNotIn(HOME_WORKER_ACTIVITY, self.workers.pending)
         self.assertEqual(self.workers.all.count(first), 1)
 
-    def test_logout_drops_delayed_activity_and_photo_results_and_pending_retry(self):
+    def test_logout_drops_delayed_activity_results_and_pending_retry(self):
         self.select(self.alice)
         generation = self.home._account_generation
         self.home._refresh_activity_feed(show_loading=True)
         old = self.workers.pending[HOME_WORKER_ACTIVITY]
         self.select(None)
-        with patch.object(self.home, '_on_photo_ready') as photo, patch.object(self.home, '_on_activity_feed_failed') as failed:
-            self.home._on_photo_ready_guarded(None, generation, self.alice.id)
+        with patch.object(self.home, '_on_activity_feed_failed') as failed:
             old.partial_result.emit(entry('Alice'))
             old.finished_ok.emit(ActivityFeedResult([entry('Alice')], []))
             old.failed.emit('late error')
-            photo.assert_not_called()
             failed.assert_not_called()
         self.workers.finish(HOME_WORKER_ACTIVITY)
         QTest.qWait(10)
         self.assertEqual(self.home._activity_cache, [])
         self.assertNotIn(HOME_WORKER_ACTIVITY, self.workers.pending)
 
-    def test_photo_and_profile_callbacks_cannot_update_other_account(self):
+    def test_profile_callbacks_cannot_update_other_account(self):
         self.select(self.alice)
         generation = self.home._account_generation
         self.select(self.bob)
-        with patch.object(self.home, '_on_photo_ready') as photo, patch.object(self.home, '_on_profile_sync_done') as done, patch.object(self.home, '_on_profile_sync_failed') as failed:
-            self.home._on_photo_ready_guarded(None, generation, self.alice.id)
+        with patch.object(self.home, '_on_profile_sync_done') as done, patch.object(self.home, '_on_profile_sync_failed') as failed:
             self.home._on_profile_sync_done_guarded(True, generation, self.alice.id)
             self.home._on_profile_sync_failed_guarded('old failure', generation, self.alice.id)
-            photo.assert_not_called()
             done.assert_not_called()
             failed.assert_not_called()
-            self.home._on_photo_ready_guarded(None, self.home._account_generation, self.bob.id)
-            photo.assert_called_once_with(None)
+            self.home._on_profile_sync_done_guarded(False, self.home._account_generation, self.bob.id)
+            done.assert_called_once_with(False)
 
     def test_home_settings_and_both_explorers_share_one_sync_slot(self):
         self.select(self.alice)

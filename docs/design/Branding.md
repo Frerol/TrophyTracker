@@ -70,9 +70,9 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python tools/brand/generate_i
 | --- | --- | --- |
 | `assets/icons/trophytracker-{16,24,32,48,64,128,256}.png` | Concept A | Window, taskbar and tray icon sizes, bundled |
 | `assets/icon.png` (512 px) | Concept A | Desktop and AppImage icon, Windows executable icon, fallback for missing sizes |
-| `assets/logo.png` (128 px) | Concept A | Header emblem, shown at 64 px |
+| `assets/logo.png` (128 px) | Concept A | Former header emblem; kept for release artwork. The sidebar (R18) uses the 32 px icon, with the 64 px one on high-density displays |
 | `assets/brand/illustration-c-512.png` | Concept C | Large artwork: onboarding (R24), About, release pages; not bundled yet |
-| `assets/brand/wordmark-800.png` | Wordmark | Shell and release artwork (R18, R27); not bundled yet |
+| `assets/brand/wordmark-800.png` | Wordmark | Release artwork (R27); not bundled. The sidebar sets the name as live Space Grotesk text next to icon A |
 
 **Rules for concept A.** The trophy is a pixel grid and is always drawn at an
 integer number of pixels per grid unit, never resampled, so it stays sharp.

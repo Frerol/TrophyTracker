@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from retrocheevos.gui.view_state import restore_scroll_later
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.image_loader import ImageLoader
 from retrocheevos.gui.pages.base_page import Page
@@ -68,6 +69,10 @@ class ListsPage(Page):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(self._rows_container)
+        self._scroll_area = scroll_area
+        # Which list the rows on screen belong to, so a refresh of the same
+        # list keeps its scroll position and switching lists starts at the top.
+        self._shown_list_id: Optional[int] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 16, 24, 20)
@@ -82,7 +87,15 @@ class ListsPage(Page):
         layout.addWidget(scroll_area, stretch=1)
 
     def refresh(self) -> None:
+        previous_list_id = self._shown_list_id
+        scroll = self._scroll_area.verticalScrollBar().value()
+        self._rebuild()
+        if self._shown_list_id is not None and self._shown_list_id == previous_list_id:
+            restore_scroll_later(self._scroll_area, scroll)
+
+    def _rebuild(self) -> None:
         self._clear_rows()
+        self._shown_list_id = None
 
         account = self.app_context.active_account
         if account is None:
@@ -101,6 +114,7 @@ class ListsPage(Page):
         # deleting it would silently switch off the blocked filter.
         self._rename_button.setEnabled(not definition.is_blocked)
         self._delete_button.setEnabled(not definition.is_predefined)
+        self._shown_list_id = definition.id
 
         console_names = {console.id: console.name for console in console_service.list_consoles()}
         games = lists_service.get_games_in_list(account.id, definition.id)

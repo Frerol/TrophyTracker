@@ -1,8 +1,9 @@
 """Regression tests for page callbacks that referenced removed helpers.
 
-Both failures only surfaced as unhandled exceptions in the log of a real
-session: hovering the Home avatar raised `NameError`, and every finished
-Library scan raised `AttributeError`, leaving the scan buttons disabled.
+The failure only surfaced as an unhandled exception in the log of a real
+session: every finished Library scan raised `AttributeError`, leaving the
+scan buttons disabled. (The Home avatar hover menu it was found with was
+replaced by the sidebar account menu in R18.)
 """
 
 import tempfile
@@ -10,30 +11,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QEvent, QPointF
-from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication
 
 import retrocheevos.database.connection as db
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.app_context import AppContext
-from retrocheevos.gui.pages import home_page, library_page
+from retrocheevos.gui.pages import library_page
 from retrocheevos.gui.pages.library_page import LibraryPage
 from retrocheevos.models.library import RehashResult, RomFolderScanResult
 
 _app = QApplication.instance() or QApplication([])
-
-
-class HoverMenuButtonTests(unittest.TestCase):
-    def test_enter_starts_the_hover_delay(self):
-        button = home_page._HoverMenuButton("Menu")
-        self.addCleanup(button.deleteLater)
-        point = QPointF(1, 1)
-        button.enterEvent(QEnterEvent(point, point, point))
-        self.assertTrue(button._hover_timer.isActive())
-        self.assertEqual(button._hover_timer.interval(), home_page.HOVER_MENU_DELAY_MS)
-        button.leaveEvent(QEvent(QEvent.Type.Leave))
-        self.assertFalse(button._hover_timer.isActive())
 
 
 class LibraryScanCallbackTests(unittest.TestCase):

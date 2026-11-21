@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R17 done; R18–R27 planned | Start R18 (sidebar shell). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R18 done; R19–R27 planned | Start R19 (Home) and R22 (Library). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 done | Keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done | Preserve regression coverage. |
@@ -65,16 +65,20 @@ These items wait on a product decision rather than on implementation work.
 
 ## Current Status
 
-Reflects the shipped desktop code as of 2026-11-20. The R16–R27 revamp is
-planned, not implemented.
+Reflects the desktop code as of 2026-11-21. R16–R18 of the revamp are
+implemented; R19–R27 are planned.
 
 ### Desktop (this repository)
 
-- **Navigation** — `gui/main_window.py` hosts four persistent destinations:
-  Home, Library, Lists and Settings. There is no standalone Profile or
+- **Navigation** — `gui/main_window.py` hosts four persistent destinations,
+  Home, Library, Lists and Settings, selected from the sidebar
+  (`gui/sidebar.py`) that also shows the displayed account, its menu and the
+  version. Destinations keep their view state; `open_detail()`/`go_back()`
+  provide the detail routes R21 will use. There is no standalone Profile or
   Dashboard page.
-- **Home** — `gui/pages/home_page.py`: Continue Playing, points/true points,
-  beaten/mastered/completion stats, Events (event games with progress and a
+- **Home** — `gui/pages/home_page.py`: a points/true points/beaten/mastered/
+  completion summary, Continue Playing,
+  Events (event games with progress and a
   new-events banner), Recent Activity (`services/activity_feed_service.py`),
   Now Playing (`widgets/now_playing_panel.py`, `services/now_playing_service.py`)
   and an always-visible search field that expands an embedded
@@ -116,7 +120,7 @@ Do not reintroduce these based on the historical record.
 
 ## Active desktop plan — interface revamp R16–R27
 
-**Status:** planned; nothing in this section is implemented.
+**Status:** R16–R18 done; R19–R27 planned.
 
 **References:** the [reviewed UI proposal](../design/ui-proposal-reviewed.html)
 (eight boards: Home, Library, Game detail, Achievement detail, Explorer, Lists,
@@ -224,16 +228,27 @@ Achievements/Systems destinations from the original proposal are not required.
 
 ### Screens
 
-- [ ] **R18 — Build the sidebar shell and reconcile navigation/search.**
-  - [ ] Home, Library, Lists and Settings with selected-item treatment and the
-    displayed account/avatar; no nonfunctional placeholders.
-  - [ ] Account selection and sign out; saved credentials never change the
-    displayed account on their own.
-  - [ ] Detail routes keep the originating view's state.
+- [x] **R18 — Build the sidebar shell and reconcile navigation/search.**
+  Completed 2026-11-21 (`gui/sidebar.py`, `gui/main_window.py`).
+  - [x] Home, Library, Lists and Settings with selected-item treatment and the
+    displayed account/avatar; no nonfunctional placeholders. Ctrl+1–4 select
+    destinations; the version moved to the sidebar footer.
+  - [x] Account selection and sign out from the sidebar account menu (opens on
+    click); saved credentials never change the displayed account on their own.
+  - [x] Detail routes keep the originating view's state: `open_detail()` and
+    `go_back()` (Alt+Left) return without refreshing the origin. Destinations
+    also keep Home's catalog search, filters and results and the Library and
+    Lists scroll positions across navigation.
+  - The shared header is gone; Home keeps the points and profile statistics
+    until R19 replaces them with metric cards.
+  - The 72 px icon rail proposed below 1100 px (ScreenDataMapping §6) is
+    deferred to R26: the sidebar stays 220 px down to the 1024×720 minimum.
 
   **Done when:** all destinations and empty states work; back restores search,
   filters, selection and scroll; account controls stay synchronized; the shell
-  adapts from 1240×780 down to 1024×720 without clipping actions.
+  adapts from 1240×780 down to 1024×720 without clipping actions. Checked with
+  offscreen screenshots of every destination at both sizes; catalog filter and
+  sync buttons wrap at 1024 px.
 
 - [ ] **R19 — Rebuild Home.**
   - [ ] Header with last-sync freshness and Sync now.
@@ -357,6 +372,8 @@ sub-items close per screen.
   - [ ] Locked, mastered, selected and error states do not rely on color alone.
   - [ ] 100/125/150/200% scaling, long titles, missing fonts, and layouts from
     1024×720 through 1920×1080.
+  - [ ] Decide on the collapsed sidebar icon rail below ~1100 px (deferred
+    from R18).
   - [ ] Motion is short and can be disabled; no costly shadows or animations in
     large grids.
 

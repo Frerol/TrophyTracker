@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from retrocheevos.gui.view_state import restore_scroll_later
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
 from retrocheevos.gui.dialogs.match_rom_dialog import MatchRomDialog
@@ -104,6 +105,7 @@ class LibraryPage(Page):
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setWidget(self._grid_container)
         scroll_area = self._scroll_area
+        self._shown_account_id: Optional[int] = None
         # Tracked so `resizeEvent` only rebuilds when the count actually
         # changes, not on every pixel of a window drag.
         self._last_grid_columns = 0
@@ -231,6 +233,18 @@ class LibraryPage(Page):
         return container
 
     def refresh(self) -> None:
+        # The grid is rebuilt from scratch; keep the user's place in it (R18),
+        # unless the grid now belongs to a different account.
+        scroll = self._scroll_area.verticalScrollBar().value()
+        account = self.app_context.active_account
+        account_id = account.id if account is not None else None
+        same_account = account_id == self._shown_account_id
+        self._shown_account_id = account_id
+        self._rebuild()
+        if same_account:
+            restore_scroll_later(self._scroll_area, scroll)
+
+    def _rebuild(self) -> None:
         # Re-read the stored size every time. The slider took its value at
         # construction, when there may have been no account signed in — so
         # without this, logging in showed the *default* size and the

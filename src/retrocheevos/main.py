@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.main_window import MainWindow
 from retrocheevos.gui.assets import assets_dir as _assets_dir
-from retrocheevos.gui.pages.home_page import ICON_PATH
+from retrocheevos.gui.assets import ICON_PATH
 from retrocheevos.gui.styles import apply_theme
 from retrocheevos.services import credential_store
 from retrocheevos.utils.logging_setup import LOG_DIR, configure_logging

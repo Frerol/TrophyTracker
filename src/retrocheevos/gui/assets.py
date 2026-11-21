@@ -37,6 +37,17 @@ def fonts_dir() -> Path:
     return assets_dir() / "fonts"
 
 
+def sized_icon_path(size: int) -> Path:
+    """Pixel-exact render of icon A at `size` px (`tools/brand/generate_icons.py`)."""
+    return assets_dir() / "icons" / f"trophytracker-{size}.png"
+
+
+# Icon A at 512 px: desktop/AppImage icon and fallback for missing sizes.
+ICON_PATH = assets_dir() / "icon.png"
+# Icon A at 128 px, kept for release artwork.
+LOGO_PATH = assets_dir() / "logo.png"
+
+
 _loaded_families: set[str] | None = None
 
 

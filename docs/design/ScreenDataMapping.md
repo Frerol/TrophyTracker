@@ -39,7 +39,7 @@ revamp. Status: **kept** (same function, restyled), **moved** (new location),
 | Action | Implementation | Target | Status |
 | --- | --- | --- | --- |
 | Navigate Home/Library/Lists/Settings | Sidebar `QPushButton`s → `_show_page` | Sidebar (R18) | kept |
-| Open user menu (hover/click avatar) | `HomePage._show_user_menu` | Sidebar account area | moved |
+| Open user menu (hover/click avatar) | `HomePage._show_user_menu` | Sidebar account area; opens on click only (R18) | moved |
 | Menu: navigate to a destination | `USER_MENU_DESTINATIONS` | Removed; sidebar covers it | removed |
 | Menu: Displayed account → choose saved account | `account_menu` → `login_requested` | Sidebar account area; Settings | kept |
 | Menu: Logout | `logout_requested` → `session_service.logout` | Sidebar account area ("Sign out") | kept |
@@ -310,7 +310,7 @@ reference width:
 
 | Area | Below ~1180 px window width |
 | --- | --- |
-| Sidebar | Stays 220 px down to 1100 px; below that, a 72 px icon rail with tooltips and the account avatar |
+| Sidebar | Stays 220 px down to 1100 px; below that, a 72 px icon rail with tooltips and the account avatar. **R18:** stays 220 px down to the 1024×720 minimum; the rail is deferred to R26 |
 | Home | Metrics stay in one row of four, shrinking text; Continue Playing and Recent Activity stack vertically below ~1100 px; Now Playing and awards follow |
 | Library | Grid columns from available width with a minimum card width (proposed 200 px): 4 → 3 → 2 |
 | Game detail | Header wraps: cover and title above, actions below; list unchanged |

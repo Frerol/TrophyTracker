@@ -88,6 +88,7 @@ TYPE_METRIC_PX = 32
 TYPE_BODY_PX = 14
 TYPE_SECONDARY_PX = 13
 TYPE_CAPTION_PX = 12
+TYPE_SIDEBAR_BRAND_PX = 20
 
 # Legacy point sizes, still read by a few widgets.
 FONT_SIZE_PT = 10
@@ -149,7 +150,7 @@ QLabel[role="metric"] {{
     font-family: {FONT_FAMILY_DISPLAY}; font-size: {TYPE_METRIC_PX}px; font-weight: 700;
     color: {TEXT_PRIMARY};
 }}
-QLabel[role="secondary"], QLabel#pageSubtitle, QLabel#brandTagline {{
+QLabel[role="secondary"], QLabel#pageSubtitle {{
     color: {TEXT_SECONDARY}; font-size: {TYPE_SECONDARY_PX}px;
 }}
 QLabel[role="caption"], QLabel#eyebrow {{
@@ -157,9 +158,9 @@ QLabel[role="caption"], QLabel#eyebrow {{
 }}
 QLabel[role="points"] {{ color: {ACCENT_GOLD}; font-weight: 600; }}
 QLabel[role="error"] {{ color: {STATUS_DANGER}; }}
-QLabel#brandName {{
+QLabel#sidebarBrand {{
     font-family: {FONT_FAMILY_DISPLAY}; color: {TEXT_PRIMARY};
-    font-size: {TYPE_PAGE_TITLE_PX}px; font-weight: 700;
+    font-size: {TYPE_SIDEBAR_BRAND_PX}px; font-weight: 700;
 }}
 QLabel#versionBadge {{
     color: {TEXT_SECONDARY}; background: {SURFACE_PANEL};
@@ -177,10 +178,9 @@ QLabel[pill="mastered"] {{ background: {ACCENT_GOLD_SOFT}; color: {ACCENT_GOLD};
 QLabel[pill="error"] {{ background: {STATUS_DANGER_SOFT}; color: {STATUS_DANGER}; }}
 
 /* Shell */
-QWidget#brandHeader, QWidget#navigation {{
-    background-color: {SURFACE_SIDEBAR}; border-bottom: 1px solid {OUTLINE_MUTED};
-}}
 QWidget#sidebar {{ background-color: {SURFACE_SIDEBAR}; }}
+QFrame#sidebar {{ border: none; border-right: 1px solid {OUTLINE_MUTED}; }}
+QFrame#sidebar QLabel {{ background: transparent; }}
 
 /* Surfaces */
 QGroupBox {{
@@ -252,24 +252,28 @@ QPushButton[chip="true"]:focus {{ border-color: {FOCUS_RING}; }}
 QPushButton[chip="true"]:disabled {{ color: {TEXT_DISABLED}; border-color: {OUTLINE_MUTED}; }}
 
 /* Navigation */
-QPushButton#sidebarItem, QPushButton#navButton {{
+QPushButton#sidebarItem {{
     background: transparent; color: {TEXT_SECONDARY}; text-align: left;
     border: 2px solid transparent; border-radius: {RADIUS_CONTROL}px;
     padding: 0 14px; min-height: {HEIGHT_BUTTON_COMPACT - 4}px;
 }}
-QPushButton#sidebarItem:hover, QPushButton#navButton:hover {{
+QPushButton#sidebarItem:hover {{
     color: {TEXT_PRIMARY}; background: {SURFACE_PANEL};
 }}
-QPushButton#sidebarItem:checked, QPushButton#navButton:checked {{
+QPushButton#sidebarItem:checked {{
     color: {TEXT_PRIMARY}; background-color: {SURFACE_RAISED}; font-weight: 600;
     border-left: 2px solid {ACCENT_GOLD};
 }}
-QPushButton#sidebarItem:focus, QPushButton#navButton:focus {{ border-color: {FOCUS_RING}; }}
+QPushButton#sidebarItem:focus {{ border-color: {FOCUS_RING}; }}
 QPushButton#sidebarItem:disabled {{ color: {TEXT_DISABLED}; }}
-QPushButton#accountButton {{
-    background: {SURFACE_PANEL}; border: 2px solid {OUTLINE_MUTED}; border-radius: 22px; padding: 4px;
+QPushButton#accountPanel {{
+    background: transparent; border: 2px solid transparent;
+    border-radius: {RADIUS_CONTROL}px; padding: 0; text-align: left;
 }}
-QPushButton#accountButton:hover, QPushButton#accountButton:focus {{ border-color: {FOCUS_RING}; }}
+QPushButton#accountPanel:hover {{ background: {SURFACE_PANEL}; }}
+QPushButton#accountPanel:pressed {{ background: {SURFACE_RAISED}; }}
+QPushButton#accountPanel:focus {{ border-color: {FOCUS_RING}; }}
+QLabel#accountName {{ color: {TEXT_PRIMARY}; font-weight: 600; }}
 
 /* Inputs */
 QLineEdit, QComboBox, QSpinBox, QAbstractSpinBox {{

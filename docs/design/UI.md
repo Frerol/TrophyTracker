@@ -11,14 +11,25 @@ its controls are not evidence of implemented features.
 
 ## Current desktop navigation
 
-`gui/main_window.py` provides Home, Library, Lists and Settings. Explorer is
-embedded in Home behind catalog search and filters. There is no separate
-Profile, Dashboard, Achievements or Systems page. The shared header shows the
-displayed account, points/stats and account menu across destinations.
+`gui/main_window.py` provides Home, Library, Lists and Settings through a
+220 px sidebar (`gui/sidebar.py`): brand, the four destinations (Ctrl+1–4),
+the displayed account with its menu, and the version. Explorer is embedded in
+Home behind catalog search and filters. There is no separate Profile,
+Dashboard, Achievements or Systems page. Home shows the points/stats summary.
+
+Each destination keeps its view state while the user is elsewhere: Home's
+catalog search, filters and results, and the scroll position of Library and
+Lists. Selecting the current destination again returns it to its root view
+(Home collapses the catalog results). Detail screens (R21) open on top of the
+current destination, which stays selected; Back (Alt+Left) returns to it
+unchanged. Choosing a destination in the sidebar or changing the displayed
+account closes open details. The window's minimum size is 1024×720; rows of
+filter chips and sync buttons wrap instead of being clipped.
 
 Saved credentials and displayed identity are separate. Saving another account
 in Settings does not switch the interface. The user explicitly selects the
-displayed account in Settings or the avatar menu. One account is active at a
+displayed account in Settings or the sidebar account menu, which opens on
+click. One account is active at a
 time; restart restores that choice. Sign out preserves saved data. Delayed
 results from a previous selection must never update the new account's screen.
 

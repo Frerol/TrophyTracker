@@ -6,13 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication
 
 import retrocheevos.database.connection as db
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.pages.settings_page import SettingsPage
-from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.services import session_service
 
 _app = QApplication.instance() or QApplication([])
@@ -91,21 +90,30 @@ class AccountSelectionTests(unittest.TestCase):
         self.assertEqual(self.context.active_account.username, 'Alice')
         self.assertEqual(session_service.get_active_account().username, 'Alice')
 
-    def test_avatar_menu_marks_and_selects_the_displayed_account(self):
-        self.save('Alice')
-        self.save('Bob')
-        self.display('Alice')
-        home = HomePage(self.context)
-        self.addCleanup(home.close)
-        menu = QMenu()
-        self.addCleanup(menu.close)
-        home._add_session_actions(menu)
-        submenu = menu.actions()[0].menu()
-        self.assertIn('Alice', submenu.title())
-        actions = {action.text(): action for action in submenu.actions()}
-        self.assertTrue(actions['Alice'].isChecked())
-        self.assertFalse(actions['Bob'].isChecked())
-        chosen = []
-        home.login_requested.connect(chosen.append)
-        actions['Bob'].trigger()
-        self.assertEqual(chosen, [next(a.id for a in session_service.list_accounts() if a.username == 'Bob')])
+    def test_saving_credentials_never_changes_the_sidebar_account(self):
+        from retrocheevos.gui.main_window import MainWindow
+        from tests.gui.test_navigation import close_window, patch_live_calls
+        patch_live_calls(self)
+        with patch.object(MainWindow, '_start_update_check', new=lambda self: None):
+            window = MainWindow()
+        self.addCleanup(close_window, window)
+        settings = window.destination('settings')
+        panel = window._sidebar.account_panel
+        window.navigate('settings')
+        for name in ('Alice', 'Bob'):
+            settings._username_input.setText(name)
+            settings._api_key_input.setText('synthetic-key')
+            settings._on_add_account()
+        self.assertIsNone(window.app_context.active_account)
+        self.assertEqual(panel.name_text(), 'No account selected')
+        alice = next(a for a in session_service.list_accounts() if a.username == 'Alice')
+        panel.account_chosen.emit(alice.id)
+        self.assertEqual(panel.name_text(), 'Alice')
+        self.assertEqual(window.current_destination(), 'home')
+        settings._username_input.setText('Carol')
+        settings._api_key_input.setText('synthetic-key')
+        settings._on_add_account()
+        self.assertEqual(panel.name_text(), 'Alice')
+        panel.sign_out_requested.emit()
+        self.assertEqual(panel.name_text(), 'No account selected')
+        self.assertEqual(len(session_service.list_accounts()), 3)

@@ -9,7 +9,11 @@
 - Apply the new visual system: dark purple surfaces, gold progress and primary actions, turquoise highlights and visible keyboard focus.
 - Replace the application icon and header emblem with the new pixel-trophy icon: a gold trophy with a dark outline on a transparent background, drawn sharp at every size from 16 px up.
 - Bundle the Inter and Space Grotesk fonts (SIL Open Font License) so the interface looks the same without system fonts.
-- Fix the Home avatar menu not opening on hover, and the Library scan buttons staying disabled after a folder scan or re-hash finished (regressions in 0.1.0).
+- Fix the Library scan buttons staying disabled after a folder scan or re-hash finished (a regression in 0.1.0).
+- Replace the top header and navigation row with a sidebar for Home, Library, Lists and Settings (Ctrl+1–4), showing the displayed account and the version at the bottom; points and profile statistics stay on Home.
+- Switch the displayed account, manage accounts or sign out from the sidebar account menu, which opens on click instead of on hover.
+- Keep Home's catalog search, filters and results, and the Library and Lists scroll positions, when navigating away and back; select Home again to clear the search.
+- Set a minimum window size of 1024×720 and wrap the catalog filter and sync buttons onto more rows instead of clipping them in narrow windows.
 
 ## 0.1.0 — TrophyTracker
 

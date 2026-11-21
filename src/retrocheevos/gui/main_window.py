@@ -1,28 +1,28 @@
-"""Main window with a shared brand header and persistent page navigation."""
+"""Main window: the sidebar, the destination pages and detail routes (R18)."""
 
 import time
 
 from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QButtonGroup, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from retrocheevos.gui.app_context import AppContext
+from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.gui.pages.library_page import LibraryPage
 from retrocheevos.gui.pages.lists_page import ListsPage
 from retrocheevos.gui.pages.settings_page import SettingsPage
+from retrocheevos.gui.sidebar import Sidebar
 from retrocheevos.gui.workers import SHUTDOWN_TIMEOUT_MS, ServiceWorker
 from retrocheevos.services import preferences_service, session_service, update_service
 from retrocheevos.widgets.update_banner import UpdateBanner
-from retrocheevos.version import APP_VERSION
 
-# Snug: the header already carries its own side margins, and the page below
-# has its own. Anything more here reads as dead space at the top of every
-# screen — which is exactly what the removed arrow row had become.
-WINDOW_MARGIN = 0
-HEADER_GAP = 4
+# Smallest supported window (ScreenDataMapping §6); every action stays
+# reachable at this size.
+MINIMUM_WIDTH = 1024
+MINIMUM_HEIGHT = 720
 
 
 class MainWindow(QMainWindow):
@@ -47,91 +47,67 @@ class MainWindow(QMainWindow):
         self._close_retry_timer.setInterval(25)
         self._close_retry_timer.timeout.connect(self.close)
 
-        home_page = HomePage(self.app_context)
-
-        # Home is the only root page; `_navigate_home` and logout use it.
-        self._nav_pages = [home_page]
-        # "ROM Location" became "Library": same two halves (the grid of
-        # what's installed, and folder management plus scanning), its own
-        # page again after a brief spell as an entry in the Lists dropdown.
-        self._menu_pages = {
+        # The four persistent destinations. Each page is built once and kept,
+        # so its search, filters, selection and scroll survive navigation.
+        self._destinations: dict[str, Page] = {
+            "home": HomePage(self.app_context),
             "library": LibraryPage(self.app_context),
             "lists": ListsPage(self.app_context),
             "settings": SettingsPage(self.app_context),
         }
+        self._current_key = "home"
+        # Open detail screens, most recent last, each with the destination it
+        # was opened from. Details are contextual: they never replace a
+        # destination and are dropped when the user picks one in the sidebar.
+        self._detail_stack: list[tuple[QWidget, str]] = []
 
-        home_page.navigate_requested.connect(self._on_menu_navigate)
-        home_page.logout_requested.connect(self._on_logout)
-        home_page.login_requested.connect(self._on_login)
-
-        # Nothing was listening to this. `AppContext` emitted it on every
-        # login/logout/switch and only the page that *caused* the change
-        # refreshed itself — so signing in from Settings left Home, the
-        # header and every other page holding the previous session's state
-        # until the app was restarted. That was the "login only works after
-        # reopening" bug.
+        # Nothing else listened to this once: signing in from Settings left
+        # the other pages on the previous session until a restart.
         self.app_context.active_account_changed.connect(self._on_active_account_changed)
 
-        # The header lives here, above the stack, so it shows on every page
-        # rather than only on Home. It is built and owned by `HomePage`
-        # (which already has the profile fetch, the avatar loader and the
-        # user menu wired up); mounting it here means one instance instead of
-        # a copy per page, each with its own duplicate of that plumbing.
-        self._header = home_page.header_widget
+        self._sidebar = Sidebar(self.app_context)
+        self._sidebar.destination_selected.connect(self._on_destination_selected)
+        account_panel = self._sidebar.account_panel
+        account_panel.account_chosen.connect(self._on_login)
+        account_panel.sign_out_requested.connect(self._on_logout)
+        account_panel.navigate_requested.connect(self.navigate)
+        self._sidebar.set_account(self.app_context.active_account)
+        self._destinations["home"].profile_updated.connect(self._sidebar.refresh_avatar)
 
         self._pages = QStackedWidget()
-        for page in [*self._nav_pages, *self._menu_pages.values()]:
+        for page in self._destinations.values():
             self._pages.addWidget(page)
 
-        navigation = QWidget()
-        navigation.setObjectName("navigation")
-        navigation_layout = QHBoxLayout(navigation)
-        navigation_layout.setContentsMargins(24, 4, 24, 10)
-        navigation_layout.setSpacing(6)
-        self._navigation_group = QButtonGroup(self)
-        self._navigation_buttons: dict[QWidget, QPushButton] = {}
-        for title, page in (
-            ("Home", home_page), ("Library", self._menu_pages["library"]),
-            ("Lists", self._menu_pages["lists"]), ("Settings", self._menu_pages["settings"]),
-        ):
-            button = QPushButton(title)
-            button.setObjectName("navButton")
-            button.setCheckable(True)
-            button.clicked.connect(lambda _checked=False, destination=page: self._show_page(destination))
-            self._navigation_group.addButton(button)
-            self._navigation_buttons[page] = button
-            navigation_layout.addWidget(button)
-        navigation_layout.addStretch(1)
-        version = QLabel(f"v{APP_VERSION}")
-        version.setObjectName("versionBadge")
-        navigation_layout.addWidget(version)
+        back = QShortcut(QKeySequence(QKeySequence.StandardKey.Back), self)
+        back.activated.connect(self.go_back)
+        self._back_shortcut = back
 
-        # Above the header rather than inside a page: it's about the app
-        # itself, not about whatever you happen to be looking at, and putting
-        # it on Home alone would hide it from anyone who left the app on
-        # another page. Starts hidden, so it costs no vertical space until
-        # there is actually something to say.
+        # Above the content rather than inside a page: it's about the app
+        # itself, not about whatever you happen to be looking at. Starts
+        # hidden, so it costs no space until there is something to say.
         self._update_banner = UpdateBanner()
         self._update_banner.dismissed.connect(self._on_update_dismissed)
         # What the banner is currently advertising, so dismissing it can
-        # record *which* version was dismissed. The banner itself stays
-        # presentation-only and doesn't carry it.
+        # record *which* version was dismissed.
         self._available_update = None
 
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(
-            WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN, WINDOW_MARGIN
-        )
-        layout.setSpacing(0)
-        layout.addWidget(self._update_banner)
-        layout.addWidget(self._header)
-        layout.addWidget(navigation)
-        layout.addSpacing(HEADER_GAP)
-        layout.addWidget(self._pages, stretch=1)
-        self.setCentralWidget(central)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._update_banner)
+        content_layout.addWidget(self._pages, stretch=1)
 
-        self._show_page(home_page)
+        central = QWidget()
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._sidebar)
+        layout.addWidget(content, stretch=1)
+        self.setCentralWidget(central)
+        self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
+
+        self.navigate("home")
         self._restore_window_state()
         self._start_update_check()
 
@@ -262,60 +238,104 @@ class MainWindow(QMainWindow):
             return
         super().closeEvent(event)
 
-    def _on_active_account_changed(self, _account) -> None:
-        """Re-read whoever is now signed in, without navigating.
+    # Navigation ----------------------------------------------------------
+
+    def current_destination(self) -> str:
+        return self._current_key
+
+    def destination(self, key: str) -> Page:
+        return self._destinations[key]
+
+    def navigate(self, key: str) -> None:
+        """Show destination `key`, closing any open detail.
+
+        `refresh()` reloads the page's data; pages keep their own view state
+        (search, filters, selection, scroll) across it.
+        """
+        self._close_details()
+        page = self._destinations[key]
+        self._current_key = key
+        self._pages.setCurrentWidget(page)
+        self._sidebar.set_current(key)
+        page.refresh()
+        self._sidebar.refresh_avatar()
+
+    def _on_destination_selected(self, key: str) -> None:
+        # Picking the destination already on screen returns it to its root
+        # view (Home: collapse catalog results), like most sidebars do.
+        if key == self._current_key and not self._detail_stack:
+            reset = getattr(self._destinations[key], "reset_to_root", None)
+            if reset is not None:
+                reset()
+            self._sidebar.set_current(key)
+            return
+        self.navigate(key)
+
+    def open_detail(self, widget: QWidget) -> None:
+        """Show a contextual detail screen opened from the current view.
+
+        The originating destination stays selected in the sidebar, and
+        `go_back()` returns to it without refreshing, so its state is intact.
+        """
+        self._detail_stack.append((widget, self._current_key))
+        self._pages.addWidget(widget)
+        self._pages.setCurrentWidget(widget)
+
+    def go_back(self) -> bool:
+        """Close the top detail screen. Returns False when there is none."""
+        if not self._detail_stack:
+            return False
+        widget, origin = self._detail_stack.pop()
+        below = self._detail_stack[-1][0] if self._detail_stack else self._destinations[origin]
+        self._pages.setCurrentWidget(below)
+        self._discard_detail(widget)
+        self._sidebar.set_current(origin)
+        return True
+
+    def detail_open(self) -> bool:
+        return bool(self._detail_stack)
+
+    def _close_details(self) -> None:
+        while self._detail_stack:
+            widget, _origin = self._detail_stack.pop()
+            self._discard_detail(widget)
+
+    def _discard_detail(self, widget: QWidget) -> None:
+        self._pages.removeWidget(widget)
+        widget.deleteLater()
+
+    # Session -------------------------------------------------------------
+
+    def _on_active_account_changed(self, account) -> None:
+        """Show whoever is now displayed, without changing destination.
 
         Only the visible page is refreshed; the others refresh themselves on
-        their way in (`_show_page`). Refreshing all of them here would run
-        Home's several-second Recent Activity fetch every time someone opens
-        Settings and switches account.
+        their way in (`navigate`). Details and Home's catalog search belong
+        to the previous account's view, so they are closed.
         """
-        # Deliberately does **not** touch the window. Restoring the stored
-        # state here meant logging out of a fullscreen session yanked the
-        # window back to a smaller size mid-use, and logging in did it again.
-        # The window is the user's current context, not account data: it is
-        # applied once, at startup, and after that only ever follows what the
-        # user does to it.
-        self._nav_pages[0].refresh_header()
+        # Deliberately does not touch the window geometry: the window is the
+        # user's current context, not account data.
+        self._sidebar.set_account(account)
+        if self._detail_stack:
+            self._close_details()
+            self._pages.setCurrentWidget(self._destinations[self._current_key])
+            self._sidebar.set_current(self._current_key)
+        self._destinations["home"].reset_to_root()
         current = self._pages.currentWidget()
         if current is not None:
             current.refresh()
 
-    def _navigate_home(self) -> None:
-        self._show_page(self._nav_pages[0])
-
-    def _on_menu_navigate(self, key: str) -> None:
-        # "home" is in the menu but not in `_menu_pages`: Home is the root
-        # page, and duplicating it into that dict would give the app two
-        # HomePage instances with two Recent Activity timers.
-        if key == "home":
-            self._navigate_home()
-            return
-        self._show_page(self._menu_pages[key])
-
     def _on_login(self, account_id: int) -> None:
-        """Sign back in from the user menu. `refresh_active_account` fires
-        `active_account_changed`, which repaints the header and the visible
-        page — no restart, no trip to Settings."""
+        """Display a saved account chosen from the sidebar account menu."""
         try:
             session_service.switch_account(account_id)
         except ValueError as error:
             QMessageBox.warning(self, "Account unavailable", str(error))
             return
         self.app_context.refresh_active_account()
-        self._navigate_home()
+        self.navigate("home")
 
     def _on_logout(self) -> None:
         session_service.logout()
         self.app_context.refresh_active_account()
-        self._navigate_home()
-
-    def _show_page(self, page: QWidget) -> None:
-        self._pages.setCurrentWidget(page)
-        for destination, button in self._navigation_buttons.items():
-            button.setChecked(destination is page)
-        page.refresh()
-        # Home's own `refresh()` already covers the header; anywhere else it
-        # would otherwise keep whatever numbers were last loaded.
-        if page is not self._nav_pages[0]:
-            self._nav_pages[0].refresh_header()
+        self.navigate("home")

@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from retrocheevos.gui.flow_layout import FlowLayout
 from retrocheevos.core.explorer import ExplorerFilters, GameWithCompletion
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.delegates.explorer_delegates import (
@@ -75,6 +76,7 @@ ROW_HEIGHT = 48
 
 SEARCH_DEBOUNCE_MS = 150
 RESIZE_SAMPLE_ROWS = 100
+CATALOG_SYNC_PROGRESS_WIDTH = 220
 
 
 class ExplorerPage(Page):
@@ -149,13 +151,14 @@ class ExplorerPage(Page):
         # QLayout has no setVisible(), and `set_results_visible` needs to
         # hide this whole strip as one unit when Home embeds this page.
         self._sync_bar_widget = QWidget()
-        sync_bar = QHBoxLayout(self._sync_bar_widget)
-        sync_bar.setContentsMargins(0, 0, 0, 0)
+        # Wraps in narrow windows instead of clipping (R18); the progress bar
+        # gets a fixed width because a flow layout has no stretch.
+        sync_bar = FlowLayout(self._sync_bar_widget)
         sync_bar.addWidget(self._sync_everything_button)
         sync_bar.addWidget(self._sync_median_times_button)
         sync_bar.addWidget(self._sync_hashes_button)
-        sync_bar.addWidget(self._catalog_sync_progress, stretch=1)
-        sync_bar.addStretch(1)
+        self._catalog_sync_progress.setFixedWidth(CATALOG_SYNC_PROGRESS_WIDTH)
+        sync_bar.addWidget(self._catalog_sync_progress)
 
         self._filter_bar = ExplorerFilterBar()
         self._filter_bar.filters_changed.connect(self._on_filters_changed)
