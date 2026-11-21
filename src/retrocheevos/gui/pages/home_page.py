@@ -132,7 +132,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 LOGO_PATH = _assets_dir() / "logo.png"
 # The shared emblem is used in the header and as the desktop icon.
 ICON_PATH = _assets_dir() / "icon.png"
-LOGO_HEIGHT = 60
+# 64 px is half of the 128 px pixel-art emblem, so scaling keeps edges crisp.
+LOGO_HEIGHT = 64
 
 # Keep room for the game grid while leaving event titles readable.
 SIDEBAR_MIN_WIDTH = 280

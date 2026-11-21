@@ -53,6 +53,7 @@ class PackagingPathsTests(unittest.TestCase):
         self.assertEqual(kwargs['datas'], [
             (str(self.root / 'assets/icon.png'), 'assets'),
             (str(self.root / 'assets/logo.png'), 'assets'),
+            (str(self.root / 'assets/icons'), 'assets/icons'),
             (str(self.root / 'assets/fonts'), 'assets/fonts'),
         ])
         self.assertEqual(kwargs['binaries'], [])
@@ -64,7 +65,7 @@ class PackagingPathsTests(unittest.TestCase):
         self.execute_spec()
         kwargs = self.analysis.call_args.kwargs
         self.assertEqual(kwargs['binaries'], [(str(self.binary), 'tools/rahasher')])
-        self.assertEqual(kwargs['datas'][3:], [
+        self.assertEqual(kwargs['datas'][4:], [
             (str(self.helper / name), 'tools/rahasher')
             for name in ('RAHasher-COPYING.txt', 'RAHasher-SOURCE.txt')
         ])

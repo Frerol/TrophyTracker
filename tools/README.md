@@ -6,6 +6,8 @@
   with the project's environment and `PYTHONPATH=src`.
 - `preview/`: the R17 component preview. It shows every shared component
   state, the color tokens with contrast ratios and the brand size comparison.
+- `brand/`: `generate_icons.py` regenerates the application icons, header
+  emblem, illustration and wordmark from the D1 brand concepts.
 - `rahasher/`: optional third-party helper and its redistribution notices.
   Keep the binary, `RAHasher-COPYING.txt` and `RAHasher-SOURCE.txt` together.
   The committed helper is for Windows; Linux builds need a native `RAHasher`

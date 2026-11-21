@@ -4,11 +4,12 @@ import importlib.util
 import unittest
 from pathlib import Path
 
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
 from retrocheevos.gui import components as c
 from retrocheevos.gui import styles
-from retrocheevos.gui.assets import FONT_FILES, fonts_dir, load_bundled_fonts
+from retrocheevos.gui.assets import FONT_FILES, assets_dir, fonts_dir, load_bundled_fonts
 
 _app = QApplication.instance() or QApplication([])
 
@@ -99,6 +100,34 @@ class ComponentStateTests(unittest.TestCase):
         self.assertEqual(row.pill.property('pill'), 'hardcore')
         self.assertEqual(row.accessibleName(), 'No Pause: Unlocked · Hardcore')
 
+
+class BrandAssetTests(unittest.TestCase):
+    """Decision D1: pixel-trophy icon A at every size, crisp at 16/24 px."""
+
+    def test_every_icon_size_exists_with_exact_dimensions(self) -> None:
+        for size in (16, 24, 32, 48, 64, 128, 256):
+            image = QImage(str(assets_dir() / 'icons' / f'trophytracker-{size}.png'))
+            with self.subTest(size=size):
+                self.assertFalse(image.isNull())
+                self.assertEqual((image.width(), image.height()), (size, size))
+        self.assertEqual(QImage(str(assets_dir() / 'icon.png')).width(), 512)
+        self.assertEqual(QImage(str(assets_dir() / 'logo.png')).width(), 128)
+
+    def test_small_icons_use_whole_pixels_for_the_trophy(self) -> None:
+        # Same placement as tools/brand/generate_icons.py: the 10x9-unit
+        # trophy (starting at grid unit 1) is centred at an integer scale.
+        for size, scale in ((16, 1), (24, 2)):
+            origin_x = (size - 10 * scale) // 2 - scale
+            origin_y = (size - 9 * scale) // 2 - scale
+            image = QImage(str(assets_dir() / 'icons' / f'trophytracker-{size}.png'))
+
+            def unit(x: int, y: int) -> str:
+                return image.pixelColor(origin_x + x * scale, origin_y + y * scale).name()
+
+            with self.subTest(size=size):
+                self.assertEqual(unit(4, 3), QColor(styles.ACCENT_GOLD).name())   # cup
+                self.assertEqual(unit(5, 2), QColor(styles.SURFACE_APP).name())   # opening
+                self.assertEqual(unit(5, 7), QColor(styles.ACCENT_GOLD).name())   # stem
 
 class PreviewTests(unittest.TestCase):
     @classmethod

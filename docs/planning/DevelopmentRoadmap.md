@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; produce the D1 brand assets; start R18 (sidebar shell). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; check icon A on a Windows taskbar; start R18 (sidebar shell). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -203,10 +203,10 @@ Achievements/Systems destinations from the original proposal are not required.
     Linux, on dark and light backgrounds, with the wordmark (preview
     `--brand-sheet`).
   - [ ] Repeat the brand comparison on a native Windows taskbar.
-  - [ ] Produce the D1 assets: icon A at 16/24/32/48/64/128/256 px (with a
+  - [x] Produce the D1 assets: icon A at 16/24/32/48/64/128/256 px (with a
     tighter 16–24 px variant), illustration C, the wordmark, the window,
     taskbar and AppImage icons, and the variant rules and licenses in
-    `Branding.md`. Do not use emoji as icons.
+    `Branding.md` (`tools/brand/generate_icons.py`).
 
   **Done when:** the component preview is reviewed and the D1 brand assets
   replace the shipped icon and logo, with their rules documented.
@@ -374,8 +374,7 @@ sub-items close per screen.
 
 ### Implementation order
 
-1. R16 mapping, then R17 tokens and components. The D1 brand assets can be
-   produced in parallel with R18.
+1. R16 mapping, then R17 tokens, components and D1 brand assets.
 2. R18 shell; then R19 Home and R22 Library, coordinating R20's Explorer
    handoff with both.
 3. R21 details with their data dependencies; then R23 Lists and R24 Settings.

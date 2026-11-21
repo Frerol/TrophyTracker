@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -287,7 +287,10 @@ def build_brand_sheet() -> QPixmap:
                 x = margin + label_width + column * cell
                 painter.drawPixmap(x, row_y + (cell - edge) // 2, icon)
         y += block_height + 16
-    wordmark = QSvgRenderer(str(BRAND_DIR / 'wordmark.svg'))
+    # QtSvg ignores quoted family lists, so name the bundled family directly.
+    wordmark_source = (BRAND_DIR / 'wordmark.svg').read_text(encoding='utf-8').replace(
+        "font-family=\"'Space Grotesk',sans-serif\"", f'font-family="{styles.FONT_DISPLAY}"')
+    wordmark = QSvgRenderer(QByteArray(wordmark_source.encode('utf-8')))
     painter.setPen(QColor(styles.TEXT_SECONDARY))
     painter.setFont(body_font)
     painter.drawText(margin, y + 14, 'Wordmark (rendered with the bundled Space Grotesk):')

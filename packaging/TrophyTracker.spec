@@ -4,8 +4,8 @@
 #
 # What ships and what does not
 # ----------------------------
-# SHIPPED: `assets/icon.png`, `assets/logo.png` and `assets/fonts/` (Inter and
-# Space Grotesk with their SIL OFL notices), loaded at runtime through
+# SHIPPED: `assets/icon.png`, `assets/logo.png`, `assets/icons/` (one icon per
+# size) and `assets/fonts/` (Inter and Space Grotesk with their SIL OFL notices), loaded at runtime through
 # `gui/assets.py::assets_dir`, which reads `sys._MEIPASS` when frozen.
 # Without them the app runs, but with no icon or logo and with fallback fonts.
 #
@@ -84,6 +84,8 @@ analysis = Analysis(
     datas=[
         (str(_PROJECT_ROOT / "assets" / "icon.png"), "assets"),
         (str(_PROJECT_ROOT / "assets" / "logo.png"), "assets"),
+        # Pixel-exact application icon sizes (decision D1).
+        (str(_PROJECT_ROOT / "assets" / "icons"), "assets/icons"),
         # Inter and Space Grotesk with their SIL OFL notices (R17).
         (str(_PROJECT_ROOT / "assets" / "fonts"), "assets/fonts"),
         *rahasher_datas,

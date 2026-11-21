@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 
 from retrocheevos.database.migrations import initialize_database
 from retrocheevos.gui.main_window import MainWindow
+from retrocheevos.gui.assets import assets_dir as _assets_dir
 from retrocheevos.gui.pages.home_page import ICON_PATH
 from retrocheevos.gui.styles import apply_theme
 from retrocheevos.services import credential_store
@@ -74,14 +75,17 @@ def _build_app_icon() -> QIcon:
         logger.warning("Application icon missing or unreadable: %s", ICON_PATH)
         return icon
     for size in ICON_SIZES:
-        icon.addPixmap(
-            source.scaled(
+        # Pixel-exact renders (with the tighter 16/24 px variant) when bundled;
+        # otherwise resample the single large icon.
+        sized = QPixmap(str(_assets_dir() / "icons" / f"trophytracker-{size}.png"))
+        if sized.isNull() or sized.width() != size:
+            sized = source.scaled(
                 size,
                 size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-        )
+        icon.addPixmap(sized)
     # Both the AUMID and whether this is a frozen run are logged, because the
     # taskbar bug turned on exactly that pair and a log that only said
     # "AUMID TrophyTracker.App" on every run is part of why it was chased

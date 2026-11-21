@@ -4,9 +4,9 @@ Vector copies of the brand concepts from the Brand board of the
 [reviewed UI proposal](../ui-proposal-reviewed.html), extracted unchanged
 except for English accessibility labels and explicit sizes. They are design
 inputs for R17 and decision D1, not runtime assets. D1 selected A for small
-sizes and C for large ones (see [Branding.md](../Branding.md#brand-exploration));
-the shipped icon and logo remain in `assets/` until the final assets are
-produced.
+sizes and C for large ones (see [Branding.md](../Branding.md#runtime-artwork));
+the runtime files in `assets/` are generated from these sources by
+`tools/brand/generate_icons.py`.
 
 | File | Concept |
 | --- | --- |
