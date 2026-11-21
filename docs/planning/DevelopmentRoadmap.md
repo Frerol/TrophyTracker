@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; decide D1; start R18 (sidebar shell). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; produce the D1 brand assets; start R18 (sidebar shell). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -38,7 +38,6 @@ These items wait on a product decision rather than on implementation work.
 
 | ID | Decision | Blocks | Current position |
 | --- | --- | --- | --- |
-| D1 | Final application icon: brand concept A (pixel trophy) or C (cartridge with pixel trophy), and how they combine | R17 brand sub-items, R27 packaging assets | Preference for A and C; recommendation is A for small icons and C as the larger variant, not yet selected. B is a documented alternative. |
 | D3 | Whether and when to publish a Windows package | Windows release | Experimental build helper only; needs R11 interactive validation first. |
 | D4 | PySide6 upgrade | Dependency updates | Stay on 6.10.1; 6.12.0 crashes at interpreter teardown in the upgrade probe. |
 | D5 | Revive features cut by the proposal review (ranking, rarity, release year, global totals, near-mastery, instant unlock notifications) | Nothing in R16–R30 | Out of scope; tracked in [FutureIdeas.md](FutureIdeas.md). Each needs its own data contract. A delayed notification for locally detected unlocks is a separate idea that builds on R30. |
@@ -48,6 +47,7 @@ These items wait on a product decision rather than on implementation work.
 
 | ID | Decision | Outcome (2026-11-20) | Applied to |
 | --- | --- | --- | --- |
+| D1 | Final application icon: brand concept A, C or a combination | **A for small sizes, C for large ones**, sharing one trophy geometry. A is the application icon everywhere the system draws it (window, taskbar, tray, launcher and AppImage icon), with a tighter variant for 16–24 px. C is the illustrative variant for large in-app and release artwork (128 px and up: onboarding, About, release pages). The wordmark keeps A's trophy. B is not used. | R17, R27, R28 |
 | D2 | Ship the `Unreleased` fixes as a 0.1.x patch before the revamp, or fold them into 0.2.0 | No patch release. The fixes ship with 0.2.0 after the full revamp. | Next releases |
 | D7 | Where to show badges and event awards, which are synced but never displayed | An **Awards** view reached from Home, combining the account's badges and the current Events list (with the new-events banner). Needs a badge read method in `ProfileRepository`. | R19 |
 | D8 | Per-mode achievement counts on cards, or a labeled combined count | Cards keep RetroAchievements' **combined count**, labeled "achievements" and never "hardcore". Game and achievement details are per mode. Revisit per-mode card counts only if R21 confirms a hardcore count from the API. | R19, R20, R22, R23 |
@@ -203,12 +203,13 @@ Achievements/Systems destinations from the original proposal are not required.
     Linux, on dark and light backgrounds, with the wordmark (preview
     `--brand-sheet`).
   - [ ] Repeat the brand comparison on a native Windows taskbar.
-  - [ ] *(Blocked on [D1](#open-decisions))* Produce the selected icon and
-    variant rules, wordmark and packaging assets; document licenses in
-    `Branding.md`. Do not choose a concept silently or use emoji as icons.
+  - [ ] Produce the D1 assets: icon A at 16/24/32/48/64/128/256 px (with a
+    tighter 16–24 px variant), illustration C, the wordmark, the window,
+    taskbar and AppImage icons, and the variant rules and licenses in
+    `Branding.md`. Do not use emoji as icons.
 
-  **Done when:** the component preview is reviewed, D1 is decided and the
-  brand assets are documented. The token and component work may land before D1.
+  **Done when:** the component preview is reviewed and the D1 brand assets
+  replace the shipped icon and logo, with their rules documented.
 
 ### Screens
 
@@ -373,8 +374,8 @@ sub-items close per screen.
 
 ### Implementation order
 
-1. R16 mapping, then R17 tokens and components. The brand sub-items run in
-   parallel once D1 is decided.
+1. R16 mapping, then R17 tokens and components. The D1 brand assets can be
+   produced in parallel with R18.
 2. R18 shell; then R19 Home and R22 Library, coordinating R20's Explorer
    handoff with both.
 3. R21 details with their data dependencies; then R23 Lists and R24 Settings.

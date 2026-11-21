@@ -4,8 +4,8 @@ This document describes the visual system and the current runtime artwork. The
 planned replacement artwork is defined by the
 [reviewed UI proposal](ui-proposal-reviewed.html) and the
 [desktop revamp roadmap](../planning/DevelopmentRoadmap.md#active-desktop-plan--interface-revamp-r16r27).
-The preferred A/C concepts have not yet replaced the shipped icon/logo
-(decision D1).
+Decision D1 selected concept A for small sizes and C for large ones; the new
+assets have not yet replaced the shipped icon and logo.
 
 ## Visual system (R17)
 
@@ -43,8 +43,14 @@ Vector copies of concepts A, B and C and the wordmark are in
 renders them at 16, 24, 32, 48, 64 and 128 px on dark and light taskbar
 backgrounds. First observation on Linux: at 16 px, concept A remains
 recognizable while C's trophy becomes too small to read; at 48 px and above
-both work. This supports the recommendation of A as the small icon and C as a
-larger variant, but D1 remains open until it is checked on Windows.
+both work.
+
+**Decision D1 (2026-11-20):** concept A is the application icon wherever the
+system draws it: window, taskbar, tray, launcher and AppImage icon, with a
+tighter variant (less padding, larger trophy) for 16–24 px. Concept C is the
+illustrative variant for large artwork, 128 px and up: onboarding, About and
+release pages. Both share A's trophy geometry, and the wordmark keeps it too.
+Concept B is not used. A native Windows taskbar check is still pending (R17).
 
 ## Current runtime artwork
 
