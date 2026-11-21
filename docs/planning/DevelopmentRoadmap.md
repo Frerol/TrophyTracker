@@ -11,8 +11,8 @@ Completed review details and earlier planning history live in
 | --- | --- | --- |
 | [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R17 done; R18–R27 planned | Start R18 (sidebar shell). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
-| [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
-| [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
+| [Platform and maintenance](#platform-and-maintenance) | R11 done | Keep PySide6 at 6.10.1. |
+| [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done | Preserve regression coverage. |
 | Android companion | Planned; no app or APK | Run Phase 0 of the [Android roadmap](AndroidRoadmap.md). |
 
 Checked items have local implementation and regression evidence; this does not
@@ -30,15 +30,17 @@ as described in `AGENTS.md`.
 | 0.1.0 | First TrophyTracker release; Linux x86_64 AppImage | Published |
 | Next minor (0.2.0) | R16–R27 interface revamp, released once R27 passes | Confirmed (2026-11-20): published only after the full revamp. In development; `APP_VERSION` is already 0.2.0, so local test builds carry that number. |
 | Following minor (0.3.0) | R28–R30 desktop integration: tray mode, summary popup, local session signals | Proposed |
-| Windows package | Depends on R11's interactive Windows validation | Undecided ([D3](#open-decisions)) |
+| Windows package | R11 native validation done (2026-11-21) | Undecided ([D3](#open-decisions)) |
 
 ### Before publishing 0.2.0
 
 Checks deferred from completed items. Run them while preparing the release,
 together with the release steps in `AGENTS.md`.
 
-- [ ] Check icon A at 16/24/32 px on a native Windows taskbar, on dark and
-  light themes (deferred from R17).
+- [x] Check icon A on a native Windows taskbar, on dark and light themes
+  (deferred from R17). Done 2026-11-21 on Windows 11 at 125% scaling (30 px
+  taskbar, 20 px title bar): legible on both themes. Other scaling factors
+  were not tried.
 
 ## Open decisions
 
@@ -46,7 +48,7 @@ These items wait on a product decision rather than on implementation work.
 
 | ID | Decision | Blocks | Current position |
 | --- | --- | --- | --- |
-| D3 | Whether and when to publish a Windows package | Windows release | Experimental build helper only; needs R11 interactive validation first. |
+| D3 | Whether and when to publish a Windows package | Windows release | Experimental build helper only; R11 native validation passed on 2026-11-21. |
 | D4 | PySide6 upgrade | Dependency updates | Stay on 6.10.1; 6.12.0 crashes at interpreter teardown in the upgrade probe. |
 | D5 | Revive features cut by the proposal review (ranking, rarity, release year, global totals, near-mastery, instant unlock notifications) | Nothing in R16–R30 | Out of scope; tracked in [FutureIdeas.md](FutureIdeas.md). Each needs its own data contract. A delayed notification for locally detected unlocks is a separate idea that builds on R30. |
 | D6 | Which emulators get local log adapters first (R30) | R30 adapters beyond the first | RetroArch first, since it covers the most consoles; others follow the R30 investigation. |
@@ -480,15 +482,18 @@ spending as few API requests as possible.
 
 ## Platform and maintenance
 
-- [ ] **R11 — Reproducible checks and platform validation.**
+- [x] **R11 — Reproducible checks and platform validation.**
   Done: CI workflow (`.github/workflows/ci.yml`), hash-locked dependencies,
   packaging smoke probe and GUI lifecycle regressions. Hosted run
   `44840664571` (commit `baf3079`) passed the full suite (323 tests) on Linux
   and Windows × Python 3.12/3.13 and started the frozen bundle on both
   platforms. See the
   [completion audit](../validation/RoadmapCompletionAudit.md#r11--hosted-ci-evidence-2026-11-20).
-  - [ ] Remaining: interactive use on a native Windows desktop (real display,
-    not offscreen).
+  - [x] Interactive use on a native Windows desktop (real display, not
+    offscreen). Done 2026-11-21; see
+    [Testing.md](../validation/Testing.md#native-windows-validation--2026-11-21).
+    It found two 0.1.0 regressions (Home avatar hover menu, Library scan
+    buttons), now fixed with regression tests.
 - **PySide6 pin** — stays at 6.10.1. The non-blocking upgrade probe passed all
   GUI regressions with 6.12.0 but crashed during interpreter teardown on both
   platforms. Re-run the probe and follow [Testing.md](../validation/Testing.md)
@@ -513,7 +518,7 @@ and follow-up evidence.
 | R08 | Isolate activity failures and avoid repeated full rebuilds | Done |
 | R09 | Stream folder traversal and expose progress sooner | Done |
 | R10 | Remember completed empty metadata fetches | Done |
-| R11 | Automate reproducible checks and validate dependency changes | Open; see [Platform and maintenance](#platform-and-maintenance) |
+| R11 | Automate reproducible checks and validate dependency changes | Done; see [Platform and maintenance](#platform-and-maintenance) |
 | R12 | Reconcile historical roadmap status with current code | Done |
 | R13 | Make migrations atomic and recoverable; provide verified backups | Done |
 | R14 | Reconcile credential-vault changes with database commits | Done |

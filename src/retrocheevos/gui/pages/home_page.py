@@ -249,6 +249,8 @@ def _continue_playing_sort_key(entry: tuple) -> tuple:
     )
 
 
+HOVER_MENU_DELAY_MS = 120
+
 # Stable keys used with AppContext's WorkerRegistry so shutdown can cancel
 # every background job this page owns, and so "is a job already running?"
 # checks don't rely on a dangling QThread reference.

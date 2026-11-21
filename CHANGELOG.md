@@ -9,6 +9,7 @@
 - Apply the new visual system: dark purple surfaces, gold progress and primary actions, turquoise highlights and visible keyboard focus.
 - Replace the application icon and header emblem with the new pixel-trophy icon, drawn sharp at every size from 16 px up.
 - Bundle the Inter and Space Grotesk fonts (SIL Open Font License) so the interface looks the same without system fonts.
+- Fix the Home avatar menu not opening on hover, and the Library scan buttons staying disabled after a folder scan or re-hash finished (regressions in 0.1.0).
 
 ## 0.1.0 — TrophyTracker
 

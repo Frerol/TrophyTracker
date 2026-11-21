@@ -48,7 +48,9 @@ system draws it: window, taskbar, tray, launcher and AppImage icon, with a
 tighter variant (less padding, larger trophy) for 16–24 px. Concept C is the
 illustrative variant for large artwork, 128 px and up: onboarding, About and
 release pages. Both share A's trophy geometry, and the wordmark keeps it too.
-Concept B is not used. A native Windows taskbar check is still pending (R17).
+Concept B is not used. On a native Windows 11 taskbar at 125% scaling (icons
+drawn at 30 px, title bar at 20 px), icon A stayed legible on dark and light
+themes on 2026-11-21; the dark tile keeps it contrasted on the light taskbar.
 
 ## Runtime artwork
 

@@ -137,3 +137,31 @@ Windows sharing violation during concurrent atomic artwork publication. The
 fixtures now use native paths/home variables; publication retries transient
 Windows sharing/access failures with a bounded delay. Failure still preserves
 the old cover and removes the temporary file.
+
+## Native Windows validation — 2026-11-21
+
+Windows 11 IoT Enterprise LTSC 2024 (build 26100), 1920×1080 at 125%
+scaling, Python 3.13.17, pinned PySide6 6.10.1, real display.
+
+- Full offscreen suite: 339 tests passed (3 expected skips), then 343 after
+  the regression tests below.
+- `packaging/build_windows.py`: the frozen bundle (with RAHasher) passed the
+  startup probe and produced the portable zip.
+- Interactive use of the frozen `TrophyTracker.exe` with a real account:
+  account save/display, profile and catalog sync, closing the window during
+  Sync Everything (cancelled at a boundary, process exited, empty
+  `crash.log`), all four pages, Explorer search with 227 results, scrolling,
+  repeated maximize/restore with results visible, resizing down to 760×560
+  physical pixels, folder scan with the bundled RAHasher, and the avatar
+  hover menu.
+- Taskbar and title-bar icon on dark and light themes: legible.
+
+The session log showed two unhandled exceptions that offscreen tests had not
+covered, both regressions in 0.1.0: hovering the Home avatar raised
+`NameError` (`HOVER_MENU_DELAY_MS`), and every finished Library scan or
+re-hash raised `AttributeError` (`_reset_scan_button`), leaving the buttons
+disabled. Both are fixed and covered by `tests/gui/test_page_callbacks.py`.
+
+Not covered: true fullscreen (the app has no shortcut for it; it is only
+restored from saved state, which `test_lifecycle_regression` exercises),
+launching a game with Play, and scaling factors other than 125%.

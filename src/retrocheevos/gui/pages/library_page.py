@@ -20,6 +20,7 @@ tables both meaning "where this console's ROMs live" would drift apart.
 
 import os
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -564,6 +565,12 @@ class LibraryPage(Page):
         self._reset_scan_button()
         self._scan_status_label.setText("")
         QMessageBox.warning(self, "Re-hash failed", message)
+
+    def _reset_scan_button(self) -> None:
+        self._scan_button.setText(SCAN_BUTTON_TEXT)
+        self._scan_all_button.setText(SCAN_ALL_BUTTON_TEXT)
+        self._rehash_button.setText(REHASH_BUTTON_TEXT)
+        self._set_scan_buttons_enabled(True)
 
     def _set_scan_buttons_enabled(self, enabled: bool) -> None:
         self._scan_button.setEnabled(enabled)
