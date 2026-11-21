@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17–R27 planned | Decide D7–D9; start R17 (tokens and components). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17–R27 planned | Start R17: tokens and components. |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -45,9 +45,14 @@ These items wait on a product decision rather than on implementation work.
 | D4 | PySide6 upgrade | Dependency updates | Stay on 6.10.1; 6.12.0 crashes at interpreter teardown in the upgrade probe. |
 | D5 | Revive features cut by the proposal review (ranking, rarity, release year, global totals, near-mastery, instant unlock notifications) | Nothing in R16–R30 | Out of scope; tracked in [FutureIdeas.md](FutureIdeas.md). Each needs its own data contract. A delayed notification for locally detected unlocks is a separate idea that builds on R30. |
 | D6 | Which emulators get local log adapters first (R30) | R30 adapters beyond the first | RetroArch first, since it covers the most consoles; others follow the R30 investigation. |
-| D7 | Where and how to show badges and event awards, which are synced but never displayed | R19 awards entry | Proposed: an awards view reached from Home, combining badges and the current Events list. See [ScreenDataMapping.md](../design/ScreenDataMapping.md) F1. |
-| D8 | Per-mode (hardcore/softcore) achievement counts on cards, or a labeled combined count | R19, R22, R23 card counts | Cards show RetroAchievements' combined count today. Per-mode counts need a verified API field and a schema change (F2). Details are per mode regardless. |
-| D9 | Replace Library's "No achievement set" filter with "Unmatched" | R22 filters | Proposed: yes. A game without a set cannot be told apart from an unmatched ROM locally (F4). |
+
+### Resolved decisions
+
+| ID | Decision | Outcome (2026-11-20) | Applied to |
+| --- | --- | --- | --- |
+| D7 | Where to show badges and event awards, which are synced but never displayed | An **Awards** view reached from Home, combining the account's badges and the current Events list (with the new-events banner). Needs a badge read method in `ProfileRepository`. | R19 |
+| D8 | Per-mode achievement counts on cards, or a labeled combined count | Cards keep RetroAchievements' **combined count**, labeled "achievements" and never "hardcore". Game and achievement details are per mode. Revisit per-mode card counts only if R21 confirms a hardcore count from the API. | R19, R20, R22, R23 |
+| D9 | Library's "No achievement set" filter | Replaced by **Unmatched** ("no catalog match; progress unavailable"), because a game without a set cannot be told apart from an unmatched ROM locally. | R22 |
 
 ## Current Status
 
@@ -120,6 +125,9 @@ no sample value is a production default.
   [PerformanceValidation.md](../validation/PerformanceValidation.md).
 - Never fabricate data: missing metrics are shown as unavailable, unknown is
   not zero, and hardcore/softcore counts are never combined.
+- Follow [ScreenDataMapping.md](../design/ScreenDataMapping.md) for each
+  screen's data sources and states. Card counts on every screen use the
+  combined, labeled count from D8.
 - Apply R25 (states) and R26 (accessibility and scaling) to each screen as it
   is converted, not only at the end.
 
@@ -175,7 +183,7 @@ Achievements/Systems destinations from the original proposal are not required.
 
   **Done when:** every retained action has a route, data source and failure
   state; detail contracts are explicit; synthetic reference data never becomes
-  an application default. The open questions it raised are D7–D9; the API
+  an application default. The decisions it raised (D7–D9) are resolved; the API
   fields marked "to verify" in §5 are checked when R21 starts.
 
 - [ ] **R17 — Implement the visual system and the brand assets.**
@@ -217,7 +225,12 @@ Achievements/Systems destinations from the original proposal are not required.
   - [ ] Continue Playing and Recent Activity in a roughly 2:1 split, with
     covers, progress and guarded Play. Recent Activity stays followed-user
     activity, not an unlock event stream.
-  - [ ] Keep Now Playing, badge/event awards and catalog search.
+  - [ ] Keep Now Playing and catalog search.
+  - [ ] Add the Awards view (D7): the account's badges and event awards from
+    a new `ProfileRepository` read method, plus the current Events list and
+    new-events banner.
+  - [ ] Card counts are RetroAchievements' combined count, labeled
+    "achievements" (D8).
 
   **Done when:** real or cached data drives the screen; no-account, no-history,
   active-session, offline and partial-feed variants work; narrower windows
@@ -254,7 +267,7 @@ Achievements/Systems destinations from the original proposal are not required.
 
 - [ ] **R22 — Implement the Library grid and management handoffs.**
   - [ ] Indexed-ROM context, manual scan, local search, All/In progress/
-    Mastered/No achievement set and System filters.
+    Mastered/Unmatched (D9) and System filters.
   - [ ] Adaptive four-column reference grid with covers, console, progress and
     guarded Play/configuration, using model/view virtualization within R07's
     artwork budget.

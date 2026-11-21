@@ -13,14 +13,14 @@ reviewed proposal.
 ## 1. Findings that change the plan
 
 These came out of the inventory and are not visible from the proposal alone.
-Items marked **decision** are listed in the roadmap's open decisions.
+Decisions D7–D9 were resolved on 2026-11-20; see §7.
 
 | ID | Finding | Effect |
 | --- | --- | --- |
-| F1 | **Badges are synced but never shown.** `sync_service.sync_profile` stores awards through `ProfileRepository.upsert_badge`, but no repository method reads them and no widget displays them. The current Home "Events" section lists event *games* with progress (`services/events_service.py`), not awards. Earlier documentation said Home shows badges. | The Home board's "Badges and event awards" entry needs a new read method and a view. This is new work, not a restyle (decision D7). |
-| F2 | **Progress counts are not per mode.** `GameCompletion.achievements_unlocked/total` come from `NumAwarded`/`MaxPossible` of `API_GetUserCompletionProgress.php`, a single count. `UserAchievement` keeps one `unlocked_at` plus a `hardcore` flag, so a softcore date is lost once the hardcore unlock exists. | "34/42" on Home, Library and Lists cards cannot be labeled hardcore or softcore today. Either label it as RetroAchievements' combined count or add per-mode fields (decision D8). Game detail needs per-mode data (see §5). |
+| F1 | **Badges are synced but never shown.** `sync_service.sync_profile` stores awards through `ProfileRepository.upsert_badge`, but no repository method reads them and no widget displays them. The current Home "Events" section lists event *games* with progress (`services/events_service.py`), not awards. Earlier documentation said Home shows badges. | The Home board's "Badges and event awards" entry needs a new read method and a view. This is new work, not a restyle. **D7:** an Awards view reached from Home. |
+| F2 | **Progress counts are not per mode.** `GameCompletion.achievements_unlocked/total` come from `NumAwarded`/`MaxPossible` of `API_GetUserCompletionProgress.php`, a single count. `UserAchievement` keeps one `unlocked_at` plus a `hardcore` flag, so a softcore date is lost once the hardcore unlock exists. | "34/42" on Home, Library and Lists cards cannot be labeled hardcore or softcore today. **D8:** cards keep the combined count, labeled "achievements". Game detail needs per-mode data (see §5). |
 | F3 | **Achievement definitions are rarely stored.** `AchievementRepository` is filled by `sync_game_details`, which only runs from the ROM hash backfill with full details. Most games have no stored achievement list. | Game and achievement details need an on-demand fetch (§5). Stored data is a cache, not a reliable source. |
-| F4 | **"No achievement set" cannot be determined locally.** Games without an achievement set are never stored (`GameRepository` filters `has_achievements = 1`). A local ROM that matches nothing is indistinguishable from one whose game has no set. | Library's "No achievement set" filter cannot be implemented as drawn. Proposed replacement: **Unmatched** ("no catalog match; progress unavailable") (decision D9). |
+| F4 | **"No achievement set" cannot be determined locally.** Games without an achievement set are never stored (`GameRepository` filters `has_achievements = 1`). A local ROM that matches nothing is indistinguishable from one whose game has no set. | Library's "No achievement set" filter cannot be implemented as drawn. **D9:** replaced by **Unmatched** ("no catalog match; progress unavailable"). |
 | F5 | **ROM folders have no scan history or link.** `installed_roms` has no `rom_folder_id` and `RomFolder` has no last-scan time. | Per-folder counts can only be derived by path prefix. Settings and Library must not show "last scanned" or "no scan results yet" without a schema change. Showing "N ROMs indexed under this folder" by path prefix is feasible. |
 | F6 | **Settings has no appearance, window or update controls.** Window state is saved automatically; the update check is disabled because `version.py` has no release source. | R24's "retain appearance/window/update controls" has nothing to retain. The roadmap text is corrected. |
 | F7 | **Catalog sync lives in Explorer.** Sync Everything, Sync Median Times and Sync ROM Hashes are buttons on `ExplorerPage`. The reviewed Explorer board omits them and the Settings board shows "Sync catalog and profile". | Move all three to Settings → Synchronization. The Sync ROM Hashes "with full details" question dialog moves with it. Home's "Sync now" maps to the profile sync only. Sync Everything also feeds Home's new-events banner (`HomePage._on_sync_finished`); that signal must follow the move. |
@@ -58,7 +58,7 @@ revamp. Status: **kept** (same function, restyled), **moved** (new location),
 | Cover size slider | `widgets/cover_size_slider.py` | Removed from Home; card size fixed by layout | **decision in R19** |
 | Play from Continue Playing (matched/unmatched) | `library_service.launch_game` / `launch_installed_rom` | Continue Playing card | kept |
 | Now Playing: refresh progress | `widgets/now_playing_panel.py` | Home Now Playing panel | kept |
-| Events: open event on RA | `widgets/event_row.py` → `openUrl` | Badges and event awards view (F1, D7) | moved |
+| Events: open event on RA | `widgets/event_row.py` → `openUrl` | Awards view (D7) | moved |
 | New events banner: mark read | `_on_new_events_banner_clicked` → `notification_service.mark_events_read` | Same view | moved |
 | Beaten Games Leaderboard (external) | `openUrl(BEATEN_GAMES_LEADERBOARD_URL)` | Link from the Beaten games metric | moved |
 | Recent Activity (passive, auto refresh with backoff) | `activity_feed_service` | Home Recent Activity | kept |
@@ -155,7 +155,7 @@ missing or fails. "Freshness" names the timestamp shown to the user.
 | Continue Playing (cover, console, X/Y, Play) | `dashboard_service.get_continue_playing_games`, `get_unmatched_continue_playing_roms`; counts from `GameCompletion` (F2) | Empty: "Play a game from Library to see it here"; unknown counts shown as "progress unavailable" |
 | Recent Activity (followed users) | `activity_feed_service.get_recent_activity_feed` (live, in-memory only) | Loading; partial ("N users unavailable"); failed with last good entries kept for the session; following unavailable |
 | Now Playing | `now_playing_service.refresh_now_playing`; freshness `NowPlayingSnapshot.checked_at` | "No recent game activity reported"; unmatched ROM notice |
-| Badges and event awards | **No read path today** (F1); events from `events_service.list_events_with_progress`; unread from `notification_service` | Until D7 is decided: an Events entry with the unread banner |
+| Badges and event awards → Awards view (D7) | Badges: new `ProfileRepository` read method (F1); events from `events_service.list_events_with_progress`; unread from `notification_service` | No badges synced → "Sync profile to load awards"; no events → Events section hidden |
 | Completion percentage, displayed account | `ProfileStats.completion_percentage`; active account | Account shown in the sidebar instead; completion % moves to a metric tooltip or is dropped (R19) |
 
 ### 3.2 Library
@@ -168,7 +168,7 @@ missing or fails. "Freshness" names the timestamp shown to the user.
 | Filter All | All installed games + unmatched ROMs | — |
 | Filter In progress | `GameCompletion.percent_complete` > 0 and not mastered | Games with no completion record are excluded, not shown as 0% |
 | Filter Mastered | `AchievementRepository.get_mastered_game_ids` / `highest_award_kind` | — |
-| Filter No achievement set | **Not determinable** (F4) | Replace with Unmatched (D9) |
+| Filter Unmatched (replaces No achievement set, D9) | Installed ROMs with no `game_id` | "All local ROMs are matched" |
 | System filter | `InstalledRom.console_id` → `console_service.list_consoles` | — |
 | Card: cover, title, console, X/Y | `image_service.ensure_game_image_cached` / `ensure_rom_image_cached`; `GameCompletion` | Fallback cover; "progress unavailable" when no completion record |
 | Card Play | `launch_game` / `launch_installed_rom` | No emulator for console → "Configure emulator"; missing file → "File not found" with Remove |
@@ -244,8 +244,8 @@ and are discarded after a switch (R01).
 - Profile metrics (points, hardcore points, true points, beaten, mastered)
   are account-wide figures reported by RetroAchievements.
 - Card counts (Home, Library, Lists, Explorer progress) are RetroAchievements'
-  combined `NumAwarded`/`MaxPossible` until D8 is decided; label them
-  "achievements", never "hardcore".
+  combined `NumAwarded`/`MaxPossible` (D8); label them "achievements",
+  never "hardcore".
 - Game and achievement details are always per mode. Never add hardcore and
   softcore counts together.
 
@@ -321,13 +321,16 @@ reference width:
 
 All actions stay reachable at 1024×720 and at 150% scaling (validated in R26).
 
-## 7. Open questions
+## 7. Decisions
 
-Recorded in the roadmap's open decisions:
+Resolved on 2026-11-20 and recorded in the roadmap's resolved decisions:
 
-- **D7:** where and how to show badges and event awards (F1).
-- **D8:** per-mode counts on cards, or a clearly labeled combined count (F2).
-- **D9:** replace Library's "No achievement set" filter with Unmatched (F4).
+- **D7:** badges and event awards are shown in an Awards view reached from
+  Home, combining badges with the current Events list (F1).
+- **D8:** cards keep RetroAchievements' combined count, labeled
+  "achievements"; details are per mode. Per-mode card counts are revisited only
+  if R21 confirms a hardcore count from the API (F2).
+- **D9:** Library's "No achievement set" filter becomes Unmatched (F4).
 
 Smaller choices resolved inside the owning item: cover size sliders (R19,
 R22), completion percentage on Home (R19), inline versus dialog list naming
