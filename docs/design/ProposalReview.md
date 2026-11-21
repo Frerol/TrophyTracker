@@ -109,8 +109,10 @@ Eight boards were rendered locally at a 1240×780 canvas using software Qt
 WebEngine; text/layout were inspected, including the additional Explorer/Lists
 flows. This is not runtime GUI validation or an accessibility certification.
 
-R16 still needs a complete dialog/action inventory, small-window variants and
-an explicit service contract for detail data. R17/R25/R26 must validate focus,
+R16's dialog/action inventory, small-window variants and detail data contract
+are in [ScreenDataMapping.md](ScreenDataMapping.md). It found that badges are
+synced but not displayed today, so the "Missing Now Playing and badges" row
+above needs new work for badges (decision D7 in the roadmap). R17/R25/R26 must validate focus,
 keyboard operation, contrast, scaling, unknown/offline/partial/error states and
 all component states in the real Qt interface. The fixed-width reference is
 not a responsive production layout.

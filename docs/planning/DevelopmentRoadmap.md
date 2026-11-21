@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | Planned | Start R16: map the reviewed boards to existing actions and data. |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17–R27 planned | Decide D7–D9; start R17 (tokens and components). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -45,6 +45,9 @@ These items wait on a product decision rather than on implementation work.
 | D4 | PySide6 upgrade | Dependency updates | Stay on 6.10.1; 6.12.0 crashes at interpreter teardown in the upgrade probe. |
 | D5 | Revive features cut by the proposal review (ranking, rarity, release year, global totals, near-mastery, instant unlock notifications) | Nothing in R16–R30 | Out of scope; tracked in [FutureIdeas.md](FutureIdeas.md). Each needs its own data contract. A delayed notification for locally detected unlocks is a separate idea that builds on R30. |
 | D6 | Which emulators get local log adapters first (R30) | R30 adapters beyond the first | RetroArch first, since it covers the most consoles; others follow the R30 investigation. |
+| D7 | Where and how to show badges and event awards, which are synced but never displayed | R19 awards entry | Proposed: an awards view reached from Home, combining badges and the current Events list. See [ScreenDataMapping.md](../design/ScreenDataMapping.md) F1. |
+| D8 | Per-mode (hardcore/softcore) achievement counts on cards, or a labeled combined count | R19, R22, R23 card counts | Cards show RetroAchievements' combined count today. Per-mode counts need a verified API field and a schema change (F2). Details are per mode regardless. |
+| D9 | Replace Library's "No achievement set" filter with "Unmatched" | R22 filters | Proposed: yes. A game without a set cannot be told apart from an unmatched ROM locally (F4). |
 
 ## Current Status
 
@@ -57,10 +60,13 @@ planned, not implemented.
   Home, Library, Lists and Settings. There is no standalone Profile or
   Dashboard page.
 - **Home** — `gui/pages/home_page.py`: Continue Playing, points/true points,
-  badges, event badges, Recent Activity (`services/activity_feed_service.py`),
+  beaten/mastered/completion stats, Events (event games with progress and a
+  new-events banner), Recent Activity (`services/activity_feed_service.py`),
   Now Playing (`widgets/now_playing_panel.py`, `services/now_playing_service.py`)
   and an always-visible search field that expands an embedded
-  `ExplorerPage` (`gui/pages/explorer_page.py`) in place.
+  `ExplorerPage` (`gui/pages/explorer_page.py`) in place. Badges are synced
+  and stored but not displayed anywhere
+  ([ScreenDataMapping.md](../design/ScreenDataMapping.md) F1).
 - **Explorer** — `gui/pages/explorer_page.py` with the sortable table
   (`gui/models/explorer_table_model.py`) and paint-only delegates
   (`gui/delegates/explorer_delegates.py`); no `setIndexWidget()` widget pool.
@@ -153,23 +159,24 @@ Achievements/Systems destinations from the original proposal are not required.
 
 ### Foundation
 
-- [ ] **R16 — Complete the screen/action/data mapping.**
-  `ProposalReview.md` is the starting decision record, not proof that the
-  specification is complete.
-  - [ ] Inventory every current action and dialog.
-  - [ ] Map the eight boards to widgets, services and fields.
-  - [ ] Confirm retained features: Home catalog search, local Library search,
-    Lists, Now Playing, badges, events, matching, artwork, explicit account
-    selection and emulator controls. Library must not inherit Explorer's
-    suggestion exclusions.
-  - [ ] Define game/account/hardcore/softcore scopes, data freshness and
-    unknown/error states.
-  - [ ] Specify the on-demand game detail and unlock service dependencies.
-  - [ ] Map small-window variants and dialogs.
+- [x] **R16 — Complete the screen/action/data mapping.**
+  Delivered in [ScreenDataMapping.md](../design/ScreenDataMapping.md)
+  (2026-11-20), starting from `ProposalReview.md`.
+  - [x] Inventory every current action and dialog (§2).
+  - [x] Map the eight boards to widgets, services and fields (§3).
+  - [x] Confirm retained features: Home catalog search, local Library search,
+    Lists, Now Playing, events, matching, artwork, explicit account selection
+    and emulator controls. Library must not inherit Explorer's suggestion
+    exclusions. Badges turned out not to be displayed today (F1, D7).
+  - [x] Define game/account/hardcore/softcore scopes, data freshness and
+    unknown/error states (§4).
+  - [x] Specify the on-demand game detail and unlock service dependencies (§5).
+  - [x] Map small-window variants and dialogs (§2.7, §6).
 
   **Done when:** every retained action has a route, data source and failure
   state; detail contracts are explicit; synthetic reference data never becomes
-  an application default.
+  an application default. The open questions it raised are D7–D9; the API
+  fields marked "to verify" in §5 are checked when R21 starts.
 
 - [ ] **R17 — Implement the visual system and the brand assets.**
   - [ ] Translate the palette, type scale, spacing and proportions into
@@ -273,7 +280,10 @@ Achievements/Systems destinations from the original proposal are not required.
 
 - [ ] **R24 — Implement Settings, onboarding and account controls.**
   - [ ] Accounts, Synchronization, ROM folders and Emulator configuration
-    sections; keep appearance/window/update controls and existing dialogs.
+    sections; keep existing dialogs. Move Explorer's catalog sync actions
+    into Synchronization (ScreenDataMapping F7). Settings has no
+    appearance, window or update controls today (F6); window state stays
+    automatic and the update banner stays in the shell.
   - [ ] Short, skippable first-run flow: RA credentials, explicit account
     choice, ROM folder and emulator.
   - [ ] Keep masked keys, save/outcome feedback, account-removal consequences
