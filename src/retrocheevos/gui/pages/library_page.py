@@ -1,412 +1,530 @@
-"""Library page (UI.md 3.3/3.6) — what you have installed, and where it lives.
+"""Library page (R22) — the displayed account's local ROMs as a cover grid.
 
-Its own page, reached from Home's user menu. It briefly lived as a "list"
-inside the Lists page and never fitted: it stores no rows (membership is
-whatever `installed_roms` says right now), it takes no manual additions, and
-it renders a cover-art grid nothing else uses. Being in that dropdown just
-meant a selector entry that behaved unlike every other entry.
+After the reviewed Library board: a header with the indexed-ROM count, a
+Folders… dialog (the shared `RomFolderEditor`) and a Scan menu; local search,
+All / In progress / Mastered / Unmatched (D9) and System filters; and a
+model/view grid (`LibraryGridModel` + `LibraryCardDelegate`) whose covers load
+only for painted cards within the R07 artwork budget.
 
-Two halves, both inherited from the deleted ROM Location page:
-
-- **the grid** — every installed game with a matched ROM, as clickable cover
-  art (`InstalledGameFrame`); clicking the art launches it.
-- **the folder section** — ROM folders per console, the scan that fills the
-  grid, and the unmatched-ROM fallback for files hashing couldn't resolve.
-
-The folder section reuses `rom_folders` (which already has a `console_id`
-column) rather than the `rom_destinations` table Bloco 11 removed: two
-tables both meaning "where this console's ROMs live" would drift apart.
+Scans never move, rename or delete files: they only index what is already on
+disk (`rom_folders` per console). Unmatched ROMs are cards like any other,
+with Match to game…, Choose cover… and Remove in their context menu.
 """
 
 import os
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QModelIndex, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
+    QButtonGroup, QComboBox, QDialog, QFileDialog, QHBoxLayout, QListView, QMenu,
+    QMessageBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from retrocheevos.gui.view_state import restore_scroll_later
+from retrocheevos.core.library_filter import (
+    STATUS_ALL, STATUS_IN_PROGRESS, STATUS_MASTERED, STATUS_UNMATCHED, filter_entries,
+)
+from retrocheevos.gui import styles
 from retrocheevos.gui.app_context import AppContext
-from retrocheevos.gui.delegates.removable_list_delegate import RemovableListDelegate
+from retrocheevos.gui.components import FilterChip, SearchField, button, page_title, text_label
+from retrocheevos.gui.delegates.library_card_delegate import (
+    CELL_HEIGHT, MIN_CARD_WIDTH, LibraryCardDelegate,
+)
+from retrocheevos.gui.dialogs.folders_dialog import FoldersDialog
+from retrocheevos.gui.flow_layout import FlowLayout
 from retrocheevos.gui.dialogs.match_rom_dialog import MatchRomDialog
-from retrocheevos.gui.image_loader import ImageLoader
+from retrocheevos.gui.models.library_grid_model import EntryRole, LibraryGridModel
 from retrocheevos.gui.pages.base_page import Page
-from retrocheevos.gui.selection import selected_item
+from retrocheevos.gui.view_state import restore_scroll_later
 from retrocheevos.gui.workers import ServiceWorker
-from retrocheevos.models.library import RehashResult, RomFolderScanResult
-from retrocheevos.services import console_service, library_service, preferences_service
-from retrocheevos.widgets.cover_size_slider import CoverSizeSlider
-from retrocheevos.widgets.console_selector import ConsoleSelector
-from retrocheevos.widgets.installed_game_frame import InstalledGameFrame
-from retrocheevos.widgets.unmatched_rom_card import UnmatchedRomCard
+from retrocheevos.library.local_covers import cached_local_cover_path
+from retrocheevos.models.library import LibraryEntry, RehashResult, RomFolderScanResult
+from retrocheevos.services import console_service, library_service
 
-# Columns are derived from the cover size *and the real viewport width*, so
-# the grid fills whatever screen it's on instead of stopping at a fixed
-# number. It was a constant (`GRID_TARGET_WIDTH = 980`), which capped the row
-# at 4 covers on a wide window and left the right-hand side empty.
-MIN_GRID_COLUMNS = 2
-# Frame border + layout margins + grid spacing around the cover, so the count
-# is based on the space a card really occupies rather than the art alone.
-CARD_PADDING = 24
-# Scroll bar plus the scroll area's own frame — without allowing for it the
-# last column lands half under the bar and the view scrolls horizontally.
-# Vertical scrollbar (14px, `gui/styles.py`) plus the scroll area's 1px
-# border each side. It was 28 — a guess with padding on top of padding, which
-# cost a whole column at some sizes and left a wide empty strip on the right.
-VIEWPORT_CHROME = 16
+SCAN_BUTTON_TEXT = "Scan"
+SCANNING_TEXT = "Scanning…"
+REHASH_ACTION_TEXT = "Verify hashes (re-hash library)"
+SCAN_ALL_ACTION_TEXT = "Scan all folders"
+SCAN_FILE_ACTION_TEXT = "Scan a ROM file…"
+IMAGE_FILE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
+FOOTER_NOTE = "Scanning indexes existing files. It does not move or download ROMs."
+NO_ACCOUNT_TEXT = "Choose an account in the sidebar to see its library."
+EMPTY_LIBRARY_TEXT = "No ROMs indexed yet. Add the folders where your ROMs are, then scan them."
+NO_MATCH_TEXT = "No local games match."
+ALL_MATCHED_TEXT = "All local ROMs are matched."
+WORKER_SCAN = ("library", "scan")
+WORKER_REHASH = ("library", "rehash")
+WORKER_PLAY = ("library", "play")
+MIN_COLUMNS = 2
+SEARCH_WIDTH = 300
 
-# Both `UserRole`, not `UserRole` and `UserRole + 1`: they live on *different*
-# list widgets so there's no clash, and `RemovableListDelegate` reads
-# `UserRole` specifically. Storing the ROM id one role higher is why its "−"
-# silently removed nothing — the delegate emitted an empty role.
-ROM_FOLDER_ID_ROLE = Qt.ItemDataRole.UserRole
-ROM_ID_ROLE = Qt.ItemDataRole.UserRole
-
-EMPTY_TEXT = "No installed games yet. Add a ROM folder below and scan it."
-SCAN_BUTTON_TEXT = "Scan Folder"
-SCAN_ALL_BUTTON_TEXT = "Scan All Folders"
-REHASH_BUTTON_TEXT = "Re-hash Library"
-REMOVE_BUTTON_WIDTH = 32
-REFRESH_BUTTON_TEXT = "Refresh"
-
-# The folder section is a tool, not the content. Left unbounded its two list
-# widgets claim their full size hint and squeeze the cover grid — which is
-# the point of the page — into a strip a row and a half tall.
-FOLDER_LIST_MAX_HEIGHT = 110
-UNMATCHED_LIST_MAX_HEIGHT = 90
+FILTERS = (
+    (STATUS_ALL, "All"),
+    (STATUS_IN_PROGRESS, "In progress"),
+    (STATUS_MASTERED, "Mastered"),
+    (STATUS_UNMATCHED, "Unmatched"),
+)
 
 
 class LibraryPage(Page):
+    # Console id; MainWindow opens Settings' emulator editor on it.
+    configure_emulator_requested = Signal(int)
+
     def __init__(self, app_context: AppContext) -> None:
         super().__init__(app_context)
-        self._play_worker: Optional[ServiceWorker] = None
-        self._scan_worker: Optional[ServiceWorker] = None
-        # One loader shared by every frame in the grid, registered with
-        # AppContext so shutdown can wait for it.
         self._image_loader = app_context.create_image_loader()
-
-        self._grid_container = QWidget()
-        self._grid_layout = QGridLayout(self._grid_container)
-        self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setWidget(self._grid_container)
-        scroll_area = self._scroll_area
+        self._entries: list[LibraryEntry] = []
+        self._status = STATUS_ALL
+        self._console_filter: Optional[int] = None
         self._shown_account_id: Optional[int] = None
-        # Tracked so `resizeEvent` only rebuilds when the count actually
-        # changes, not on every pixel of a window drag.
-        self._last_grid_columns = 0
+        self._last_result_details = ""
+        self._console_names: dict[int, str] = {}
+        self._cover_games: dict = {}
 
-        self._cover_slider = CoverSizeSlider(
-            initial_size=preferences_service.get_int(
-                preferences_service.KEY_LIBRARY_COVER_SIZE, 150
-            ),
-            min_size=100,
-            max_size=160,
+        # Header -------------------------------------------------------------
+        self._count_label = text_label("", "secondary")
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(page_title("Library"))
+        heading.addWidget(self._count_label)
+        folders_button = button("Folders…")
+        folders_button.setToolTip("Add, remove and scan ROM folders")
+        folders_button.clicked.connect(self.open_folders)
+        self._scan_button = button(SCAN_BUTTON_TEXT)
+        scan_menu = QMenu(self._scan_button)
+        self._scan_all_action = scan_menu.addAction(SCAN_ALL_ACTION_TEXT, self._on_scan_all_folders)
+        self._rehash_action = scan_menu.addAction(REHASH_ACTION_TEXT, self._on_rehash)
+        self._rehash_action.setToolTip(
+            "Recompute every indexed ROM's hash with the current hasher and re-match. "
+            "Use after installing RAHasher or updating the app."
         )
-        self._cover_slider.size_changed.connect(self._on_cover_size_changed)
+        scan_menu.addSeparator()
+        scan_menu.addAction(SCAN_FILE_ACTION_TEXT, self.open_folders)
+        self._scan_button.setMenu(scan_menu)
+        header = QHBoxLayout()
+        header.addLayout(heading)
+        header.addStretch(1)
+        header.addWidget(folders_button)
+        header.addWidget(self._scan_button)
 
-        # The page only rebuilt itself on navigation, so a ROM deleted from
-        # disk (or added by another means) needed a trip to another section
-        # and back before the grid caught up. `refresh()` is also what runs
-        # the missing-file sweep, so this is the button that makes that
-        # sweep reachable without leaving the page.
-        refresh_button = QPushButton(REFRESH_BUTTON_TEXT)
-        refresh_button.setToolTip("Re-read what's installed and drop anything gone")
-        refresh_button.clicked.connect(self.refresh)
+        # Status row: progress / result, Cancel, Details ----------------------
+        self._scan_status_label = text_label("", "secondary", wrap=True)
+        self._scan_status_label.setVisible(False)
+        self._cancel_button = button("Cancel", compact=True)
+        self._cancel_button.clicked.connect(self._on_cancel_scan)
+        self._cancel_button.setVisible(False)
+        self._details_button = button("Details…", "ghost", compact=True)
+        self._details_button.clicked.connect(self._show_result_details)
+        self._details_button.setVisible(False)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self._scan_status_label, stretch=1)
+        status_row.addWidget(self._details_button)
+        status_row.addWidget(self._cancel_button)
 
-        slider_row = QHBoxLayout()
-        slider_row.addWidget(self._cover_slider)
-        slider_row.addWidget(refresh_button)
-        slider_row.addStretch(1)
+        # Toolbar --------------------------------------------------------------
+        self._search = SearchField("Search local games")
+        self._search.setFixedWidth(SEARCH_WIDTH)
+        self._search.textChanged.connect(self._apply_filters)
+        self._filter_group = QButtonGroup(self)
+        self._filter_group.setExclusive(True)
+        self._filter_chips: dict[str, FilterChip] = {}
+        # Wraps onto a second row in narrow windows instead of squeezing the
+        # search field or clipping the chips.
+        toolbar_widget = QWidget()
+        toolbar_widget.setProperty("transparent", True)
+        toolbar = FlowLayout(toolbar_widget, spacing=styles.SPACE_S)
+        toolbar.addWidget(self._search)
+        for status, label in FILTERS:
+            chip = FilterChip(label, checked=status == STATUS_ALL)
+            chip.clicked.connect(lambda _checked=False, s=status: self._set_status(s))
+            self._filter_group.addButton(chip)
+            self._filter_chips[status] = chip
+            toolbar.addWidget(chip)
+        self._system_filter = QComboBox()
+        self._system_filter.setAccessibleName("System")
+        self._system_filter.setMinimumWidth(180)
+        self._system_filter.currentIndexChanged.connect(self._on_system_changed)
+        toolbar.addWidget(self._system_filter)
+
+        # Grid ------------------------------------------------------------------
+        self._model = LibraryGridModel(self._image_loader, self)
+        self._delegate = LibraryCardDelegate(self)
+        self._delegate.play_requested.connect(self._on_play_index)
+        self._grid = QListView()
+        self._grid.setModel(self._model)
+        self._grid.setItemDelegate(self._delegate)
+        self._grid.setViewMode(QListView.ViewMode.IconMode)
+        self._grid.setMovement(QListView.Movement.Static)
+        self._grid.setResizeMode(QListView.ResizeMode.Adjust)
+        self._grid.setUniformItemSizes(True)
+        self._grid.setWrapping(True)
+        self._grid.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self._grid.setMouseTracking(True)
+        self._grid.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        self._grid.verticalScrollBar().setSingleStep(24)
+        self._grid.setAccessibleName("Local games")
+        self._grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._grid.customContextMenuRequested.connect(self._on_context_menu)
+        self._grid.activated.connect(self._on_play_index)
+        self._grid.setProperty("libraryGrid", True)
+        # The viewport, not the page, decides the columns: it narrows when the
+        # scroll bar appears without the page itself resizing.
+        self._grid.viewport().installEventFilter(self)
+
+        self._message = text_label("", "secondary", wrap=True)
+        self._add_folder_button = button("Add a folder…", "primary")
+        self._add_folder_button.clicked.connect(self.open_folders)
+        message_page = QWidget()
+        message_layout = QVBoxLayout(message_page)
+        message_layout.addWidget(self._message)
+        message_layout.addWidget(self._add_folder_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        message_layout.addStretch(1)
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._grid)
+        self._stack.addWidget(message_page)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 16, 24, 20)
-        layout.setSpacing(12)
-        heading = QLabel("Library")
-        heading.setObjectName("pageTitle")
-        subtitle = QLabel("Your installed games and ROM folders.")
-        subtitle.setObjectName("pageSubtitle")
-        layout.addWidget(heading)
-        layout.addWidget(subtitle)
-        layout.addLayout(slider_row)
-        layout.addWidget(scroll_area, stretch=1)
-        layout.addWidget(self._build_rom_folders_section())
-
-    def _build_rom_folders_section(self) -> QWidget:
-        container = QWidget()
-
-        self._folder_console_selector = ConsoleSelector()
-        add_folder_button = QPushButton("Add Folder for Console...")
-        add_folder_button.clicked.connect(self._on_add_rom_folder)
-        remove_folder_button = QPushButton("Remove Selected")
-        remove_folder_button.clicked.connect(self._on_remove_rom_folder)
-
-        folder_row = QHBoxLayout()
-        folder_row.addWidget(self._folder_console_selector, stretch=1)
-        folder_row.addWidget(add_folder_button)
-        folder_row.addWidget(remove_folder_button)
-
-        self._rom_folders_list = QListWidget()
-        self._rom_folders_list.setMaximumHeight(FOLDER_LIST_MAX_HEIGHT)
-
-        self._scan_button = QPushButton(SCAN_BUTTON_TEXT)
-        self._scan_button.clicked.connect(self._on_scan_folder)
-        # Scans every configured folder, so it needs no selection — which is
-        # the common case once more than one console is set up, and the one
-        # the per-folder button made tedious.
-        self._scan_all_button = QPushButton(SCAN_ALL_BUTTON_TEXT)
-        self._scan_all_button.clicked.connect(self._on_scan_all_folders)
-        # Neither scan button can reach an already-recorded ROM: both skip
-        # files already in `installed_roms`, so a ROM keeps whatever hash the
-        # app computed the day it was scanned. This is the only way to pick up
-        # a hashing improvement without removing and re-adding every folder.
-        self._rehash_button = QPushButton(REHASH_BUTTON_TEXT)
-        self._rehash_button.setToolTip(
-            "Recompute the hash of every ROM already in the library using the "
-            "current hasher, then re-match. Use after installing RAHasher or "
-            "updating the app. Only rewrites hashes that actually changed."
+        layout.setContentsMargins(
+            styles.PAGE_PADDING_H, styles.PAGE_PADDING_V - 8,
+            styles.PAGE_PADDING_H, styles.PAGE_PADDING_V - 12,
         )
-        self._rehash_button.clicked.connect(self._on_rehash)
-        self._scan_status_label = QLabel()
-        self._scan_status_label.setWordWrap(True)
-        scan_row = QHBoxLayout()
-        scan_row.addWidget(self._scan_button)
-        scan_row.addWidget(self._scan_all_button)
-        scan_row.addWidget(self._rehash_button)
-        scan_row.addWidget(self._scan_status_label, stretch=1)
+        layout.setSpacing(styles.SPACE_M)
+        layout.addLayout(header)
+        layout.addLayout(status_row)
+        layout.addWidget(toolbar_widget)
+        layout.addWidget(self._stack, stretch=1)
+        layout.addWidget(text_label(FOOTER_NOTE, "secondary", wrap=True))
 
-        # Without this, a ROM whose hash matched nothing would be invisible
-        # everywhere — it isn't in the grid above (that lists games with a
-        # match), so there'd be no way left to tell the app what it is.
-        self._unmatched_list = QListWidget()
-        self._unmatched_list.setMaximumHeight(UNMATCHED_LIST_MAX_HEIGHT)
-        # A "−" on **every row**, not one button acting on the selection.
-        # Clearing out a handful of stragglers means clicking each one; with
-        # a selection-based button that's select, click, select, click.
-        # `RemovableListDelegate` is what Settings already uses for exactly
-        # this shape of list.
-        unmatched_delegate = RemovableListDelegate(self._unmatched_list)
-        unmatched_delegate.remove_requested.connect(self._remove_unmatched)
-        self._unmatched_list.setItemDelegate(unmatched_delegate)
-        match_button = QPushButton("Match to Game...")
-        match_button.clicked.connect(self._on_match_to_game)
-        scan_file_button = QPushButton("Scan ROM File...")
-        scan_file_button.clicked.connect(self._on_scan_file)
-        # "−" rather than "Delete": it removes the entry from this list, it
-        # does not touch the file. Same symbol and meaning as the one on the
-        # Lists page's cards.
-        remove_unmatched_button = QPushButton("−")
-        remove_unmatched_button.setFixedWidth(REMOVE_BUTTON_WIDTH)
-        remove_unmatched_button.setToolTip(
-            "Remove from this list (the file on disk is left alone)"
-        )
-        remove_unmatched_button.clicked.connect(self._on_remove_unmatched)
-
-        unmatched_row = QHBoxLayout()
-        unmatched_row.addWidget(scan_file_button)
-        unmatched_row.addWidget(match_button)
-        unmatched_row.addWidget(remove_unmatched_button)
-
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("ROM folders per console"))
-        layout.addLayout(folder_row)
-        layout.addWidget(self._rom_folders_list)
-        layout.addLayout(scan_row)
-        layout.addWidget(QLabel("Unmatched ROMs (hashing found no game)"))
-        layout.addWidget(self._unmatched_list)
-        layout.addLayout(unmatched_row)
-        return container
+    # Refresh and filters ----------------------------------------------------
 
     def refresh(self) -> None:
-        # The grid is rebuilt from scratch; keep the user's place in it (R18),
-        # unless the grid now belongs to a different account.
-        scroll = self._scroll_area.verticalScrollBar().value()
         account = self.app_context.active_account
         account_id = account.id if account is not None else None
         same_account = account_id == self._shown_account_id
         self._shown_account_id = account_id
-        self._rebuild()
-        if same_account:
-            restore_scroll_later(self._scroll_area, scroll)
-
-    def _rebuild(self) -> None:
-        # Re-read the stored size every time. The slider took its value at
-        # construction, when there may have been no account signed in — so
-        # without this, logging in showed the *default* size and the
-        # account's saved one was never applied.
-        self._cover_slider.set_value_silently(
-            preferences_service.get_int(preferences_service.KEY_LIBRARY_COVER_SIZE, 150)
+        scroll = self._grid.verticalScrollBar().value()
+        if not same_account:
+            self._search.blockSignals(True)
+            self._search.clear()
+            self._search.blockSignals(False)
+            self._status = STATUS_ALL
+            self._filter_chips[STATUS_ALL].setChecked(True)
+            self._console_filter = None
+        if account is None:
+            self._entries = []
+        else:
+            # Entries recorded before `_is_not_a_rom` existed, and files
+            # deleted outside the app: nothing else notices either.
+            library_service.purge_non_rom_entries()
+            library_service.purge_missing_roms()
+            self._entries = library_service.list_library_entries()
+        self._console_names = {c.id: c.name for c in console_service.list_consoles()}
+        self._cover_games = (
+            library_service.guess_games_for_unmatched_roms()
+            if any(entry.kind == "rom" for entry in self._entries) else {}
         )
-        self._clear_grid()
-        # Clears out entries recorded before `_is_not_a_rom` existed — saves,
-        # box art and patches that a pre-filter scan had already written into
-        # `installed_roms`. The filter is preventive only; without this they
-        # stay under "Unmatched ROMs" forever. No-op once they're gone.
-        library_service.purge_non_rom_entries()
-        # Files deleted outside the app. Nothing else notices — `installed_roms`
-        # is only written by a scan — so a ROM removed from disk stayed in the
-        # Library indefinitely.
-        library_service.purge_missing_roms()
-        self._refresh_rom_folders()
+        self._reload_system_filter()
+        rom_count = sum(len(entry.file_paths) for entry in self._entries)
+        if account is None:
+            self._count_label.setText("No account selected")
+        elif rom_count:
+            self._count_label.setText(f"{rom_count:,} local {'ROM' if rom_count == 1 else 'ROMs'} indexed")
+        else:
+            self._count_label.setText("No ROMs indexed yet")
+        self._apply_filters()
+        if same_account:
+            restore_scroll_later(self._grid, scroll)
 
-        console_names = {console.id: console.name for console in console_service.list_consoles()}
-        games = library_service.get_installed_games()
-        # ROMs whose hash matched no game belong here too. They were only in
-        # Home's Continue Playing before, which meant a folder scan could
-        # report "12 new ROMs" and the Library — the page whose whole job is
-        # showing what you have — would list eight of them. Anything scanned
-        # appears here; the unmatched ones just can't show cover art or
-        # progress, because nothing knows yet which game they are.
-        unmatched = [
-            rom for rom in library_service.list_installed_roms() if rom.game_id is None
-        ]
-        if not games and not unmatched:
-            self._grid_layout.addWidget(QLabel(EMPTY_TEXT), 0, 0)
-            return
+    def _reload_system_filter(self) -> None:
+        present = sorted(
+            {entry.console_id for entry in self._entries},
+            key=lambda cid: self._console_names.get(cid, "").casefold(),
+        )
+        self._system_filter.blockSignals(True)
+        self._system_filter.clear()
+        self._system_filter.addItem("All systems", None)
+        for console_id in present:
+            self._system_filter.addItem(self._console_names.get(console_id, f"Console #{console_id}"), console_id)
+        index = self._system_filter.findData(self._console_filter)
+        if index < 0:
+            self._console_filter = None
+            index = 0
+        self._system_filter.setCurrentIndex(index)
+        self._system_filter.blockSignals(False)
 
-        cover_size = self._cover_slider.value()
-        # Cards are built before any are placed, so the column count can come
-        # from their **measured** width. Estimating it as
-        # `cover_size + a constant` was close but not always right — the
-        # card's margins scale with the cover and the frame adds borders — so
-        # at some sizes the last column overflowed and got clipped instead of
-        # wrapping.
-        cards: list[QWidget] = []
-        for game in games:
-            frame = InstalledGameFrame(
-                game,
-                self._image_loader,
-                console_name=console_names.get(game.console_id),
-                cover_size=cover_size,
+    def _set_status(self, status: str) -> None:
+        self._status = status
+        self._filter_chips[status].setChecked(True)
+        self._apply_filters()
+
+    def _on_system_changed(self, _index: int) -> None:
+        self._console_filter = self._system_filter.currentData()
+        self._apply_filters()
+
+    def _apply_filters(self) -> None:
+        visible = filter_entries(self._entries, self._status, self._console_filter, self._search.text())
+        self._model.set_entries(visible, self._console_names, self._cover_games)
+        account = self.app_context.active_account
+        self._add_folder_button.setVisible(False)
+        if account is None:
+            self._show_message(NO_ACCOUNT_TEXT)
+        elif not self._entries:
+            self._show_message(EMPTY_LIBRARY_TEXT)
+            self._add_folder_button.setVisible(True)
+        elif not visible:
+            only_unmatched = (
+                self._status == STATUS_UNMATCHED and not self._search.text().strip()
+                and self._console_filter is None
             )
-            frame.play_requested.connect(self._on_play)
-            frame.remove_requested.connect(self._on_remove_game)
-            cards.append(frame)
+            self._show_message(ALL_MATCHED_TEXT if only_unmatched else NO_MATCH_TEXT)
+        else:
+            self._stack.setCurrentWidget(self._grid)
 
-        # After the matched ones: these are the "needs attention" tail, and
-        # the Match to Game… list below is where they get resolved.
-        cover_guesses = library_service.guess_games_for_unmatched_roms()
-        for rom in unmatched:
-            card = UnmatchedRomCard(
-                rom,
-                console_name=console_names.get(rom.console_id),
-                cover_game=cover_guesses.get(rom.id),
-                image_loader=self._image_loader,
-                cover_size=cover_size,
-            )
-            card.play_requested.connect(self._on_play_unmatched_rom)
-            card.remove_requested.connect(self._remove_unmatched)
-            cards.append(card)
+    def _show_message(self, text: str) -> None:
+        self._message.setText(text)
+        self._stack.setCurrentIndex(1)
 
-        widest = max((card.sizeHint().width() for card in cards), default=cover_size)
-        columns = self._columns_for_card_width(widest)
-        self._last_grid_columns = columns
-        for index, card in enumerate(cards):
-            self._grid_layout.addWidget(
-                card,
-                index // columns,
-                index % columns,
-                alignment=Qt.AlignmentFlag.AlignHCenter,
-            )
-        # Whatever width is left after the last whole column gets shared out
-        # between the columns instead of piling up on the right. The cards are
-        # fixed-width, so without this the remainder — up to a full card's
-        # worth — sat as one dead block at the end of every row.
-        for column in range(columns):
-            self._grid_layout.setColumnStretch(column, 1)
+    def message_text(self) -> Optional[str]:
+        return self._message.text() if self._stack.currentIndex() == 1 else None
 
-    def _on_cover_size_changed(self, size: int) -> None:
-        preferences_service.set_int(preferences_service.KEY_LIBRARY_COVER_SIZE, size)
-        self.refresh()
+    def columns(self) -> int:
+        return max(1, self._grid.viewport().width() // max(1, self._grid.gridSize().width()))
 
-    def _columns_for_card_width(self, card_width: int) -> int:
-        """Columns that fit, from a card's measured width — see `refresh`."""
-        available = self._scroll_area.viewport().width()
-        if available <= 1:
-            available = self.width()
-        spacing = max(0, self._grid_layout.horizontalSpacing())
-        usable = max(0, available - VIEWPORT_CHROME)
-        return max(MIN_GRID_COLUMNS, (usable + spacing) // (card_width + spacing))
-
-    def _grid_columns(self, cover_size: int) -> int:
-        """How many cards fit across the grid right now.
-
-        Measured from the live viewport, not a constant — the page is used at
-        whatever size the window happens to be, and a fixed target width
-        meant a 4-wide row with dead space beside it on anything larger.
-        Falls back to this page's own width before the scroll area has been
-        laid out (first `refresh()` runs before the widget is shown, where
-        the viewport still reports a placeholder size).
-        """
-        available = self._scroll_area.viewport().width()
-        if available <= 1:
-            available = self.width()
-        usable = max(0, available - VIEWPORT_CHROME)
-        return max(MIN_GRID_COLUMNS, usable // (cover_size + CARD_PADDING))
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 — Qt override
+        if event.type() == QEvent.Type.Resize and watched is self._grid.viewport():
+            self._update_grid_size()
+        return super().eventFilter(watched, event)
 
     def showEvent(self, event) -> None:  # noqa: N802 — Qt override
-        """Reflow once the page is actually on screen.
-
-        `refresh()` is called by `MainWindow._show_page` *before* the widget
-        is laid out, when the viewport still reports a placeholder width — so
-        the first grid was built for a narrow page and kept that column count
-        if no resize happened afterwards. That's the "only fills half the
-        screen" case.
-        """
         super().showEvent(event)
-        columns = self._grid_columns(self._cover_slider.value())
-        if columns != self._last_grid_columns:
-            self._last_grid_columns = columns
+        self._update_grid_size()
+
+    def _update_grid_size(self) -> None:
+        width = self._grid.viewport().width()
+        if width <= 1:
+            return
+        columns = max(MIN_COLUMNS, width // MIN_CARD_WIDTH)
+        # One pixel of slack per column: QListView wraps an item whose cell
+        # would end exactly on the viewport edge.
+        cell = QSize(width // columns - 1, CELL_HEIGHT)
+        if cell != self._grid.gridSize():
+            self._delegate.set_cell_size(cell)
+            self._grid.setGridSize(cell)
+
+    # Play -------------------------------------------------------------------
+
+    def _on_play_index(self, index: QModelIndex) -> None:
+        entry = index.data(EntryRole)
+        if entry is not None:
+            self.play_entry(entry)
+
+    def play_entry(self, entry: LibraryEntry) -> None:
+        """Guarded launch: missing files and missing emulators get next steps."""
+        if entry.file_paths and not any(Path(path).exists() for path in entry.file_paths):
+            answer = QMessageBox.question(
+                self, "File not found",
+                f"{entry.title} is no longer at:\n{entry.file_paths[0]}\n\n"
+                "Remove it from the Library? The folder can be scanned again later.",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._remove_entry(entry)
+            return
+        if not entry.has_emulator:
+            answer = QMessageBox.question(
+                self, "No emulator configured",
+                f"No emulator is set up for {self._model.console_name(entry.console_id)}. "
+                "Configure one in Settings now?",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.configure_emulator_requested.emit(entry.console_id)
+            return
+        if entry.kind == "game":
+            worker = ServiceWorker(library_service.launch_game, entry.game.id)
+        else:
+            worker = ServiceWorker(library_service.launch_installed_rom, entry.rom.id)
+        worker.failed.connect(self._on_play_failed)
+        self.app_context.workers.start(worker, key=WORKER_PLAY)
+
+    def _on_play_failed(self, message: str) -> None:
+        QMessageBox.warning(self, "Couldn't launch game", message)
+
+    # Context menu -----------------------------------------------------------
+
+    def build_context_menu(self, entry: LibraryEntry) -> QMenu:
+        menu = QMenu(self)
+        play = menu.addAction("Play", lambda: self.play_entry(entry))
+        play.setEnabled(entry.has_emulator)
+        if entry.kind == "rom":
+            menu.addAction("Match to game…", lambda: self.match_entry(entry))
+            menu.addAction("Choose cover…", lambda: self._choose_cover(entry))
+        menu.addAction("Configure emulator", lambda: self.configure_emulator_requested.emit(entry.console_id))
+        menu.addSeparator()
+        menu.addAction("Remove from Library", lambda: self._remove_entry(entry))
+        return menu
+
+    def _on_context_menu(self, position: QPoint) -> None:
+        index = self._grid.indexAt(position)
+        entry = index.data(EntryRole) if index.isValid() else None
+        if entry is not None:
+            self.build_context_menu(entry).popup(self._grid.viewport().mapToGlobal(position))
+
+    def _remove_entry(self, entry: LibraryEntry) -> None:
+        """Removes the index records only; files on disk are never touched."""
+        if entry.kind == "game":
+            library_service.remove_installed_roms_for_game(entry.game.id)
+        else:
+            library_service.remove_installed_rom(entry.rom.id)
+        self.refresh()
+
+    def _choose_cover(self, entry: LibraryEntry) -> None:
+        source, _ = QFileDialog.getOpenFileName(self, "Select Cover Image", filter=IMAGE_FILE_FILTER)
+        if not source:
+            return
+        pixmap = QPixmap(source)
+        if pixmap.isNull():
+            QMessageBox.warning(self, "Invalid image", "Couldn't read that file as an image.")
+            return
+        destination = cached_local_cover_path(entry.rom.id)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        pixmap.save(str(destination), "PNG")
+        self._model.forget_cover(entry.key)
+
+    def match_entry(self, entry: LibraryEntry) -> None:
+        rom = entry.rom
+        console_name = self._model.console_name(rom.console_id)
+        games = library_service.list_games_for_matching(rom.console_id)
+        if not games:
+            QMessageBox.information(
+                self, "No games to match",
+                f"No {console_name} games are synced locally yet. Sync the catalog "
+                "from Home's Explore catalog first.",
+            )
+            return
+        dialog = MatchRomDialog(rom.file_path, console_name, games, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        game_id = dialog.selected_game_id()
+        if game_id is None:
+            return
+        library_service.match_installed_rom_to_game(rom.id, game_id)
+        self.refresh()
+
+    # Folders and scans --------------------------------------------------------
+
+    def open_folders(self) -> None:
+        dialog = FoldersDialog(self)
+        dialog.exec()
+        if dialog.scan_folder_id is not None:
+            self.start_folder_scan(dialog.scan_folder_id)
+        elif dialog.scan_file is not None:
+            console_id, path = dialog.scan_file
+            library_service.scan_and_record_rom(path, console_id)
+            self.refresh()
+        else:
             self.refresh()
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt override
-        """Reflow on resize so widening the window actually adds columns.
+    def _set_status_text(self, text: str) -> None:
+        self._scan_status_label.setText(text)
+        self._scan_status_label.setVisible(bool(text))
 
-        Guarded on the column count rather than rebuilding on every pixel of
-        a drag: a resize fires continuously, and the grid teardown/rebuild is
-        far too expensive to run at that rate.
-        """
-        super().resizeEvent(event)
-        columns = self._grid_columns(self._cover_slider.value())
-        if columns != self._last_grid_columns:
-            self._last_grid_columns = columns
-            self.refresh()
+    def _on_scan_progress(self, discovered: int, path: str) -> None:
+        # Sets the label directly (not via `_set_status_text`): it runs for
+        # every progress tick and is exercised on its own by tests.
+        self._scan_status_label.setText(f"Discovered {discovered} entries — {path}")
+        self._scan_status_label.setVisible(True)
 
-    def _clear_grid(self) -> None:
-        # Column stretches survive `takeAt`, so a wide layout followed by a
-        # narrow one would keep phantom stretched columns to the right.
-        for column in range(self._grid_layout.columnCount()):
-            self._grid_layout.setColumnStretch(column, 0)
-        while self._grid_layout.count():
-            item = self._grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def _acquire(self, job: str):
+        from retrocheevos.services.job_coordinator import active_job, try_acquire
 
-    def _on_play(self, game_id: int) -> None:
-        play_worker = ServiceWorker(library_service.launch_game, game_id)
-        play_worker.failed.connect(self._on_play_failed)
-        self.app_context.workers.start(play_worker, key=("library", "play"))
+        token = try_acquire(job)
+        if token is None:
+            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
+        return token
 
-    def _on_play_unmatched_rom(self, installed_rom_id: int) -> None:
-        """Launched by `installed_roms.id`, not `game_id` — there isn't one."""
-        play_worker = ServiceWorker(library_service.launch_installed_rom, installed_rom_id)
-        play_worker.failed.connect(self._on_play_failed)
-        self.app_context.workers.start(play_worker, key=("library", "play"))
+    def _begin_job(self) -> None:
+        self._set_scan_buttons_enabled(False)
+        self._scan_button.setText(SCANNING_TEXT)
+        self._set_status_text("")
+        self._details_button.setVisible(False)
+        self._cancel_button.setVisible(True)
+
+    def start_folder_scan(self, folder_id: int) -> None:
+        from retrocheevos.services.job_coordinator import JOB_SCAN_FOLDER
+
+        token = self._acquire(JOB_SCAN_FOLDER)
+        if token is None:
+            return
+        self._begin_job()
+        worker = ServiceWorker(
+            library_service.scan_rom_folder, folder_id, report_scan_progress=True, cancellable=True,
+        )
+        self._connect_scan(worker, token)
+
+    def _on_scan_all_folders(self) -> None:
+        from retrocheevos.services.job_coordinator import JOB_SCAN_ALL_FOLDERS
+
+        if not library_service.list_rom_folders():
+            QMessageBox.information(self, "No ROM folders", "Add a folder for a console first.")
+            self.open_folders()
+            return
+        token = self._acquire(JOB_SCAN_ALL_FOLDERS)
+        if token is None:
+            return
+        self._begin_job()
+        worker = ServiceWorker(library_service.scan_all_rom_folders, report_scan_progress=True, cancellable=True)
+        self._connect_scan(worker, token)
+
+    def _connect_scan(self, worker: ServiceWorker, token) -> None:
+        worker.scan_progress.connect(self._on_scan_progress)
+        worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._on_job_cancelled(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=WORKER_SCAN)
+
+    def _on_rehash(self) -> None:
+        from retrocheevos.services.job_coordinator import JOB_REHASH_LIBRARY
+
+        if not self._entries:
+            QMessageBox.information(self, "Nothing to re-hash", "No ROMs have been scanned yet.")
+            return
+        token = self._acquire(JOB_REHASH_LIBRARY)
+        if token is None:
+            return
+        self._begin_job()
+        self._set_status_text("Verifying hashes…")
+        worker = ServiceWorker(library_service.rehash_installed_roms, cancellable=True)
+        worker.finished_ok.connect(lambda result: (self._on_rehash_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_rehash_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._on_job_cancelled(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=WORKER_REHASH)
+
+    def _on_cancel_scan(self) -> None:
+        self._cancel_button.setEnabled(False)
+        self._set_status_text("Cancelling…")
+        self.app_context.workers.cancel_key(WORKER_SCAN)
+        self.app_context.workers.cancel_key(WORKER_REHASH)
+
+    def _on_job_cancelled(self) -> None:
+        self._reset_scan_button()
+        self._set_status_text("Cancelled. Files indexed so far are kept.")
+
+    def _reset_scan_button(self) -> None:
+        self._scan_button.setText(SCAN_BUTTON_TEXT)
+        self._set_scan_buttons_enabled(True)
+        self._cancel_button.setVisible(False)
+        self._cancel_button.setEnabled(True)
+
+    def _set_scan_buttons_enabled(self, enabled: bool) -> None:
+        # Scans and the re-hash write the same tables, so they exclude each other.
+        self._scan_button.setEnabled(enabled)
+        self._scan_all_action.setEnabled(enabled)
+        self._rehash_action.setEnabled(enabled)
+
+    def _release_job(self, token) -> None:
+        from retrocheevos.services.job_coordinator import release
+
+        release(token)
 
     def _invalidate_artwork_for_paths(self, paths: list[str]) -> None:
         if not paths:
@@ -416,274 +534,73 @@ class LibraryPage(Page):
             if os.path.normcase(str(Path(rom.file_path).expanduser().resolve())) in normalized:
                 if rom.id is not None:
                     self._image_loader.forget_rom(rom.id)
-
-    def _on_play_failed(self, message: str) -> None:
-        QMessageBox.warning(self, "Couldn't launch game", message)
-
-    # --- ROM folders --------------------------------------------------
-
-    def _refresh_rom_folders(self) -> None:
-        consoles = console_service.list_configurable_consoles()
-        console_names = {console.id: console.name for console in consoles}
-
-        previous = self._folder_console_selector.currentData()
-        self._folder_console_selector.clear()
-        for console in consoles:
-            self._folder_console_selector.addItem(console.name, console.id)
-        if previous is not None:
-            index = self._folder_console_selector.findData(previous)
-            if index >= 0:
-                self._folder_console_selector.setCurrentIndex(index)
-
-        self._rom_folders_list.clear()
-        for folder in library_service.list_rom_folders():
-            console_label = (
-                console_names.get(folder.console_id, f"Console #{folder.console_id}")
-                if folder.console_id is not None
-                else "Any console"
-            )
-            item = QListWidgetItem(f"{console_label}: {folder.path}")
-            item.setData(ROM_FOLDER_ID_ROLE, folder.id)
-            self._rom_folders_list.addItem(item)
-
-        self._unmatched_list.clear()
-        for rom in library_service.list_installed_roms():
-            if rom.game_id is not None:
-                continue
-            console_label = console_names.get(rom.console_id, f"Console #{rom.console_id}")
-            item = QListWidgetItem(f"{console_label}: {rom.file_path}")
-            item.setData(ROM_ID_ROLE, rom.id)
-            self._unmatched_list.addItem(item)
-
-    def _on_add_rom_folder(self) -> None:
-        console_id = self._folder_console_selector.currentData()
-        if console_id is None:
-            QMessageBox.warning(
-                self, "No console selected", "Pick a console before adding its folder."
-            )
-            return
-        path = QFileDialog.getExistingDirectory(self, "Select ROM Folder")
-        if not path:
-            return
-        library_service.add_rom_folder(path, console_id=console_id)
-        self._refresh_rom_folders()
-
-    def _on_remove_rom_folder(self) -> None:
-        item = selected_item(self._rom_folders_list)
-        if item is None:
-            QMessageBox.information(
-                self, "No folder selected", "Pick a folder from the list above to remove."
-            )
-            return
-        library_service.remove_rom_folder(item.data(ROM_FOLDER_ID_ROLE))
-        self._refresh_rom_folders()
-
-    def _on_scan_progress(self, discovered: int, path: str) -> None:
-        self._scan_status_label.setText(f"Discovered {discovered} entries — {path}")
-
-    def _on_scan_folder(self) -> None:
-        from retrocheevos.services.job_coordinator import try_acquire, JOB_SCAN_FOLDER
-
-        item = selected_item(self._rom_folders_list)
-        if item is None:
-            QMessageBox.warning(
-                self, "No folder selected", "Pick a folder from the list above to scan."
-            )
-            return
-
-        token = try_acquire(JOB_SCAN_FOLDER)
-        if token is None:
-            from retrocheevos.services.job_coordinator import active_job
-
-            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
-            return
-
-        self._set_scan_buttons_enabled(False)
-        self._scan_button.setText("Scanning...")
-        self._scan_status_label.setText("")
-        worker = ServiceWorker(
-            library_service.scan_rom_folder,
-            item.data(ROM_FOLDER_ID_ROLE),
-            report_scan_progress=True,
-            cancellable=True,
-        )
-        worker.scan_progress.connect(self._on_scan_progress)
-        worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
-        worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
-        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
-        self.app_context.workers.start(worker, key=("library", "scan"))
-
-    def _on_scan_all_folders(self) -> None:
-        from retrocheevos.services.job_coordinator import try_acquire, JOB_SCAN_ALL_FOLDERS
-
-        if self._rom_folders_list.count() == 0:
-            QMessageBox.warning(
-                self, "No ROM folders", "Add a folder for a console first."
-            )
-            return
-
-        token = try_acquire(JOB_SCAN_ALL_FOLDERS)
-        if token is None:
-            from retrocheevos.services.job_coordinator import active_job
-
-            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
-            return
-
-        # Both buttons disabled: they write to the same tables, and letting a
-        # single-folder scan start on top of the sweep would have two threads
-        # hashing and inserting at once.
-        self._set_scan_buttons_enabled(False)
-        self._scan_all_button.setText("Scanning...")
-        self._scan_status_label.setText("")
-        worker = ServiceWorker(
-            library_service.scan_all_rom_folders, report_scan_progress=True, cancellable=True
-        )
-        worker.scan_progress.connect(self._on_scan_progress)
-        worker.finished_ok.connect(lambda result: (self._on_scan_done(result), self._release_job(token)))
-        worker.failed.connect(lambda message: (self._on_scan_failed(message), self._release_job(token)))
-        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
-        self.app_context.workers.start(worker, key=("library", "scan"))
-
-    def _on_rehash(self) -> None:
-        from retrocheevos.services.job_coordinator import try_acquire, JOB_REHASH_LIBRARY
-
-        if self._unmatched_list.count() == 0 and self._rom_folders_list.count() == 0:
-            QMessageBox.warning(
-                self, "Nothing to re-hash", "No ROMs have been scanned yet."
-            )
-            return
-
-        token = try_acquire(JOB_REHASH_LIBRARY)
-        if token is None:
-            from retrocheevos.services.job_coordinator import active_job
-
-            QMessageBox.warning(self, "Busy", f"Cannot start: {active_job()} is already running.")
-            return
-
-        self._set_scan_buttons_enabled(False)
-        self._rehash_button.setText("Re-hashing...")
-        self._scan_status_label.setText("")
-        worker = ServiceWorker(library_service.rehash_installed_roms, cancellable=True)
-        worker.finished_ok.connect(lambda result: (self._on_rehash_done(result), self._release_job(token)))
-        worker.failed.connect(lambda message: (self._on_rehash_failed(message), self._release_job(token)))
-        worker.cancelled.connect(lambda: (self._reset_scan_button(), self._release_job(token)))
-        self.app_context.workers.start(worker, key=("library", "rehash"))
-
-    def _on_rehash_done(self, result: RehashResult) -> None:
-        self._invalidate_artwork_for_paths(list(result.changed_paths))
-        self._reset_scan_button()
-        self._scan_status_label.setText(_describe_rehash(result))
-        self.refresh()
-
-    def _on_rehash_failed(self, message: str) -> None:
-        self._reset_scan_button()
-        self._scan_status_label.setText("")
-        QMessageBox.warning(self, "Re-hash failed", message)
-
-    def _reset_scan_button(self) -> None:
-        self._scan_button.setText(SCAN_BUTTON_TEXT)
-        self._scan_all_button.setText(SCAN_ALL_BUTTON_TEXT)
-        self._rehash_button.setText(REHASH_BUTTON_TEXT)
-        self._set_scan_buttons_enabled(True)
-
-    def _set_scan_buttons_enabled(self, enabled: bool) -> None:
-        self._scan_button.setEnabled(enabled)
-        self._scan_all_button.setEnabled(enabled)
-        # Same tables as the scans, so it shares their mutual exclusion.
-        self._rehash_button.setEnabled(enabled)
-
-    def _release_job(self, token) -> None:
-        from retrocheevos.services.job_coordinator import release
-
-        release(token)
+                    self._model.forget_cover(("rom", rom.id))
+                    if rom.game_id is not None:
+                        self._model.forget_cover(("game", rom.game_id))
 
     def _on_scan_done(self, result: RomFolderScanResult) -> None:
-        # Invalidate in-flight artwork for ROMs whose file changed, so a
-        # stale load can't repaint the card with the old cover (R04).
+        # In-flight artwork for changed files must not repaint old covers (R04).
         self._invalidate_artwork_for_paths(
             list(result.changed_paths) + list(result.preserved_manual_matches)
         )
         self._reset_scan_button()
-        self._scan_status_label.setText(_describe_scan(result))
+        self._show_result(_describe_scan(result), _scan_details(result))
         self.refresh()
 
     def _on_scan_failed(self, message: str) -> None:
         self._reset_scan_button()
-        self._scan_status_label.setText("")
+        self._set_status_text("")
         QMessageBox.warning(self, "Folder scan failed", message)
 
-    def _on_scan_file(self) -> None:
-        console_id = self._folder_console_selector.currentData()
-        if console_id is None:
-            QMessageBox.warning(
-                self,
-                "No console selected",
-                "Pick a console above before scanning a single ROM file.",
-            )
-            return
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select ROM File")
-        if not file_path:
-            return
-        library_service.scan_and_record_rom(file_path, console_id)
+    def _on_rehash_done(self, result: RehashResult) -> None:
+        self._invalidate_artwork_for_paths(list(result.changed_paths))
+        self._reset_scan_button()
+        self._show_result(_describe_rehash(result), _rehash_details(result))
         self.refresh()
 
-    def _on_remove_unmatched(self) -> None:
-        item = selected_item(self._unmatched_list)
-        if item is None:
-            QMessageBox.information(
-                self, "Nothing selected", "Pick a ROM from the list above to remove."
-            )
-            return
-        self._remove_unmatched(item.data(ROM_ID_ROLE))
+    def _on_rehash_failed(self, message: str) -> None:
+        self._reset_scan_button()
+        self._set_status_text("")
+        QMessageBox.warning(self, "Re-hash failed", message)
 
-    def _on_remove_game(self, game_id: int) -> None:
-        """Right-click → "Remove from Library" on a matched card. Drops every
-        recorded copy of that game; the files stay on disk, and a rescan of
-        the folder brings it back."""
-        library_service.remove_installed_roms_for_game(game_id)
-        self.refresh()
+    def _show_result(self, summary: str, details: str) -> None:
+        self._set_status_text(summary)
+        self._last_result_details = details
+        self._details_button.setVisible(bool(details))
 
-    def _remove_unmatched(self, installed_rom_id: int) -> None:
-        """Removes the record, never the file — same contract as the "−" on
-        the Lists page. A later scan can pick it up again."""
-        library_service.remove_installed_rom(installed_rom_id)
-        # Full refresh: the grid above lists unmatched ROMs too, so removing
-        # one here has to take its card with it.
-        self.refresh()
+    def _show_result_details(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Scan details")
+        box.setText(self._scan_status_label.text())
+        box.setDetailedText(self._last_result_details)
+        box.exec()
 
-    def _on_match_to_game(self) -> None:
-        item = selected_item(self._unmatched_list)
-        if item is None:
-            QMessageBox.information(
-                self, "Nothing selected", "Pick a ROM from the list above to match."
-            )
-            return
-        installed_rom = library_service.get_installed_rom(item.data(ROM_ID_ROLE))
-        if installed_rom is None:
-            return
 
-        console_names = {console.id: console.name for console in console_service.list_consoles()}
-        console_name = console_names.get(
-            installed_rom.console_id, f"Console #{installed_rom.console_id}"
-        )
-        games = library_service.list_games_for_matching(installed_rom.console_id)
-        if not games:
-            QMessageBox.information(
-                self,
-                "No games to match",
-                f"No {console_name} games are synced locally yet — sync this console's "
-                "catalog from Home's search first.",
-            )
-            return
+def _section(title: str, paths) -> str:
+    paths = list(paths)
+    if not paths:
+        return ""
+    return f"{title} ({len(paths)}):\n" + "\n".join(f"  {path}" for path in paths) + "\n\n"
 
-        dialog = MatchRomDialog(installed_rom.file_path, console_name, games, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        game_id = dialog.selected_game_id()
-        if game_id is None:
-            return
-        library_service.match_installed_rom_to_game(installed_rom.id, game_id)
-        self.refresh()
+
+def _scan_details(result: RomFolderScanResult) -> str:
+    return (
+        _section("Ambiguous — console unclear; add the file's console folder or scan it as a single file",
+                 result.ambiguous_paths)
+        + _section("Unsupported or unrecognized", result.unrecognized_paths)
+        + _section("Could not be read", result.failed_paths)
+        + _section("Folders that could not be scanned", result.failed_folders)
+        + _section("Changed and re-hashed", result.changed_paths)
+        + _section("Manual matches preserved", result.preserved_manual_matches)
+    ).strip()
+
+
+def _rehash_details(result: RehashResult) -> str:
+    return (
+        _section("Missing files", result.missing)
+        + _section("Failed to hash", result.failed)
+        + _section("Manual matches preserved for review", result.manual_matches_preserved)
+    ).strip()
 
 
 def _describe_scan(result: RomFolderScanResult) -> str:

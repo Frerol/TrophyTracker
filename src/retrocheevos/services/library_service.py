@@ -43,6 +43,7 @@ from retrocheevos.models.console import Console
 from retrocheevos.models.game import Game
 from retrocheevos.models.library import (
     InstalledRom,
+    LibraryEntry,
     RehashResult,
     RomFolder,
     RomFolderScanResult,
@@ -182,6 +183,71 @@ def get_installed_games() -> list[Game]:
             game_repository=GameRepository(connection),
             library_repository=_library_repo(connection),
         )
+
+
+def list_library_entries() -> list[LibraryEntry]:
+    """Every card of the Library grid for the displayed account (R22):
+    installed games (blocked ones excluded, as before) followed by unmatched
+    ROMs, each with progress, mastery and emulator availability. Ordered by
+    title so the grid is stable across refreshes."""
+    account = session_service.get_active_account()
+    if account is None:
+        return []
+    from retrocheevos.database.repositories.game_completion_repository import (
+        GameCompletionRepository,
+    )
+    from retrocheevos.library.rom_title import derive_title_from_filename
+
+    with get_connection() as connection:
+        library = _library_repo(connection)
+        games = _get_installed_games(
+            account.id,
+            list_repository=ListRepository(connection),
+            game_repository=GameRepository(connection),
+            library_repository=library,
+        )
+        roms = library.list_installed_roms()
+        completion = GameCompletionRepository(connection)
+        percents = completion.get_all_for_account(account.id)
+        counts = completion.get_achievement_counts_for_account(account.id)
+        mastered = completion.get_mastered_game_ids(account.id)
+        emulators = {config.console_id for config in EmulatorConfigRepository(connection).list_all()}
+
+    paths_by_game: dict[int, list[str]] = {}
+    last_played: dict[int, datetime] = {}
+    for rom in roms:
+        if rom.game_id is None:
+            continue
+        paths_by_game.setdefault(rom.game_id, []).append(rom.file_path)
+        if rom.last_played_at is not None and (
+            rom.game_id not in last_played or rom.last_played_at > last_played[rom.game_id]
+        ):
+            last_played[rom.game_id] = rom.last_played_at
+
+    entries = []
+    for game in games:
+        unlocked, total = counts.get(game.id, (None, None))
+        entries.append(LibraryEntry(
+            kind="game", title=game.title, console_id=game.console_id,
+            file_paths=paths_by_game.get(game.id, []), game=game,
+            last_played_at=last_played.get(game.id),
+            achievements_unlocked=unlocked, achievements_total=total,
+            percent_complete=percents.get(game.id),
+            mastered=game.id in mastered,
+            has_emulator=game.console_id in emulators,
+        ))
+    entries.sort(key=lambda entry: entry.title.casefold())
+    unmatched = [
+        LibraryEntry(
+            kind="rom", title=derive_title_from_filename(rom.file_path),
+            console_id=rom.console_id, file_paths=[rom.file_path], rom=rom,
+            last_played_at=rom.last_played_at,
+            has_emulator=rom.console_id in emulators,
+        )
+        for rom in roms if rom.game_id is None
+    ]
+    unmatched.sort(key=lambda entry: entry.title.casefold())
+    return entries + unmatched
 
 
 def get_installed_game_ids() -> set[int]:

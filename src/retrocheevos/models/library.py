@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from retrocheevos.models.game import Game
 
 
 @dataclass
@@ -94,3 +97,31 @@ class RehashResult:
     # Files whose hash moved during this pass — their in-flight artwork
     # loads must be invalidated (R04).
     changed_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class LibraryEntry:
+    """One card in the Library grid (R22): a matched game, or an installed ROM
+    that matched no catalog game (`kind == "rom"`, D9's "Unmatched").
+
+    Progress fields are None when nothing is known — never zero by default.
+    `achievements_unlocked/total` are RetroAchievements' combined count (D8).
+    """
+
+    kind: str  # "game" or "rom"
+    title: str
+    console_id: int
+    file_paths: list[str]
+    game: Optional["Game"] = None
+    rom: Optional[InstalledRom] = None
+    last_played_at: Optional[datetime] = None
+    achievements_unlocked: Optional[int] = None
+    achievements_total: Optional[int] = None
+    percent_complete: Optional[float] = None
+    mastered: bool = False
+    has_emulator: bool = False
+
+    @property
+    def key(self) -> tuple[str, int]:
+        """Stable identity across refreshes: ("game", id) or ("rom", id)."""
+        return (self.kind, self.game.id if self.game is not None else self.rom.id)

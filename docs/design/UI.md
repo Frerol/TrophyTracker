@@ -89,6 +89,19 @@ according to the explicit matching policy.
 Keep manual matching, cover customization, emulator configuration, missing-file
 feedback and Play accessible. No automatic Watch Folder organizer exists.
 
+Since R22 the page is a model/view cover grid (about 200 px minimum card
+width: 4 columns at 1240 px, 3 at 1024 px) with the indexed-ROM count, a
+Folders… dialog (the shared ROM folder editor, which R24 also puts in
+Settings) and a Scan menu (all folders, verify hashes, single file) with
+progress, Cancel and Details… for skipped paths. Search covers titles and
+file names; filters are All, In progress, Mastered, Unmatched and System.
+Cards show "X/Y achievements" (combined count), "NN% complete", "Progress
+unavailable" or "No catalog match", and a Play button drawn disabled with
+"No emulator" when the console has none. Play checks that a file still exists
+(offering removal) and offers "Configure emulator", which opens Settings on
+that console. The context menu adds Match to game…, Choose cover… and Remove
+from Library. There is no cover size slider.
+
 ### Lists
 
 Account-scoped definitions and memberships support custom collections. Blocked

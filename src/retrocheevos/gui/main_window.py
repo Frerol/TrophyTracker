@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         home.profile_updated.connect(self._sidebar.refresh_avatar)
         home.navigate_requested.connect(self.navigate)
         home.awards_requested.connect(self.open_awards)
+        self._destinations["library"].configure_emulator_requested.connect(self.configure_emulator)
         # Created on first use and shared by every Awards view, so repeated
         # visits reuse one registered loader (shutdown waits for it).
         self._awards_image_loader = None
@@ -288,6 +289,11 @@ class MainWindow(QMainWindow):
         self._detail_stack.append((widget, self._current_key))
         self._pages.addWidget(widget)
         self._pages.setCurrentWidget(widget)
+
+    def configure_emulator(self, console_id: int) -> None:
+        """Library's "Configure emulator": Settings, on that console (R22)."""
+        self.navigate("settings")
+        self._destinations["settings"].select_emulator_console(console_id)
 
     def open_awards(self) -> AwardsView:
         """Open the Awards view (D7) on top of the current destination."""

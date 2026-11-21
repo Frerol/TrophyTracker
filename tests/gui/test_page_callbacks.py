@@ -39,17 +39,16 @@ class LibraryScanCallbackTests(unittest.TestCase):
         self.addCleanup(self.context.shutdown)
 
     def start_busy(self):
-        self.page._set_scan_buttons_enabled(False)
-        self.page._scan_button.setText("Scanning...")
-        self.page._scan_all_button.setText("Scanning...")
-        self.page._rehash_button.setText("Scanning...")
+        self.page._begin_job()
+        self.assertFalse(self.page._scan_button.isEnabled())
+        self.assertFalse(self.page._cancel_button.isHidden())
 
     def assert_buttons_reset(self):
         self.assertEqual(self.page._scan_button.text(), library_page.SCAN_BUTTON_TEXT)
-        self.assertEqual(self.page._scan_all_button.text(), library_page.SCAN_ALL_BUTTON_TEXT)
-        self.assertEqual(self.page._rehash_button.text(), library_page.REHASH_BUTTON_TEXT)
-        for button in (self.page._scan_button, self.page._scan_all_button, self.page._rehash_button):
-            self.assertTrue(button.isEnabled())
+        self.assertTrue(self.page._scan_button.isEnabled())
+        self.assertTrue(self.page._scan_all_action.isEnabled())
+        self.assertTrue(self.page._rehash_action.isEnabled())
+        self.assertTrue(self.page._cancel_button.isHidden())
 
     def test_finished_scan_restores_the_buttons(self):
         self.start_busy()
@@ -68,8 +67,9 @@ class LibraryScanCallbackTests(unittest.TestCase):
 
     def test_cancelled_scan_restores_the_buttons(self):
         self.start_busy()
-        self.page._reset_scan_button()
+        self.page._on_job_cancelled()
         self.assert_buttons_reset()
+        self.assertIn('Cancelled', self.page._scan_status_label.text())
 
 
 if __name__ == "__main__":

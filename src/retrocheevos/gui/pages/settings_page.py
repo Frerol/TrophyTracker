@@ -176,6 +176,7 @@ class SettingsPage(Page):
         layout.addWidget(accounts_group)
 
         emulators_group = QGroupBox("Emulators")
+        self._emulators_group = emulators_group
         emulators_layout = QVBoxLayout(emulators_group)
         emulators_layout.setSpacing(10)
         emulators_layout.addLayout(emulator_form)
@@ -194,6 +195,7 @@ class SettingsPage(Page):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(content)
+        self._scroll_area = scroll_area
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(scroll_area)
@@ -240,6 +242,15 @@ class SettingsPage(Page):
             item.setData(Qt.ItemDataRole.UserRole, config.console_id)
             self._emulators_list.addItem(item)
         self._load_selected_emulator()
+
+    def select_emulator_console(self, console_id: int) -> None:
+        """Open the emulator editor on `console_id` (Library's "Configure
+        emulator", R22). Call after `refresh()` so the console list exists."""
+        index = self._emulator_console_selector.findData(console_id)
+        if index >= 0:
+            self._emulator_console_selector.setCurrentIndex(index)
+        self._scroll_area.ensureWidgetVisible(self._emulators_group)
+        self._emulator_path_input.setFocus()
 
     def _load_selected_emulator(self) -> None:
         config = self._emulator_configs.get(self._emulator_console_selector.currentData())

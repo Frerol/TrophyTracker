@@ -164,3 +164,24 @@ full-details fetching and upgrading an existing v27 database.
 Final R08–R10 validation: **286 tests passed** with the full offscreen unittest
 command above, using temporary fixtures and mocked API responses; no live API
 calls or migration of the user's working database were needed.
+
+## R22: Library cover grid
+
+Measured on 2026-11-21 with the same setup, using
+`tools/benchmarks/benchmark_library_grid.py`: 2,000 synthetic games in the
+Library's model/view grid (`LibraryGridModel` + `LibraryCardDelegate`) at the
+grid size of a 1240×780 window, scrolled in 40 steps with every requested
+cover answered by a 256 × 256 pixmap. No database, network or account data.
+
+| Measure | Result (four runs) |
+| --- | --- |
+| Model reset and first paint | 63–102 ms |
+| Viewport repaint while scrolling, median | 6.6–8.8 ms |
+| Viewport repaint while scrolling, maximum | 9.7–14.1 ms |
+| Cover requests | 177 of 2,000 (only painted cards) |
+| Retained cover pixels | 4,194,304 bytes (the 4 MiB R07 budget) |
+
+Covers are requested from `DecorationRole` only, scaled once to 128 px and
+kept in an LRU bounded like the Explorer's; failures retry after 30 seconds.
+The page no longer creates a widget per card, so its cost no longer grows with
+the size of the library.

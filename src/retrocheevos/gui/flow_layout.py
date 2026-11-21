@@ -75,6 +75,18 @@ class FlowLayout(QLayout):
         margins = self.contentsMargins()
         area = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
         x, y, row_height = area.x(), area.y(), 0
+        # Items of the current row, placed once the row's height is known so
+        # each is centred vertically (a search field beside shorter chips).
+        row: list[tuple[QLayoutItem, int]] = []
+
+        def place_row() -> None:
+            if apply:
+                for placed, left in row:
+                    hint = placed.sizeHint()
+                    top = y + (row_height - hint.height()) // 2
+                    placed.setGeometry(QRect(QPoint(left, top), hint))
+            row.clear()
+
         for item in self._items:
             widget = item.widget()
             if widget is not None and widget.isHidden():
@@ -82,12 +94,13 @@ class FlowLayout(QLayout):
             hint = item.sizeHint()
             next_x = x + hint.width() + self._spacing
             if next_x - self._spacing > area.right() + 1 and row_height > 0:
+                place_row()
                 x = area.x()
                 y += row_height + self._spacing
                 next_x = x + hint.width() + self._spacing
                 row_height = 0
-            if apply:
-                item.setGeometry(QRect(QPoint(x, y), hint))
+            row.append((item, x))
             x = next_x
             row_height = max(row_height, hint.height())
+        place_row()
         return y + row_height - rect.y() + margins.bottom()

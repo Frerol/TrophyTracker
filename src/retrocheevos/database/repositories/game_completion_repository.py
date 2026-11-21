@@ -96,6 +96,16 @@ class GameCompletionRepository:
         ).fetchall()
         return {row["game_id"] for row in rows}
 
+    def get_mastered_game_ids(self, account_id: int) -> set[int]:
+        """Games RA classifies as mastered for this account (Library's
+        Mastered filter, ScreenDataMapping §3.2)."""
+        rows = self._connection.execute(
+            "SELECT game_id FROM game_completion WHERE account_id = ? "
+            "AND highest_award_kind = 'mastered'",
+            (account_id,),
+        ).fetchall()
+        return {row["game_id"] for row in rows}
+
     def get_fully_completed_game_ids(self, account_id: int) -> set[int]:
         """Games at 100%, regardless of award classification — a safety net
         for the window between finishing a game and RA's award data catching

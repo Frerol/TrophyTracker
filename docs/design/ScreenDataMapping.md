@@ -83,8 +83,8 @@ revamp. Status: **kept** (same function, restyled), **moved** (new location),
 | Action | Implementation | Target | Status |
 | --- | --- | --- | --- |
 | Refresh | `refresh` | Implicit on show; scan button | removed as a separate button |
-| Cover size slider | `CoverSizeSlider` | Adaptive grid (R22) | **decision in R22** |
-| Add folder for console | `QFileDialog.getExistingDirectory` → `add_rom_folder` | Shared folder editor (Library and Settings) | kept |
+| Cover size slider | `CoverSizeSlider` | Adaptive grid, ~200 px minimum card width (R22) | removed |
+| Add folder for console | `QFileDialog.getExistingDirectory` → `add_rom_folder` | Shared folder editor (`widgets/rom_folder_editor.py`): Library's Folders… dialog (R22), Settings (R24) | kept |
 | Remove selected folder | `remove_rom_folder` | Shared folder editor | kept |
 | Scan selected folder | `scan_rom_folder` (cancellable, progress) | Library "Scan folder" | kept |
 | Scan all folders | `scan_all_rom_folders` | Library scan menu | kept |
@@ -96,7 +96,7 @@ revamp. Status: **kept** (same function, restyled), **moved** (new location),
 | Pick custom cover (unmatched) | `UnmatchedRomCard` → `QFileDialog` | Card context menu | kept |
 | Play (matched/unmatched) | `launch_game` / `launch_installed_rom` | Card Play | kept |
 | Local search, status filters, system filter | — | Library toolbar | new |
-| Configure emulator (from card) | — | Opens shared emulator editor | new |
+| Configure emulator (from card) | — | Opens Settings on the card's console (R22); a shared dialog may follow in R24 | new |
 | Details | — | Card → game detail | new |
 
 ### 2.5 Lists (`gui/pages/lists_page.py`)

@@ -26,6 +26,7 @@ live API). Method and results are in
 
 ```bash
 QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python tools/benchmarks/benchmark_explorer.py
+QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python tools/benchmarks/benchmark_library_grid.py
 ```
 
 ## Fresh environment

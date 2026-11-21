@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R19 done; R20–R27 planned | Start R22 (Library), coordinating R20 (Explorer). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R19 and R22 done; R20, R21, R23–R27 planned | Start R20 (Explorer), then R21 (details). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 done | Keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done | Preserve regression coverage. |
@@ -65,8 +65,8 @@ These items wait on a product decision rather than on implementation work.
 
 ## Current Status
 
-Reflects the desktop code as of 2026-11-21. R16–R19 of the revamp are
-implemented; R20–R27 are planned.
+Reflects the desktop code as of 2026-11-21. R16–R19 and R22 of the revamp
+are implemented; R20, R21 and R23–R27 are planned.
 
 ### Desktop (this repository)
 
@@ -88,8 +88,11 @@ implemented; R20–R27 are planned.
 - **Explorer** — `gui/pages/explorer_page.py` with the sortable table
   (`gui/models/explorer_table_model.py`) and paint-only delegates
   (`gui/delegates/explorer_delegates.py`); no `setIndexWidget()` widget pool.
-- **Library** — `gui/pages/library_page.py`: installed-ROM grid, per-account
-  ROM folders, background scanning and manual matching.
+- **Library** — `gui/pages/library_page.py`: model/view cover grid
+  (`gui/models/library_grid_model.py`, `gui/delegates/library_card_delegate.py`)
+  with search and status/System filters, per-account ROM folders in a
+  Folders… dialog (`widgets/rom_folder_editor.py`), a Scan menu with
+  cancellation, and manual matching.
 - **Lists** — `gui/pages/lists_page.py` over `core/lists.py`; blocked games are
   `ListType.BLOCKED`, not a separate table.
 - **Settings** — `gui/pages/settings_page.py`: accounts, emulators and profile
@@ -120,7 +123,7 @@ Do not reintroduce these based on the historical record.
 
 ## Active desktop plan — interface revamp R16–R27
 
-**Status:** R16–R19 done; R20–R27 planned.
+**Status:** R16–R19 and R22 done; R20, R21 and R23–R27 planned.
 
 **References:** the [reviewed UI proposal](../design/ui-proposal-reviewed.html)
 (eight boards: Home, Library, Game detail, Achievement detail, Explorer, Lists,
@@ -303,16 +306,23 @@ Achievements/Systems destinations from the original proposal are not required.
   uninstalled, no-set and offline states work; images stay bounded; back
   restores the source view.
 
-- [ ] **R22 — Implement the Library grid and management handoffs.**
-  - [ ] Indexed-ROM context, manual scan, local search, All/In progress/
+- [x] **R22 — Implement the Library grid and management handoffs.**
+  Completed 2026-11-21 (`gui/pages/library_page.py`,
+  `gui/models/library_grid_model.py`, `gui/delegates/library_card_delegate.py`).
+  - [x] Indexed-ROM context, manual scan, local search, All/In progress/
     Mastered/Unmatched (D9) and System filters.
-  - [ ] Adaptive four-column reference grid with covers, console, progress and
+  - [x] Adaptive four-column reference grid with covers, console, progress and
     guarded Play/configuration, using model/view virtualization within R07's
-    artwork budget.
-  - [ ] Distinguish unmatched ROMs from unknown progress.
-  - [ ] Keep selected/all scans, forced hash verification, manual matching,
-    cover customization and missing-file feedback.
-  - [ ] Share folder and emulator editors with Settings.
+    artwork budget. The cover size slider is removed; 2,000 entries measured
+    in [PerformanceValidation.md](../validation/PerformanceValidation.md#r22-library-cover-grid).
+  - [x] Distinguish unmatched ROMs from unknown progress.
+  - [x] Keep selected/all scans, forced hash verification, manual matching,
+    cover customization and missing-file feedback. Scans gained Cancel and
+    a details list of skipped paths.
+  - [x] Share folder and emulator editors with Settings: the folder editor is
+    a shared widget (Library's Folders… dialog; Settings in R24). "Configure
+    emulator" opens Settings on the card's console until R24 extracts the
+    emulator editor.
 
   **Done when:** account-scoped search and filters work; scans keep discovery
   progress and cancellation; manual matches and launch recovery survive; empty

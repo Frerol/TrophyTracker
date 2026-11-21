@@ -318,6 +318,8 @@ QScrollArea > QWidget > QWidget {{ background: transparent; }}
 /* The main page stack is a QFrame; keep it on the app background so panels
    and metric cards stand out as in the reviewed boards (R19). */
 QStackedWidget#pages {{ background-color: {SURFACE_APP}; border: none; border-radius: 0; }}
+/* Library grid: cards are painted panels, so the list sits on the app background. */
+QListView[libraryGrid="true"] {{ background-color: {SURFACE_APP}; border: none; }}
 /* Layout-only containers inside scrolled pages */
 QWidget[transparent="true"] {{ background: transparent; }}
 
