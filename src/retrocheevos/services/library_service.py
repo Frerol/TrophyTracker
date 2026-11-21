@@ -214,11 +214,13 @@ def list_library_entries() -> list[LibraryEntry]:
         emulators = {config.console_id for config in EmulatorConfigRepository(connection).list_all()}
 
     paths_by_game: dict[int, list[str]] = {}
+    roms_by_game: dict[int, list[InstalledRom]] = {}
     last_played: dict[int, datetime] = {}
     for rom in roms:
         if rom.game_id is None:
             continue
         paths_by_game.setdefault(rom.game_id, []).append(rom.file_path)
+        roms_by_game.setdefault(rom.game_id, []).append(rom)
         if rom.last_played_at is not None and (
             rom.game_id not in last_played or rom.last_played_at > last_played[rom.game_id]
         ):
@@ -230,6 +232,7 @@ def list_library_entries() -> list[LibraryEntry]:
         entries.append(LibraryEntry(
             kind="game", title=game.title, console_id=game.console_id,
             file_paths=paths_by_game.get(game.id, []), game=game,
+            roms=roms_by_game.get(game.id, []),
             last_played_at=last_played.get(game.id),
             achievements_unlocked=unlocked, achievements_total=total,
             percent_complete=percents.get(game.id),
@@ -240,7 +243,7 @@ def list_library_entries() -> list[LibraryEntry]:
     unmatched = [
         LibraryEntry(
             kind="rom", title=derive_title_from_filename(rom.file_path),
-            console_id=rom.console_id, file_paths=[rom.file_path], rom=rom,
+            console_id=rom.console_id, file_paths=[rom.file_path], rom=rom, roms=[rom],
             last_played_at=rom.last_played_at,
             has_emulator=rom.console_id in emulators,
         )
@@ -303,6 +306,25 @@ def match_installed_rom_to_game(installed_rom_id: int, game_id: int) -> None:
     """
     with get_connection() as connection:
         _library_repo(connection).set_game_id(installed_rom_id, game_id, manual=True)
+
+
+def use_automatic_match(installed_rom_id: int) -> Optional[int]:
+    """Undo a manual match: the ROM goes back to whatever its stored hash
+    matches in the local catalog, or to unmatched if nothing does.
+
+    No hashing and no API calls — the hash is already on the row. Returns the
+    game id the ROM ends up with (None when it is unmatched again).
+    """
+    with get_connection() as connection:
+        repository = _library_repo(connection)
+        rom = repository.get_by_id(installed_rom_id)
+        if rom is None:
+            return None
+        game_id = (
+            GameRepository(connection).find_game_id_by_hash(rom.hash) if rom.hash else None
+        )
+        repository.set_game_id(installed_rom_id, game_id, manual=False)
+    return game_id
 
 
 def rematch_unmatched_roms() -> int:

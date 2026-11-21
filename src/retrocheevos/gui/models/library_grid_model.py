@@ -115,7 +115,11 @@ class LibraryGridModel(QAbstractListModel):
         if role == PlayReasonRole:
             return None if entry.has_emulator else NO_EMULATOR
         if role == Qt.ItemDataRole.ToolTipRole:
-            return f"{entry.title}\n{console} · {progress_caption(entry)[0]}"
+            if entry.kind == "rom":
+                return (f"{entry.title}\n{console} · {NO_MATCH}: this file's hash is not in "
+                        "the synced catalog. Right-click → Match to game… to choose it.")
+            manual = " · game chosen by hand" if entry.manual_roms else ""
+            return f"{entry.title}\n{console} · {progress_caption(entry)[0]}{manual}"
         if role == Qt.ItemDataRole.AccessibleTextRole:
             text = f"{entry.title}, {console}, {progress_caption(entry)[0]}"
             return text if entry.has_emulator else f"{text}, no emulator configured"

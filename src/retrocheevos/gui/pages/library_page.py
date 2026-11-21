@@ -18,7 +18,7 @@ from typing import Optional
 from PySide6.QtCore import QEvent, QModelIndex, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QDialog, QFileDialog, QHBoxLayout, QListView, QMenu,
+    QButtonGroup, QComboBox, QDialog, QFileDialog, QHBoxLayout, QInputDialog, QListView, QMenu,
     QMessageBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -53,6 +53,14 @@ NO_ACCOUNT_TEXT = "Choose an account in the sidebar to see its library."
 EMPTY_LIBRARY_TEXT = "No ROMs indexed yet. Add the folders where your ROMs are, then scan them."
 NO_MATCH_TEXT = "No local games match."
 ALL_MATCHED_TEXT = "All local ROMs are matched."
+UNMATCHED_HINT = (
+    "These files' hashes are not in the synced RetroAchievements catalog. Usually the "
+    "console's hashes have not been synced yet: run Sync ROM Hashes from Home → Explore "
+    "catalog, then Scan → Verify hashes. Hacks, translations and other dumps may never "
+    "match; right-click a card and choose Match to game… to pick the game yourself."
+)
+CHANGE_MATCH_TEXT = "Change match…"
+AUTOMATIC_MATCH_TEXT = "Use automatic match"
 WORKER_SCAN = ("library", "scan")
 WORKER_REHASH = ("library", "rehash")
 WORKER_PLAY = ("library", "play")
@@ -176,6 +184,8 @@ class LibraryPage(Page):
         # scroll bar appears without the page itself resizing.
         self._grid.viewport().installEventFilter(self)
 
+        self._unmatched_hint = text_label(UNMATCHED_HINT, "secondary", wrap=True)
+        self._unmatched_hint.setVisible(False)
         self._message = text_label("", "secondary", wrap=True)
         self._add_folder_button = button("Add a folder…", "primary")
         self._add_folder_button.clicked.connect(self.open_folders)
@@ -197,6 +207,7 @@ class LibraryPage(Page):
         layout.addLayout(header)
         layout.addLayout(status_row)
         layout.addWidget(toolbar_widget)
+        layout.addWidget(self._unmatched_hint)
         layout.addWidget(self._stack, stretch=1)
         layout.addWidget(text_label(FOOTER_NOTE, "secondary", wrap=True))
 
@@ -271,6 +282,7 @@ class LibraryPage(Page):
         self._model.set_entries(visible, self._console_names, self._cover_games)
         account = self.app_context.active_account
         self._add_folder_button.setVisible(False)
+        self._unmatched_hint.setVisible(self._status == STATUS_UNMATCHED and bool(visible))
         if account is None:
             self._show_message(NO_ACCOUNT_TEXT)
         elif not self._entries:
@@ -362,6 +374,10 @@ class LibraryPage(Page):
         if entry.kind == "rom":
             menu.addAction("Match to game…", lambda: self.match_entry(entry))
             menu.addAction("Choose cover…", lambda: self._choose_cover(entry))
+        else:
+            menu.addAction(CHANGE_MATCH_TEXT, lambda: self.match_entry(entry))
+            if entry.manual_roms:
+                menu.addAction(AUTOMATIC_MATCH_TEXT, lambda: self.use_automatic_match(entry))
         menu.addAction("Configure emulator", lambda: self.configure_emulator_requested.emit(entry.console_id))
         menu.addSeparator()
         menu.addAction("Remove from Library", lambda: self._remove_entry(entry))
@@ -394,8 +410,24 @@ class LibraryPage(Page):
         pixmap.save(str(destination), "PNG")
         self._model.forget_cover(entry.key)
 
+    def _choose_copy(self, entry: LibraryEntry):
+        """The local file to re-match: asked only when a game has several."""
+        if len(entry.roms) <= 1:
+            return entry.roms[0] if entry.roms else entry.rom
+        names = [Path(rom.file_path).name for rom in entry.roms]
+        name, accepted = QInputDialog.getItem(
+            self, CHANGE_MATCH_TEXT, f"{entry.title} has several local files. Which one?",
+            names, 0, False,
+        )
+        return entry.roms[names.index(name)] if accepted else None
+
     def match_entry(self, entry: LibraryEntry) -> None:
-        rom = entry.rom
+        """Pick the game by hand: "Match to game…" for an unmatched ROM,
+        "Change match…" when automatic matching chose the wrong game. The
+        choice is kept as a manual match that later scans do not overwrite."""
+        rom = self._choose_copy(entry)
+        if rom is None:
+            return
         console_name = self._model.console_name(rom.console_id)
         games = library_service.list_games_for_matching(rom.console_id)
         if not games:
@@ -409,9 +441,22 @@ class LibraryPage(Page):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         game_id = dialog.selected_game_id()
-        if game_id is None:
+        if game_id is None or game_id == rom.game_id:
             return
         library_service.match_installed_rom_to_game(rom.id, game_id)
+        self._model.forget_cover(entry.key)
+        self.refresh()
+
+    def use_automatic_match(self, entry: LibraryEntry) -> None:
+        """Drop manual choices: each copy goes back to its hash's match."""
+        results = [library_service.use_automatic_match(rom.id) for rom in entry.manual_roms]
+        self._model.forget_cover(entry.key)
+        if any(game_id is None for game_id in results):
+            self._set_status_text(
+                f"{entry.title}: the file's hash has no catalog match, so it is in Unmatched now."
+            )
+        else:
+            self._set_status_text(f"{entry.title}: back to the automatic match.")
         self.refresh()
 
     # Folders and scans --------------------------------------------------------

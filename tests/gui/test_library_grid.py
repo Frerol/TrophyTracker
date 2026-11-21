@@ -223,13 +223,82 @@ class LibraryPageTests(unittest.TestCase):
         entries = {entry.title: entry for entry in self.page._model.entries()}
         game_actions = [a.text() for a in self.page.build_context_menu(entries['Game 02']).actions() if a.text()]
         rom_actions = [a.text() for a in self.page.build_context_menu(entries['Mystery Hack']).actions() if a.text()]
-        self.assertEqual(game_actions, ['Play', 'Configure emulator', 'Remove from Library'])
+        self.assertEqual(game_actions, ['Play', 'Change match…', 'Configure emulator', 'Remove from Library'])
         self.assertEqual(rom_actions, ['Play', 'Match to game…', 'Choose cover…', 'Configure emulator',
                                        'Remove from Library'])
         no_emulator = self.page.build_context_menu(entries['Game 12']).actions()[0]
         self.assertFalse(no_emulator.isEnabled())
         self.page.build_context_menu(entries['Mystery Hack']).actions()[-1].trigger()
         self.assertNotIn('Mystery Hack', self.titles())
+
+    def test_change_match_and_return_to_the_automatic_match(self):
+        with db.get_connection(self.database) as c:
+            c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(2, 'h2')")
+        entry = next(e for e in self.page._model.entries() if e.title == 'Game 02')
+        self.assertEqual(entry.manual_roms, [])
+
+        class PickGame05:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def exec(self):
+                return library_page.QDialog.DialogCode.Accepted
+
+            def selected_game_id(self):
+                return 5
+
+        with patch.object(library_page, 'MatchRomDialog', PickGame05):
+            menu = self.page.build_context_menu(entry)
+            next(a for a in menu.actions() if a.text() == library_page.CHANGE_MATCH_TEXT).trigger()
+        entries = {e.title: e for e in self.page._model.entries()}
+        self.assertEqual([r.manual_match for r in entries['Game 05'].roms], [True, False])
+        self.assertNotIn('Game 02', entries)
+        texts = [a.text() for a in self.page.build_context_menu(entries['Game 05']).actions()]
+        self.assertIn(library_page.AUTOMATIC_MATCH_TEXT, texts)
+
+        menu = self.page.build_context_menu(entries['Game 05'])
+        next(a for a in menu.actions() if a.text() == library_page.AUTOMATIC_MATCH_TEXT).trigger()
+        entries = {e.title: e for e in self.page._model.entries()}
+        self.assertIn('Game 02', entries)
+        self.assertEqual(entries['Game 02'].manual_roms, [])
+        self.assertIn('back to the automatic match', self.page._scan_status_label.text())
+
+    def test_automatic_match_without_a_hash_hit_returns_to_unmatched(self):
+        with db.get_connection(self.database) as c:
+            c.execute("UPDATE installed_roms SET manual_match = 1 WHERE game_id = 4")
+        self.page.refresh()
+        entry = next(e for e in self.page._model.entries() if e.title == 'Game 04')
+        self.page.use_automatic_match(entry)
+        titles = self.titles()
+        self.assertNotIn('Game 04', titles)
+        self.assertIn('4', titles)  # the file name, now an unmatched card
+        self.assertIn('Unmatched', self.page._scan_status_label.text())
+
+    def test_change_match_asks_which_copy_when_there_are_several(self):
+        with db.get_connection(self.database) as c:
+            extra = self.tmp / 'second copy.rom'
+            extra.write_bytes(b'x')
+            c.execute("INSERT INTO installed_roms(game_id, file_path, hash, console_id, account_id)"
+                      " VALUES(2, ?, 'h2b', 3, 1)", (str(extra),))
+        self.page.refresh()
+        entry = next(e for e in self.page._model.entries() if e.title == 'Game 02')
+        with patch.object(library_page.QInputDialog, 'getItem', return_value=('second copy.rom', True)) as ask, \
+             patch.object(library_page, 'MatchRomDialog') as dialog:
+            dialog.return_value.exec.return_value = library_page.QDialog.DialogCode.Rejected
+            self.page.match_entry(entry)
+        self.assertEqual(ask.call_args.args[3], ['2.rom', 'second copy.rom'])
+        self.assertEqual(dialog.call_args.args[0], str(self.tmp / 'second copy.rom'))
+
+    def test_unmatched_filter_explains_why_and_what_to_do(self):
+        self.assertTrue(self.page._unmatched_hint.isHidden())
+        self.page._set_status(STATUS_UNMATCHED)
+        self.assertFalse(self.page._unmatched_hint.isHidden())
+        self.assertIn('Sync ROM Hashes', self.page._unmatched_hint.text())
+        self.assertIn('Match to game', self.page._unmatched_hint.text())
+        rom = next(e for e in self.page._model.entries() if e.kind == 'rom')
+        tooltip = self.page._model.index(0).data(Qt.ItemDataRole.ToolTipRole)
+        self.assertIn('hash is not in the synced catalog', tooltip)
+        self.assertEqual(rom.title, 'Mystery Hack')
 
     def test_missing_file_offers_removal(self):
         entry = next(e for e in self.page._model.entries() if e.title == 'Game 03')

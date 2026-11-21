@@ -120,6 +120,13 @@ class LibraryEntry:
     percent_complete: Optional[float] = None
     mastered: bool = False
     has_emulator: bool = False
+    # Every local copy behind the card (one for an unmatched ROM).
+    roms: list[InstalledRom] = field(default_factory=list)
+
+    @property
+    def manual_roms(self) -> list[InstalledRom]:
+        """Copies whose game the user chose by hand ("Change match…")."""
+        return [rom for rom in self.roms if rom.manual_match]
 
     @property
     def key(self) -> tuple[str, int]:

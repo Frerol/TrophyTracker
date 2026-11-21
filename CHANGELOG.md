@@ -22,6 +22,7 @@
 - Rebuild Library as a cover grid that adapts its columns to the window, with search by title or file name and All, In progress, Mastered, Unmatched and System filters. The cover size slider is removed, and the grid stays fast with thousands of ROMs.
 - Show each Library card's achievement count, and disable Play with "No emulator" when the console has none; Play offers to remove a game whose file is gone and to open Settings on the console that needs an emulator.
 - Move ROM folder management to a Folders… dialog and scanning to a Scan menu with progress, Cancel and a details list of skipped files. Unmatched ROMs are now cards in the grid, with Match to game…, Choose cover… and Remove in their menu.
+- Add "Change match…" to matched Library cards to correct a wrong automatic match (asking which file when a game has several), and "Use automatic match" to undo a manual choice. The Unmatched filter explains why a file has no match and what to do next.
 - Set a minimum window size of 1024×720 and wrap the catalog filter and sync buttons onto more rows instead of clipping them in narrow windows.
 
 ## 0.1.0 — TrophyTracker

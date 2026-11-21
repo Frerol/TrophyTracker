@@ -99,8 +99,14 @@ Cards show "X/Y achievements" (combined count), "NN% complete", "Progress
 unavailable" or "No catalog match", and a Play button drawn disabled with
 "No emulator" when the console has none. Play checks that a file still exists
 (offering removal) and offers "Configure emulator", which opens Settings on
-that console. The context menu adds Match to game…, Choose cover… and Remove
-from Library. There is no cover size slider.
+that console. The context menu adds Match to game… and Choose cover… (unmatched
+ROMs), Change match… (matched games, to correct a wrong automatic match;
+asks which file when there are several), Use automatic match (undoes a
+manual choice, back to the hash match or to Unmatched) and Remove from
+Library. Matching is automatic by hash at scan time, after Sync ROM Hashes
+and on Verify hashes; manual choices are never overwritten by those passes.
+The Unmatched filter explains that the hash is not in the synced catalog and
+how to fix it. There is no cover size slider.
 
 ### Lists
 
