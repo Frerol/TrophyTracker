@@ -30,7 +30,9 @@ from PySide6.QtGui import QImage, QPixmap
 
 from retrocheevos.models.game import Game
 from retrocheevos.models.library import InstalledRom
-from retrocheevos.services.image_service import ensure_game_image_cached, ensure_rom_image_cached
+from retrocheevos.services.image_service import (
+    ensure_badge_image_cached, ensure_game_image_cached, ensure_rom_image_cached,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +107,35 @@ class _RomImageLoadTask(QRunnable):
                 logger.exception("Could not emit artwork result for ROM %s", self._rom.id)
 
 
+class _BadgeImageLoadTask(QRunnable):
+    def __init__(self, badge_id: int, image_path: str, epoch: int, signals: _ImageLoadSignals) -> None:
+        super().__init__()
+        self._badge_id = badge_id
+        self._image_path = image_path
+        self._epoch = epoch
+        self._signals = signals
+
+    def run(self) -> None:
+        image: Optional[QImage] = None
+        try:
+            path = ensure_badge_image_cached(self._image_path)
+            if path is not None:
+                candidate = QImage(str(path))
+                if not candidate.isNull():
+                    image = candidate
+        except Exception:  # noqa: BLE001 — a failed image must not kill the pool thread
+            logger.exception("Could not load award image %s", self._image_path)
+        finally:
+            try:
+                self._signals.finished.emit(self._badge_id, self._epoch, image)
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not emit award image %s", self._image_path)
+
+
 class ImageLoader(QObject):
     image_ready = Signal(int, object)  # game_id, Optional[QPixmap]
     rom_image_ready = Signal(int, object)  # installed_rom_id, Optional[QPixmap]
+    badge_image_ready = Signal(int, object)  # badge id, Optional[QPixmap]
 
     def __init__(self) -> None:
         super().__init__()
@@ -116,6 +144,7 @@ class ImageLoader(QObject):
         # "that request was superseded".
         self._pending: dict[int, int] = {}
         self._rom_pending: dict[int, int] = {}
+        self._badge_pending: dict[int, int] = {}
         # Keeps each task (and its signals object) alive for the duration of
         # the load — dropping the only Python reference before the background
         # thread finishes would be a use-after-free risk.
@@ -162,6 +191,28 @@ class ImageLoader(QObject):
         pixmap = QPixmap.fromImage(image) if image is not None else None
         self.rom_image_ready.emit(rom_id, pixmap)
 
+    def request_badge(self, badge_id: int, image_path: Optional[str]) -> None:
+        """Load an award image (Awards view); result via `badge_image_ready`."""
+        if self._shutting_down or badge_id in self._badge_pending:
+            return
+        if not image_path:
+            self.badge_image_ready.emit(badge_id, None)
+            return
+        epoch = self._epoch("badge", badge_id)
+        signals = _ImageLoadSignals()
+        signals.finished.connect(self._on_badge_finished)
+        task = _BadgeImageLoadTask(badge_id, image_path, epoch, signals)
+        self._track(task, signals)
+        self._badge_pending[badge_id] = epoch
+        QThreadPool.globalInstance().start(task)
+
+    def _on_badge_finished(self, badge_id: int, epoch: int, image: Optional[QImage]) -> None:
+        if self._badge_pending.get(badge_id) != epoch:
+            return
+        self._badge_pending.pop(badge_id, None)
+        pixmap = QPixmap.fromImage(image) if image is not None else None
+        self.badge_image_ready.emit(badge_id, pixmap)
+
     def request(self, game: Game) -> None:
         """Fire-and-forget: starts a background load unless one for this
         game is already in flight. Result arrives later via `image_ready`.
@@ -206,4 +257,5 @@ class ImageLoader(QObject):
         self._shutting_down = True
         self._pending.clear()
         self._rom_pending.clear()
+        self._badge_pending.clear()
         QThreadPool.globalInstance().waitForDone(timeout_ms)

@@ -56,6 +56,13 @@ results from a previous selection must never update the new account's screen.
 - A badges and event awards summary leading to the Awards view; no
   standalone profile page.
 
+### Awards (detail screen from Home)
+
+- Badges and Event awards tabs with the account's synced awards; images
+  load only for visible items. Empty: "Sync profile to load awards."
+- Events tab: event games with progress and the new-events notice, which
+  marks the events as read. Back (or Alt+Left) returns to Home unchanged.
+
 Profile synchronization is opportunistic when stale and participates in the
 same job coordination as manual synchronization. Activity refresh keeps its
 existing backoff; no fixed five-minute profile polling is introduced.

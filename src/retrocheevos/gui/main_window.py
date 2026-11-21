@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from retrocheevos.gui.app_context import AppContext
+from retrocheevos.gui.pages.awards_view import AwardsView
 from retrocheevos.gui.pages.base_page import Page
 from retrocheevos.gui.pages.home_page import HomePage
 from retrocheevos.gui.pages.library_page import LibraryPage
@@ -75,6 +76,10 @@ class MainWindow(QMainWindow):
         home = self._destinations["home"]
         home.profile_updated.connect(self._sidebar.refresh_avatar)
         home.navigate_requested.connect(self.navigate)
+        home.awards_requested.connect(self.open_awards)
+        # Created on first use and shared by every Awards view, so repeated
+        # visits reuse one registered loader (shutdown waits for it).
+        self._awards_image_loader = None
 
         self._pages = QStackedWidget()
         self._pages.setObjectName("pages")
@@ -283,6 +288,17 @@ class MainWindow(QMainWindow):
         self._detail_stack.append((widget, self._current_key))
         self._pages.addWidget(widget)
         self._pages.setCurrentWidget(widget)
+
+    def open_awards(self) -> AwardsView:
+        """Open the Awards view (D7) on top of the current destination."""
+        if self._awards_image_loader is None:
+            self._awards_image_loader = self.app_context.create_image_loader()
+        view = AwardsView(self.app_context, self._awards_image_loader)
+        view.back_requested.connect(self.go_back)
+        view.events_read.connect(self._destinations["home"]._refresh_awards_summary)
+        self.open_detail(view)
+        view.refresh()
+        return view
 
     def go_back(self) -> bool:
         """Close the top detail screen. Returns False when there is none."""

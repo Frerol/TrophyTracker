@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R18 done; R19–R27 planned | Start R19 (Home) and R22 (Library). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R19 done; R20–R27 planned | Start R22 (Library), coordinating R20 (Explorer). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 done | Keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done | Preserve regression coverage. |
@@ -65,8 +65,8 @@ These items wait on a product decision rather than on implementation work.
 
 ## Current Status
 
-Reflects the desktop code as of 2026-11-21. R16–R18 of the revamp are
-implemented; R19–R27 are planned.
+Reflects the desktop code as of 2026-11-21. R16–R19 of the revamp are
+implemented; R20–R27 are planned.
 
 ### Desktop (this repository)
 
@@ -76,15 +76,15 @@ implemented; R19–R27 are planned.
   version. Destinations keep their view state; `open_detail()`/`go_back()`
   provide the detail routes R21 will use. There is no standalone Profile or
   Dashboard page.
-- **Home** — `gui/pages/home_page.py`: a points/true points/beaten/mastered/
-  completion summary, Continue Playing,
-  Events (event games with progress and a
-  new-events banner), Recent Activity (`services/activity_feed_service.py`),
-  Now Playing (`widgets/now_playing_panel.py`, `services/now_playing_service.py`)
-  and an always-visible search field that expands an embedded
-  `ExplorerPage` (`gui/pages/explorer_page.py`) in place. Badges are synced
-  and stored but not displayed anywhere
-  ([ScreenDataMapping.md](../design/ScreenDataMapping.md) F1).
+- **Home** — `gui/pages/home_page.py`: header with sync freshness and Sync
+  now, metric cards (points, true points, beaten, mastered), Continue Playing
+  (`widgets/continue_playing_row.py`) beside Recent Activity
+  (`services/activity_feed_service.py`), Now Playing
+  (`widgets/now_playing_panel.py`, `services/now_playing_service.py`), an
+  awards summary, and a search field that expands an embedded `ExplorerPage`
+  (`gui/pages/explorer_page.py`) in place.
+- **Awards** — `gui/pages/awards_view.py`, a detail screen from Home: badges,
+  event awards and the Events list with its new-events notice (D7, F1).
 - **Explorer** — `gui/pages/explorer_page.py` with the sortable table
   (`gui/models/explorer_table_model.py`) and paint-only delegates
   (`gui/delegates/explorer_delegates.py`); no `setIndexWidget()` widget pool.
@@ -120,7 +120,7 @@ Do not reintroduce these based on the historical record.
 
 ## Active desktop plan — interface revamp R16–R27
 
-**Status:** R16–R18 done; R19–R27 planned.
+**Status:** R16–R19 done; R20–R27 planned.
 
 **References:** the [reviewed UI proposal](../design/ui-proposal-reviewed.html)
 (eight boards: Home, Library, Game detail, Achievement detail, Explorer, Lists,
@@ -250,7 +250,8 @@ Achievements/Systems destinations from the original proposal are not required.
   offscreen screenshots of every destination at both sizes; catalog filter and
   sync buttons wrap at 1024 px.
 
-- [ ] **R19 — Rebuild Home.**
+- [x] **R19 — Rebuild Home.**
+  Completed 2026-11-21 (`gui/pages/home_page.py`, `gui/pages/awards_view.py`).
   - [x] Header with last-sync freshness and Sync now (forced profile sync
     under the job slot; disabled with the running job's name while busy).
   - [x] Points, True points, Beaten games and Mastered games from the selected
@@ -262,9 +263,10 @@ Achievements/Systems destinations from the original proposal are not required.
     cover size slider is gone); both stack below ~1100 px window width.
   - [x] Keep Now Playing and catalog search. The catalog filters and sync
     buttons show only while the catalog is open.
-  - [ ] Add the Awards view (D7): the account's badges and event awards from
+  - [x] Add the Awards view (D7): the account's badges and event awards from
     a new `ProfileRepository` read method, plus the current Events list and
-    new-events banner.
+    new-events banner. A detail screen with Badges, Event awards and Events
+    tabs; badge images load only for visible items, with a bounded cache.
   - [x] Card counts are RetroAchievements' combined count, labeled
     "achievements" (D8). Profile sync now stores the counts.
 

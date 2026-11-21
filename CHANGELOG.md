@@ -16,6 +16,7 @@
 - Rebuild Home after the reviewed design: a header with the last sync time and Sync now, metric cards for points, true points, beaten and mastered games, Continue Playing beside Recent Activity, then Now Playing and a badges and event awards summary.
 - Show Continue Playing as a list with "X/Y achievements" (RetroAchievements' combined count), and disable Play with a reason when no emulator is configured for the console. The Home cover size slider is removed.
 - Show the catalog filters and sync buttons only while exploring the catalog from Home.
+- Add an Awards view, opened from Home, with the displayed account's badges and event awards (synced before but never shown) and the Events list with its new-events notice, which moved there from Home.
 - Store each game's unlocked and total achievement counts during profile sync; counts appear after the next sync.
 - Show pages on the darker application background so panels and cards stand out.
 - Set a minimum window size of 1024×720 and wrap the catalog filter and sync buttons onto more rows instead of clipping them in narrow windows.

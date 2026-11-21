@@ -32,6 +32,8 @@ def patch_live_calls(test):
         ('retrocheevos.services.now_playing_service.refresh_now_playing', None),
         ('retrocheevos.services.image_service.ensure_user_pic_cached', None),
         ('retrocheevos.gui.image_loader.ensure_game_image_cached', None),
+        ('retrocheevos.gui.image_loader.ensure_rom_image_cached', None),
+        ('retrocheevos.gui.image_loader.ensure_badge_image_cached', None),
     ):
         patcher = patch(target, return_value=value)
         patcher.start()

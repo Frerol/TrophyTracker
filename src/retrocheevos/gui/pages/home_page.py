@@ -392,8 +392,6 @@ class HomePage(Page):
         self._awards_unread.setVisible(False)
         self._awards_button = button("View awards", compact=True)
         self._awards_button.clicked.connect(self.awards_requested)
-        # Shown once a receiver for `awards_requested` exists (MainWindow).
-        self._awards_button.setVisible(False)
         self._awards_panel = QGroupBox("Badges and event awards")
         awards_layout = QVBoxLayout(self._awards_panel)
         awards_layout.addWidget(self._awards_summary)
