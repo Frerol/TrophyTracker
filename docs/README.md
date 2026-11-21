@@ -21,7 +21,8 @@ artifact; its screens are not yet implemented in the application.
 ## Design
 
 - [UI specification](design/UI.md)
-- [Current branding and artwork history](design/Branding.md)
+- [Visual system, branding and artwork history](design/Branding.md)
+- [Brand exploration files (concepts A, B, C)](design/brand-exploration/README.md)
 - [Reviewed UI proposal: eight desktop boards](design/ui-proposal-reviewed.html)
 - [Product fit review and implementation mapping](design/ProposalReview.md)
 - [Screen, action and data mapping (R16)](design/ScreenDataMapping.md)

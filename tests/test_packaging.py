@@ -45,7 +45,7 @@ class PackagingPathsTests(unittest.TestCase):
         finally:
             os.chdir(previous)
 
-    def test_inputs_resolve_from_spec_directory_and_only_runtime_artwork_is_bundled(self):
+    def test_inputs_resolve_from_spec_directory_and_only_runtime_assets_are_bundled(self):
         self.execute_spec()
         args, kwargs = self.analysis.call_args
         self.assertEqual(args[0], [str(self.root / 'src/retrocheevos/main.py')])
@@ -53,6 +53,7 @@ class PackagingPathsTests(unittest.TestCase):
         self.assertEqual(kwargs['datas'], [
             (str(self.root / 'assets/icon.png'), 'assets'),
             (str(self.root / 'assets/logo.png'), 'assets'),
+            (str(self.root / 'assets/fonts'), 'assets/fonts'),
         ])
         self.assertEqual(kwargs['binaries'], [])
 
@@ -63,7 +64,7 @@ class PackagingPathsTests(unittest.TestCase):
         self.execute_spec()
         kwargs = self.analysis.call_args.kwargs
         self.assertEqual(kwargs['binaries'], [(str(self.binary), 'tools/rahasher')])
-        self.assertEqual(kwargs['datas'][2:], [
+        self.assertEqual(kwargs['datas'][3:], [
             (str(self.helper / name), 'tools/rahasher')
             for name in ('RAHasher-COPYING.txt', 'RAHasher-SOURCE.txt')
         ])

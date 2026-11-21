@@ -24,7 +24,9 @@ independently of the caller's working directory. PyInstaller's default output
 paths are relative to the caller, so using the repository root keeps artifacts
 in the standard directories. The AppImage script changes to that root itself.
 
-Only `assets/icon.png` and `assets/logo.png` are bundled as runtime artwork.
+Only `assets/icon.png` and `assets/logo.png` are bundled as runtime artwork,
+together with `assets/fonts/` (Inter and Space Grotesk under the SIL Open Font
+License; each family's license file ships next to its fonts).
 Design proposals, historical reference art and local account data are excluded.
 The optional native RAHasher helper is bundled from `tools/rahasher/` only when
 its executable and both license/source notice files are present together.

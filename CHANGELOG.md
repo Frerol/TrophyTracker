@@ -6,6 +6,8 @@
 - Coordinate Home's automatic profile sync with the application-wide job slot.
 - Clear obsolete automatic ROM matches when a forced rehash finds no catalog match; manual matches are preserved.
 - Require explicit selection of the displayed account; saving an account no longer switches to it.
+- Apply the new visual system: dark purple surfaces, gold progress and primary actions, turquoise highlights and visible keyboard focus.
+- Bundle the Inter and Space Grotesk fonts (SIL Open Font License) so the interface looks the same without system fonts.
 
 ## 0.1.0 — TrophyTracker
 

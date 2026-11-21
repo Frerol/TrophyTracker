@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17–R27 planned | Start R17: tokens and components. |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; decide D1; start R18 (sidebar shell). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -187,17 +187,23 @@ Achievements/Systems destinations from the original proposal are not required.
   fields marked "to verify" in §5 are checked when R21 starts.
 
 - [ ] **R17 — Implement the visual system and the brand assets.**
-  - [ ] Translate the palette, type scale, spacing and proportions into
-    semantic tokens in `gui/styles.py`.
-  - [ ] Standardize sidebar items, metric cards, game cards, achievement rows,
+  Token, component, font and preview work landed on 2026-11-20; see
+  [Branding.md](../design/Branding.md#visual-system-r17).
+  - [x] Translate the palette, type scale, spacing and proportions into
+    semantic tokens in `gui/styles.py`. The current screens already use the
+    new palette through legacy aliases.
+  - [x] Standardize sidebar items, metric cards, game cards, achievement rows,
     progress bars, search, chips, buttons, menus and dialogs, including hover,
-    focus, pressed, disabled and selected states.
-  - [ ] Bundle licensed fonts with fallbacks so packaging works offline.
-  - [ ] Build a component preview covering all states.
-  - [ ] Compare brand concepts A and C at 16/24/32 px and larger sizes on
-    Windows and Linux, sharing one trophy geometry. Keep the italic Space
-    Grotesk Bold wordmark, turquoise progress underline and gold star in the
-    exploration.
+    focus, pressed, disabled and selected states (`gui/components.py`).
+  - [x] Bundle licensed fonts with fallbacks so packaging works offline
+    (`assets/fonts/`, PyInstaller spec).
+  - [x] Build a component preview covering all states
+    (`tools/preview/component_preview.py`).
+  - [ ] Maintainer review of the component preview.
+  - [x] Compare brand concepts A and C at 16/24/32 px and larger sizes on
+    Linux, on dark and light backgrounds, with the wordmark (preview
+    `--brand-sheet`).
+  - [ ] Repeat the brand comparison on a native Windows taskbar.
   - [ ] *(Blocked on [D1](#open-decisions))* Produce the selected icon and
     variant rules, wordmark and packaging assets; document licenses in
     `Branding.md`. Do not choose a concept silently or use emoji as icons.

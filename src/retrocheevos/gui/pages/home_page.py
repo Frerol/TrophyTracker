@@ -56,7 +56,6 @@ change only affects how Home's field drives it). Clearing the field, or
 
 from dataclasses import replace
 import logging
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +80,7 @@ from PySide6.QtWidgets import (
 )
 
 from retrocheevos.core.activity_feed import build_activity_feed
+from retrocheevos.gui.assets import assets_dir
 from retrocheevos.gui import styles
 from retrocheevos.gui.app_context import AppContext
 from retrocheevos.gui.image_loader import ImageLoader
@@ -124,18 +124,8 @@ USER_MENU_DESTINATIONS = [
 ]
 
 def _assets_dir() -> Path:
-    """Where `assets/` lives, from source and from a frozen build.
-
-    PyInstaller unpacks bundled data into a temporary directory it points
-    `sys._MEIPASS` at; `__file__` inside the bundle resolves somewhere else
-    entirely, so the source-relative path finds nothing and the logo and
-    window icon silently fail to load in the .exe. Checked at call time, not
-    import time, because `_MEIPASS` only exists in a frozen process.
-    """
-    bundled = getattr(sys, "_MEIPASS", None)
-    if bundled:
-        return Path(bundled) / "assets"
-    return Path(__file__).resolve().parents[4] / "assets"
+    """Kept for existing callers; see `gui/assets.py::assets_dir`."""
+    return assets_dir()
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]

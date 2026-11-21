@@ -4,9 +4,10 @@
 #
 # What ships and what does not
 # ----------------------------
-# SHIPPED: `assets/icon.png` and `assets/logo.png`, loaded at runtime
-# through `gui/pages/home_page.py::_assets_dir`, which reads `sys._MEIPASS`
-# when frozen. Without them bundled the app runs but has no icon or logo.
+# SHIPPED: `assets/icon.png`, `assets/logo.png` and `assets/fonts/` (Inter and
+# Space Grotesk with their SIL OFL notices), loaded at runtime through
+# `gui/assets.py::assets_dir`, which reads `sys._MEIPASS` when frozen.
+# Without them the app runs, but with no icon or logo and with fallback fonts.
 #
 # NOT SHIPPED, deliberately:
 #   database/  — one person's account, API key, library and preferences.
@@ -83,6 +84,8 @@ analysis = Analysis(
     datas=[
         (str(_PROJECT_ROOT / "assets" / "icon.png"), "assets"),
         (str(_PROJECT_ROOT / "assets" / "logo.png"), "assets"),
+        # Inter and Space Grotesk with their SIL OFL notices (R17).
+        (str(_PROJECT_ROOT / "assets" / "fonts"), "assets/fonts"),
         *rahasher_datas,
     ],
     # `keyring` picks its backend at runtime through entry points, so nothing
