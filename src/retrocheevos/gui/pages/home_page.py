@@ -790,7 +790,7 @@ class HomePage(Page):
             # `gui/image_loader.py::ImageLoader.request`) — replacing a
             # still-running `QThread`'s only reference destroys it while
             # `run()` is executing, which is what caused a native crash
-            # here once this fetch got slow (DevelopmentRoadmap.md).
+            # here once this fetch got slow (docs/archive/RoadmapHistory.md).
             if not self.app_context.workers.has_key(self._photo_worker_key):
                 gen = self._account_generation
                 account_id = account.id

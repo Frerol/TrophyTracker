@@ -56,5 +56,5 @@
 ## 6. Out of Scope (for now)
 
 - Downloading ROMs directly from RetroAchievements or any source is a
-  **future** feature (`DevelopmentRoadmap.md`, v1.2) and only "if legally
+  **future** idea (original v1.2 plan in `archive/RoadmapHistory.md`) and only "if legally
   possible."

@@ -5,7 +5,7 @@ Message/Unfollow/Block buttons — this section has no social actions.
 
 A plain widget added to a `QVBoxLayout` inside a `QScrollArea`, not
 `QListWidget.setItemWidget()` or any other `QAbstractItemView`
-widget-embedding — `DevelopmentRoadmap.md`'s `RemovableListDelegate` note
+widget-embedding — `docs/archive/RoadmapHistory.md`'s `RemovableListDelegate` note
 documents that mechanism as implicated in a real native crash this
 project hit, avoided ever since even at small scale. This mirrors the
 already-proven Continue Playing pattern in `gui/pages/home_page.py`

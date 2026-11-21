@@ -1,7 +1,8 @@
 ﻿"""SQLite DDL statements for the TrophyTracker schema (Database.md).
 
 `download_sources` (Database.md 3.3) is out of scope — it's flagged as a
-v1.2+ feature in DevelopmentRoadmap.md and not part of the MVP.
+v1.2+ feature in the original release plan (docs/archive/RoadmapHistory.md)
+and not part of the MVP.
 """
 
 CREATE_TABLES = [

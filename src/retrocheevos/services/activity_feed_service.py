@@ -1,5 +1,5 @@
 """Recent Activity feed orchestration (UI.md — Home screen, RA
-"Following"-page-style redesign; DevelopmentRoadmap.md has the full
+"Following"-page-style redesign; docs/archive/RoadmapHistory.md has the full
 research trail).
 
 Unlike every other `services/` module, this one is a **live read with no
@@ -55,7 +55,7 @@ def get_recent_activity_feed(
 ) -> ActivityFeedResult:
     """`result_callback`, if given, is called with each `ActivityEntry` as
     soon as it's built — this fetch is 3 real API calls deep per user and
-    takes several seconds end to end (DevelopmentRoadmap.md), so letting
+    takes several seconds end to end (docs/archive/RoadmapHistory.md), so letting
     the caller render entries as they arrive (see `gui/workers.py`'s
     `stream_results`) makes it feel far faster than waiting for the whole
     batch, even though the total time is the same. The final result includes sorted entries and explicit partial-failure

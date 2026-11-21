@@ -125,7 +125,7 @@ class GamesClient:
         )
 
     def get_user_game_progress(self, username: str, game_id: int) -> RawUserGameProgress:
-        """Confirmed live (Recent Activity redesign, DevelopmentRoadmap.md):
+        """Confirmed live (Recent Activity redesign, docs/archive/RoadmapHistory.md):
         works for `u=<any username>`, not just the authenticated account.
         `UserTotalPlaytime` is in seconds.
         """

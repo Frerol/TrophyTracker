@@ -29,7 +29,7 @@ counts as Completed"), not done here.
 
 `get_users_i_follow` (`API_GetUsersIFollow.php`) and `get_recent_achievements`
 (`API_GetUserRecentAchievements.php`) are both confirmed live for the Recent
-Activity redesign (DevelopmentRoadmap.md): `API_GetUserProfile.php` and
+Activity redesign (docs/archive/RoadmapHistory.md): `API_GetUserProfile.php` and
 `API_GetUserRecentAchievements.php` both also work with `u=<any username>`,
 not just the authenticated account — confirmed by calling them against a
 followed user, not just self.

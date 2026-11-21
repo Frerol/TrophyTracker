@@ -1,10 +1,10 @@
 """Dashboard rules (UI.md 3.1) — MVP scope only.
 
 Reduced by design: Recommendations is a v1.1 feature
-(DevelopmentRoadmap.md), left as an empty placeholder. Events and
+(original release plan, docs/archive/RoadmapHistory.md), left as an empty placeholder. Events and
 "Recently added achievements" need data this project doesn't have yet
 (no achievement-added timestamp in the schema, no Events endpoint modeled)
-and have been moved to v1.1 in DevelopmentRoadmap.md rather than faked here.
+and have been moved to v1.1 in that plan rather than faked here.
 """
 
 from dataclasses import dataclass

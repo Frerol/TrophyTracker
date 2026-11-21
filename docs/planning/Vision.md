@@ -18,7 +18,8 @@ Focus areas:
 - Performance
 - Organization
 - Offline cache
-- Linux release support, Windows validation and future Steam Deck support
+- Cross-platform desktop: Linux releases today, Windows after native
+  validation, Steam Deck as a future idea
 
 The application should feel like a **native desktop application**, not a
 website.
@@ -27,7 +28,7 @@ website.
 
 Every feature must answer this question:
 
-> "If RetroAchievements released an official Windows application, would this
+> "If RetroAchievements released an official desktop application, would this
 > feature belong here?"
 
 - If yes → implement.
@@ -65,16 +66,21 @@ Never sacrifice performance for unnecessary visual effects.
 
 ## Development Workflow
 
-- **ChatGPT** (original planning): architecture, product design, UX,
-  brainstorming, technical decisions.
-- **Claude Code** (implementation): implementation, refactoring, testing,
-  module creation.
+The project was originally planned with ChatGPT and implemented with Claude
+Code. Current practice:
 
-Rules for Claude Code:
+- Product, design and scope decisions are made by the maintainer and recorded
+  in the documentation (`DevelopmentRoadmap.md`, `ProposalReview.md`).
+- AI agents implement, refactor, test and document changes, following
+  `AGENTS.md`.
 
-- Never invent architecture.
-- Always follow the documentation.
-- Always follow the project structure.
+Rules for implementation agents:
+
+- Never invent architecture; follow the documented project structure.
+- Follow the documentation, and update it in the same change when behavior
+  changes.
+- Leave open product decisions to the maintainer (see the roadmap's open
+  decisions) instead of choosing silently.
 
 See `Architecture.md`, `Database.md`, `API.md`, `UI.md`, `CodingStandards.md`
 and `DevelopmentRoadmap.md` for implementation-level detail, and

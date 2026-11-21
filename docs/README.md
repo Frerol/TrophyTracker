@@ -38,6 +38,7 @@ records the proposed A/C brand options; the runtime artwork remains under
 - [Roadmap completion audit and follow-up](validation/RoadmapCompletionAudit.md)
 - [Testing, CI and dependency policy](validation/Testing.md)
 - [R05–R10 performance and resilience evidence](validation/PerformanceValidation.md)
+- [Roadmap history: R01–R15 review and earlier plans](archive/RoadmapHistory.md)
 - [Historical implementation handoff](archive/HANDOFF.md)
 
 Development commands live in the [project README](../README.md). Build inputs
