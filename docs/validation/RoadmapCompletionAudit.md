@@ -168,7 +168,7 @@ hosted runners for the first time.
   a fixed 220 ms sleep that was too short on the Windows Python 3.12 runner.
   Both were test defects, fixed in `tests/` by resolving temporary roots and
   polling with a deadline; no application change was required.
-- Run `44840664571` (commit after `c17b7ed`) passed every blocking job: the full
+- Run `44840664571` (commit `baf3079`) passed every blocking job: the full
   suite (323 tests) on Linux and Windows × Python 3.12/3.13, and packaging
   smoke builds that start the frozen bundle on Linux and Windows.
 - The non-blocking dependency-upgrade probe installed PySide6 6.12.0 over the
