@@ -31,13 +31,14 @@ FallbackRole = Qt.ItemDataRole.UserRole + 6
 
 PROGRESS_UNAVAILABLE = "Progress unavailable"
 NO_MATCH = "No catalog match"
+NO_HASH = "No hash for this format"
 NO_EMULATOR = "No emulator"
 
 
 def progress_caption(entry: LibraryEntry) -> tuple[str, Optional[float]]:
     """("34/42 achievements", 0.81) — unknown progress is never zero (D8)."""
     if entry.kind == "rom":
-        return NO_MATCH, None
+        return (NO_HASH if entry.rom is not None and not entry.rom.hash else NO_MATCH), None
     if entry.achievements_unlocked is not None and entry.achievements_total:
         unlocked = max(0, min(entry.achievements_unlocked, entry.achievements_total))
         return f"{unlocked}/{entry.achievements_total} achievements", unlocked / entry.achievements_total
@@ -115,6 +116,10 @@ class LibraryGridModel(QAbstractListModel):
         if role == PlayReasonRole:
             return None if entry.has_emulator else NO_EMULATOR
         if role == Qt.ItemDataRole.ToolTipRole:
+            if entry.kind == "rom" and not entry.rom.hash:
+                return (f"{entry.title}\n{console} · {NO_HASH}: this format needs RAHasher, "
+                        "which the Linux version does not include. Right-click → Match to "
+                        "game… to choose the game yourself.")
             if entry.kind == "rom":
                 return (f"{entry.title}\n{console} · {NO_MATCH}: this file's hash is not in "
                         "the synced catalog. Right-click → Match to game… to choose it.")

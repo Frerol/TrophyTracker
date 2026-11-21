@@ -11,6 +11,7 @@ QThread and re-emits it as a Qt signal.
 """
 
 import logging
+from dataclasses import dataclass
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -551,6 +552,65 @@ def sync_game_details(
     )
 
     return bool(hashes)
+
+
+@dataclass
+class ConsoleHashSync:
+    """What `sync_console_hashes` fetched and matched."""
+
+    consoles: int
+    games: int
+    hashes: int
+    matched: int
+
+
+def sync_console_hashes(
+    client: RetroAchievementsClient,
+    console_ids: list[int],
+    progress_callback: Optional[ProgressCallback] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> ConsoleHashSync:
+    """Fetch every game's ROM hashes for whole consoles — one request per
+    console — then re-run matching for unmatched ROMs (R22).
+
+    The fast path for automatic matching after a scan: `sync_all_game_hashes`
+    asks game by game (~45 minutes for the consoles a typical user owns);
+    this asks `API_GetGameList` with `h=1` once per console. Games are
+    upserted first because `game_hashes` rows need their game. Cancellation
+    keeps consoles already stored; matching still runs over what was fetched.
+    """
+    now = datetime.now()
+    games = hashes = consoles = 0
+    total = len(console_ids)
+    try:
+        for index, console_id in enumerate(console_ids, start=1):
+            raise_if_cancelled(should_cancel)
+            rows = _with_rate_limit_retry(
+                f"the game hashes for console {console_id}",
+                lambda cid=console_id: GamesClient(client).list_games_with_hashes(cid),
+                should_cancel=should_cancel,
+            )
+            with get_connection() as connection:
+                repository = GameRepository(connection)
+                for raw_game, game_hashes in rows:
+                    repository.upsert_game(map_game(raw_game, synced_at=now))
+                    repository.replace_hashes(raw_game.id, game_hashes)
+                    repository.record_metadata_fetch(
+                        raw_game.id, MetadataKind.HASHES,
+                        MetadataFetchOutcome.VALUE if game_hashes else MetadataFetchOutcome.EMPTY,
+                    )
+                    hashes += len(game_hashes)
+            games += len(rows)
+            consoles += 1
+            if progress_callback:
+                progress_callback(index, total)
+    finally:
+        matched = library_service.rematch_unmatched_roms()
+    logger.info(
+        "Console hash sync: %d console(s), %d games, %d hashes, %d ROM(s) matched",
+        consoles, games, hashes, matched,
+    )
+    return ConsoleHashSync(consoles, games, hashes, matched)
 
 
 def sync_all_game_hashes(

@@ -79,6 +79,25 @@ class GamesClient:
             for item in payload
         ]
 
+    def list_games_with_hashes(self, console_id: int) -> list[tuple[RawGame, list[str]]]:
+        """Every game with achievements on a console, with its supported ROM
+        hashes, in one request (`h=1`). Far cheaper than `get_game_hashes`
+        per game when a whole console's hashes are needed (R22)."""
+        payload = self._client.get("API_GetGameList.php", {"i": console_id, "f": 1, "h": 1})
+        return [
+            (
+                RawGame(
+                    id=item["ID"],
+                    title=item["Title"],
+                    console_id=console_id,
+                    image_icon_path=item.get("ImageIcon"),
+                    num_achievements=item.get("NumAchievements", 0),
+                ),
+                [str(value) for value in (item.get("Hashes") or []) if value],
+            )
+            for item in payload
+        ]
+
     def get_game_extended(self, game_id: int) -> tuple[RawGame, list[RawAchievementDefinition]]:
         """Fetch a game's metadata plus its full achievement list in one call."""
         payload = self._client.get("API_GetGameExtended.php", {"i": game_id})

@@ -327,6 +327,25 @@ def use_automatic_match(installed_rom_id: int) -> Optional[int]:
     return game_id
 
 
+def consoles_needing_hashes() -> list[int]:
+    """Consoles of unmatched, hashed ROMs whose catalog hashes were never
+    fetched — automatic matching cannot work for them yet (R22)."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT r.console_id FROM installed_roms r
+            WHERE r.account_id IS ? AND r.game_id IS NULL AND r.hash != ''
+              AND NOT EXISTS (
+                SELECT 1 FROM game_hashes h JOIN games g ON g.id = h.game_id
+                WHERE g.console_id = r.console_id
+              )
+            ORDER BY r.console_id
+            """,
+            (_active_account_id(),),
+        ).fetchall()
+    return [row["console_id"] for row in rows]
+
+
 def rematch_unmatched_roms() -> int:
     """Re-run hash matching over ROMs that are already recorded but unmatched.
 

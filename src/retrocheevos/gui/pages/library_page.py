@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QModelIndex, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QModelIndex, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QFileDialog, QHBoxLayout, QInputDialog, QListView, QMenu,
@@ -40,7 +40,7 @@ from retrocheevos.gui.view_state import restore_scroll_later
 from retrocheevos.gui.workers import ServiceWorker
 from retrocheevos.library.local_covers import cached_local_cover_path
 from retrocheevos.models.library import LibraryEntry, RehashResult, RomFolderScanResult
-from retrocheevos.services import console_service, library_service
+from retrocheevos.services import console_service, library_service, session_service, sync_service
 
 SCAN_BUTTON_TEXT = "Scan"
 SCANNING_TEXT = "Scanning…"
@@ -53,16 +53,21 @@ NO_ACCOUNT_TEXT = "Choose an account in the sidebar to see its library."
 EMPTY_LIBRARY_TEXT = "No ROMs indexed yet. Add the folders where your ROMs are, then scan them."
 NO_MATCH_TEXT = "No local games match."
 ALL_MATCHED_TEXT = "All local ROMs are matched."
-UNMATCHED_HINT = (
-    "These files' hashes are not in the synced RetroAchievements catalog. Usually the "
-    "console's hashes have not been synced yet: run Sync ROM Hashes from Home → Explore "
-    "catalog, then Scan → Verify hashes. Hacks, translations and other dumps may never "
-    "match; right-click a card and choose Match to game… to pick the game yourself."
+UNMATCHED_HINT_NO_HASHES = (
+    "Catalog hashes for {consoles} have not been fetched yet, so these files cannot be "
+    "matched automatically. Fetching them takes one request per console."
 )
+UNMATCHED_HINT = (
+    "These files' hashes are not in the RetroAchievements catalog. That usually means a "
+    "hack, translation or other dump that has no achievement set. Right-click a card "
+    "and choose Match to game… to pick the game yourself."
+)
+FETCH_HASHES_TEXT = "Fetch catalog hashes"
 CHANGE_MATCH_TEXT = "Change match…"
 AUTOMATIC_MATCH_TEXT = "Use automatic match"
 WORKER_SCAN = ("library", "scan")
 WORKER_REHASH = ("library", "rehash")
+WORKER_HASHES = ("library", "hashes")
 WORKER_PLAY = ("library", "play")
 MIN_COLUMNS = 2
 SEARCH_WIDTH = 300
@@ -185,7 +190,20 @@ class LibraryPage(Page):
         self._grid.viewport().installEventFilter(self)
 
         self._unmatched_hint = text_label(UNMATCHED_HINT, "secondary", wrap=True)
-        self._unmatched_hint.setVisible(False)
+        self._fetch_hashes_button = button(FETCH_HASHES_TEXT, compact=True)
+        self._fetch_hashes_button.clicked.connect(lambda: self.fetch_missing_hashes(automatic=False))
+        self._hint_row = QWidget()
+        self._hint_row.setProperty("transparent", True)
+        hint_layout = QHBoxLayout(self._hint_row)
+        hint_layout.setContentsMargins(0, 0, 0, 0)
+        hint_layout.addWidget(self._unmatched_hint, stretch=1)
+        hint_layout.addWidget(self._fetch_hashes_button, alignment=Qt.AlignmentFlag.AlignTop)
+        self._hint_row.setVisible(False)
+        # Consoles whose hashes were already requested automatically in this
+        # session, so a console the API returns nothing for is not re-asked
+        # after every scan.
+        self._hash_attempted: set[int] = set()
+        self._hash_sync_running = False
         self._message = text_label("", "secondary", wrap=True)
         self._add_folder_button = button("Add a folder…", "primary")
         self._add_folder_button.clicked.connect(self.open_folders)
@@ -207,7 +225,7 @@ class LibraryPage(Page):
         layout.addLayout(header)
         layout.addLayout(status_row)
         layout.addWidget(toolbar_widget)
-        layout.addWidget(self._unmatched_hint)
+        layout.addWidget(self._hint_row)
         layout.addWidget(self._stack, stretch=1)
         layout.addWidget(text_label(FOOTER_NOTE, "secondary", wrap=True))
 
@@ -282,7 +300,7 @@ class LibraryPage(Page):
         self._model.set_entries(visible, self._console_names, self._cover_games)
         account = self.app_context.active_account
         self._add_folder_button.setVisible(False)
-        self._unmatched_hint.setVisible(self._status == STATUS_UNMATCHED and bool(visible))
+        self._update_unmatched_hint(self._status == STATUS_UNMATCHED and bool(visible))
         if account is None:
             self._show_message(NO_ACCOUNT_TEXT)
         elif not self._entries:
@@ -448,16 +466,19 @@ class LibraryPage(Page):
         self.refresh()
 
     def use_automatic_match(self, entry: LibraryEntry) -> None:
-        """Drop manual choices: each copy goes back to its hash's match."""
+        """Drop manual choices: each copy goes back to its hash's match. When
+        the console's catalog hashes were never fetched, fetch them now."""
         results = [library_service.use_automatic_match(rom.id) for rom in entry.manual_roms]
         self._model.forget_cover(entry.key)
-        if any(game_id is None for game_id in results):
+        self.refresh()
+        if all(game_id is not None for game_id in results):
+            self._set_status_text(f"{entry.title}: back to the automatic match.")
+        elif entry.console_id in library_service.consoles_needing_hashes():
+            self.fetch_missing_hashes(automatic=False)
+        else:
             self._set_status_text(
                 f"{entry.title}: the file's hash has no catalog match, so it is in Unmatched now."
             )
-        else:
-            self._set_status_text(f"{entry.title}: back to the automatic match.")
-        self.refresh()
 
     # Folders and scans --------------------------------------------------------
 
@@ -470,6 +491,7 @@ class LibraryPage(Page):
             console_id, path = dialog.scan_file
             library_service.scan_and_record_rom(path, console_id)
             self.refresh()
+            self.fetch_missing_hashes(automatic=True)
         else:
             self.refresh()
 
@@ -553,6 +575,7 @@ class LibraryPage(Page):
         self._set_status_text("Cancelling…")
         self.app_context.workers.cancel_key(WORKER_SCAN)
         self.app_context.workers.cancel_key(WORKER_REHASH)
+        self.app_context.workers.cancel_key(WORKER_HASHES)
 
     def _on_job_cancelled(self) -> None:
         self._reset_scan_button()
@@ -595,6 +618,9 @@ class LibraryPage(Page):
         self._reset_scan_button()
         self._show_result(_describe_scan(result), _scan_details(result))
         self.refresh()
+        # After the scan's job slot is released (the worker callback releases
+        # it right after this returns).
+        QTimer.singleShot(0, lambda: self.fetch_missing_hashes(automatic=True))
 
     def _on_scan_failed(self, message: str) -> None:
         self._reset_scan_button()
@@ -606,11 +632,105 @@ class LibraryPage(Page):
         self._reset_scan_button()
         self._show_result(_describe_rehash(result), _rehash_details(result))
         self.refresh()
+        QTimer.singleShot(0, lambda: self.fetch_missing_hashes(automatic=True))
 
     def _on_rehash_failed(self, message: str) -> None:
         self._reset_scan_button()
         self._set_status_text("")
         QMessageBox.warning(self, "Re-hash failed", message)
+
+    # Catalog hashes (automatic matching) -------------------------------------
+
+    def _update_unmatched_hint(self, visible: bool) -> None:
+        if not visible:
+            self._hint_row.setVisible(False)
+            return
+        missing = library_service.consoles_needing_hashes()
+        if missing:
+            names = ", ".join(self._model.console_name(console_id) for console_id in missing)
+            self._unmatched_hint.setText(UNMATCHED_HINT_NO_HASHES.format(consoles=names))
+        else:
+            self._unmatched_hint.setText(UNMATCHED_HINT)
+        self._fetch_hashes_button.setVisible(bool(missing))
+        self._fetch_hashes_button.setEnabled(not self._hash_sync_running)
+        self._hint_row.setVisible(True)
+
+    def fetch_missing_hashes(self, *, automatic: bool) -> None:
+        """Fetch catalog hashes for consoles whose unmatched ROMs cannot be
+        matched yet — one API request per console — then match again.
+
+        Runs by itself after scans and re-hashes (`automatic=True`, at most
+        once per console per session) and from the Unmatched filter's button.
+        """
+        from retrocheevos.services.job_coordinator import JOB_SYNC_HASHES, active_job, try_acquire
+
+        account = self.app_context.active_account
+        if account is None or self.app_context._shutting_down:
+            return
+        consoles = [
+            console_id for console_id in library_service.consoles_needing_hashes()
+            if not automatic or console_id not in self._hash_attempted
+        ]
+        if not consoles or self._hash_sync_running:
+            return
+        token = try_acquire(JOB_SYNC_HASHES)
+        if token is None:
+            self._set_status_text(
+                f"Catalog hashes could not be fetched now: {active_job()} is running. "
+                "Use Fetch catalog hashes in the Unmatched filter later."
+            )
+            return
+        self._hash_attempted.update(consoles)
+        self._hash_sync_running = True
+        names = ", ".join(self._model.console_name(console_id) for console_id in consoles)
+        self._begin_job()
+        self._set_status_text(f"Fetching catalog hashes for {names} to match your ROMs…")
+        try:
+            client = session_service.build_api_client(account)
+            worker = ServiceWorker(
+                sync_service.sync_console_hashes, client, consoles,
+                report_progress=True, cancellable=True,
+            )
+        except Exception:
+            self._hash_sync_running = False
+            self._release_job(token)
+            self._reset_scan_button()
+            raise
+        worker.progress.connect(
+            lambda done, total: self._set_status_text(f"Fetching catalog hashes ({done}/{total})…")
+        )
+        worker.finished_ok.connect(lambda result: (self._on_hashes_done(result), self._release_job(token)))
+        worker.failed.connect(lambda message: (self._on_hashes_failed(message), self._release_job(token)))
+        worker.cancelled.connect(lambda: (self._on_hashes_cancelled(), self._release_job(token)))
+        self.app_context.workers.start(worker, key=WORKER_HASHES)
+        self._update_unmatched_hint(self._hint_row.isVisible())
+
+    def _on_hashes_cancelled(self) -> None:
+        self._hash_sync_running = False
+        self._on_job_cancelled()
+        self._update_unmatched_hint(self._hint_row.isVisible())
+
+    def _on_hashes_done(self, result) -> None:
+        self._hash_sync_running = False
+        self._reset_scan_button()
+        self.refresh()
+        still = sum(1 for entry in self._entries if entry.kind == "rom")
+        text = (
+            f"Fetched catalog hashes: {result.matched} "
+            f"{'ROM' if result.matched == 1 else 'ROMs'} matched automatically."
+        )
+        if still:
+            text += f" {still} still unmatched; see the Unmatched filter."
+        self._set_status_text(text)
+
+    def _on_hashes_failed(self, message: str) -> None:
+        self._hash_sync_running = False
+        self._reset_scan_button()
+        self._update_unmatched_hint(self._hint_row.isVisible())
+        self._set_status_text(
+            f"Couldn't fetch catalog hashes ({message}). Try again with Fetch catalog hashes "
+            "in the Unmatched filter."
+        )
 
     def _show_result(self, summary: str, details: str) -> None:
         self._set_status_text(summary)

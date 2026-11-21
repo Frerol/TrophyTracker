@@ -27,6 +27,7 @@ def patch_live_calls(test):
     from retrocheevos.models.activity_feed import ActivityFeedResult
     for target, value in (
         ('retrocheevos.services.sync_service.sync_profile_if_needed', False),
+        ('retrocheevos.services.sync_service.sync_console_hashes', None),
         ('retrocheevos.services.activity_feed_service.get_recent_activity_feed',
          ActivityFeedResult(entries=[], failed_usernames=[])),
         ('retrocheevos.services.now_playing_service.refresh_now_playing', None),

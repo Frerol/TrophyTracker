@@ -105,8 +105,12 @@ asks which file when there are several), Use automatic match (undoes a
 manual choice, back to the hash match or to Unmatched) and Remove from
 Library. Matching is automatic by hash at scan time, after Sync ROM Hashes
 and on Verify hashes; manual choices are never overwritten by those passes.
-The Unmatched filter explains that the hash is not in the synced catalog and
-how to fix it. There is no cover size slider.
+After a scan or re-hash, consoles whose unmatched ROMs have no catalog hashes
+yet get them fetched automatically (one request per console, once per console
+per session, under the job slot with progress and Cancel), then matching runs
+again. The Unmatched filter says when hashes are missing (with Fetch catalog
+hashes) or, once they exist, that the file is probably a hack or other dump;
+files without any hash say their format needs RAHasher. There is no cover size slider.
 
 ### Lists
 

@@ -59,7 +59,7 @@ class ModelAndDelegateTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_captions_never_show_unknown_as_zero(self):
-        rom = InstalledRom('/roms/hack.sfc', '', 3, id=9)
+        rom = InstalledRom('/roms/hack.sfc', 'abc', 3, id=9)
         self.model.set_entries([
             game_entry(1, unlocked=34, total=42, percent=81),
             game_entry(2, percent=50),
@@ -78,6 +78,10 @@ class ModelAndDelegateTests(unittest.TestCase):
         self.assertIsNone(rows[0].data(PlayReasonRole))
         self.assertEqual(rows[4].data(PlayReasonRole), 'No emulator')
         self.assertIn('no emulator', rows[4].data(Qt.ItemDataRole.AccessibleTextRole))
+        no_hash = InstalledRom('/roms/game.rvz', '', 19, id=10)
+        self.model.set_entries([LibraryEntry('rom', 'game', 19, [no_hash.file_path], rom=no_hash)], {19: 'Wii'})
+        self.assertEqual(self.model.index(0).data(CaptionRole), 'No hash for this format')
+        self.assertIn('RAHasher', self.model.index(0).data(Qt.ItemDataRole.ToolTipRole))
 
     def test_covers_load_only_for_painted_rows_within_the_budget(self):
         self.model.set_entries([game_entry(i) for i in range(1, 501)], {3: 'SNES'})
@@ -112,6 +116,14 @@ class ModelAndDelegateTests(unittest.TestCase):
             # A click on the cover is not Play.
             QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=rect.center() - QPoint(0, 60))
         self.assertEqual(played, [0])
+
+
+def _wait(predicate, timeout=5.0):
+    import time
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        QTest.qWait(10)
+    return predicate()
 
 
 class LibraryPageTests(unittest.TestCase):
@@ -266,6 +278,8 @@ class LibraryPageTests(unittest.TestCase):
     def test_automatic_match_without_a_hash_hit_returns_to_unmatched(self):
         with db.get_connection(self.database) as c:
             c.execute("UPDATE installed_roms SET manual_match = 1 WHERE game_id = 4")
+            # SNES hashes are known, so the miss means a real "no match".
+            c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(1, 'other')")
         self.page.refresh()
         entry = next(e for e in self.page._model.entries() if e.title == 'Game 04')
         self.page.use_automatic_match(entry)
@@ -290,15 +304,67 @@ class LibraryPageTests(unittest.TestCase):
         self.assertEqual(dialog.call_args.args[0], str(self.tmp / 'second copy.rom'))
 
     def test_unmatched_filter_explains_why_and_what_to_do(self):
-        self.assertTrue(self.page._unmatched_hint.isHidden())
+        self.assertTrue(self.page._hint_row.isHidden())
         self.page._set_status(STATUS_UNMATCHED)
-        self.assertFalse(self.page._unmatched_hint.isHidden())
-        self.assertIn('Sync ROM Hashes', self.page._unmatched_hint.text())
+        self.assertFalse(self.page._hint_row.isHidden())
+        # No SNES hashes yet: the hint says so and offers to fetch them.
+        self.assertIn('SNES', self.page._unmatched_hint.text())
+        self.assertIn('not been fetched', self.page._unmatched_hint.text())
+        self.assertFalse(self.page._fetch_hashes_button.isHidden())
+        with db.get_connection(self.database) as c:
+            c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(1, 'other')")
+        self.page._apply_filters()
         self.assertIn('Match to game', self.page._unmatched_hint.text())
+        self.assertTrue(self.page._fetch_hashes_button.isHidden())
         rom = next(e for e in self.page._model.entries() if e.kind == 'rom')
         tooltip = self.page._model.index(0).data(Qt.ItemDataRole.ToolTipRole)
         self.assertIn('hash is not in the synced catalog', tooltip)
         self.assertEqual(rom.title, 'Mystery Hack')
+
+    def fake_hash_sync(self, calls):
+        """Stands in for the API: stores a hash for the unmatched ROM."""
+        from retrocheevos.services.sync_service import ConsoleHashSync
+
+        def sync(_client, console_ids, progress_callback=None, should_cancel=None):
+            calls.append(list(console_ids))
+            with db.get_connection(self.database) as c:
+                c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(7, 'hx')")
+            matched = library_page.library_service.rematch_unmatched_roms()
+            if progress_callback:
+                progress_callback(1, 1)
+            return ConsoleHashSync(len(console_ids), 1, 1, matched)
+        return sync
+
+    def test_scan_fetches_missing_catalog_hashes_once_and_matches(self):
+        from retrocheevos.models.library import RomFolderScanResult
+        from retrocheevos.services import job_coordinator as jobs
+        calls = []
+        with patch.object(library_page.sync_service, 'sync_console_hashes', side_effect=self.fake_hash_sync(calls)):
+            self.page._on_scan_done(RomFolderScanResult(1, [], 0, [], []))
+            QTest.qWait(20)
+            self.assertTrue(_wait(lambda: 'matched automatically' in self.page._scan_status_label.text()))
+            self.assertEqual(calls, [[3]])
+            self.assertNotIn('Mystery Hack', self.titles())
+            self.assertIsNone(jobs.active_job())
+            self.assertTrue(self.page._scan_button.isEnabled())
+            # Nothing left to fetch: a second scan makes no request.
+            self.page._on_scan_done(RomFolderScanResult(1, [], 0, [], []))
+            QTest.qWait(50)
+            self.assertEqual(calls, [[3]])
+
+    def test_fetch_button_and_failure_message(self):
+        self.page._set_status(STATUS_UNMATCHED)
+        with patch.object(library_page.sync_service, 'sync_console_hashes', side_effect=RuntimeError('offline')):
+            self.page._fetch_hashes_button.click()
+            self.assertTrue(_wait(lambda: "Couldn't fetch" in self.page._scan_status_label.text()))
+        self.assertTrue(self.page._fetch_hashes_button.isEnabled())
+        self.assertTrue(self.page._scan_button.isEnabled())
+        calls = []
+        with patch.object(library_page.sync_service, 'sync_console_hashes', side_effect=self.fake_hash_sync(calls)):
+            # The button retries even though this console was already tried.
+            self.page._fetch_hashes_button.click()
+            self.assertTrue(_wait(lambda: 'matched automatically' in self.page._scan_status_label.text()))
+        self.assertEqual(calls, [[3]])
 
     def test_missing_file_offers_removal(self):
         entry = next(e for e in self.page._model.entries() if e.title == 'Game 03')
