@@ -156,5 +156,29 @@ Result: **323 tests passed**. The two regressions added last (bounded close and
 no duplicate same-account activity fetch) were confirmed to fail with their
 fixes reverted. No live API, user database or real credential vault was used.
 
-R11 is unchanged by this follow-up: hosted CI and native Windows suite/package/
-upgrade evidence are still required before it can be checked.
+### R11 — hosted CI evidence (2026-11-20)
+
+The repository was published to GitHub and `.github/workflows/ci.yml` ran on
+hosted runners for the first time.
+
+- The first runs (commits `2fc6963` and `c17b7ed`) failed on `windows-latest`:
+  tests built paths from unresolved temporary directories, which Windows
+  reports as 8.3 short paths (`C:\Users\RUNNER~1\...`), while the
+  application stores resolved long paths. The Explorer debounce test also used
+  a fixed 220 ms sleep that was too short on the Windows Python 3.12 runner.
+  Both were test defects, fixed in `tests/` by resolving temporary roots and
+  polling with a deadline; no application change was required.
+- Run `44840664571` (commit after `c17b7ed`) passed every blocking job: the full
+  suite (323 tests) on Linux and Windows × Python 3.12/3.13, and packaging
+  smoke builds that start the frozen bundle on Linux and Windows.
+- The non-blocking dependency-upgrade probe installed PySide6 6.12.0 over the
+  6.10.1 release pin. All 78 GUI regressions passed, but the process crashed
+  during interpreter teardown on both platforms (Linux: `Bus error` after
+  `QObject: shared QObject was deleted directly`; Windows: exit code 127). The
+  PySide6 pin therefore stays at 6.10.1; the probe should be re-run before any
+  upgrade.
+
+Remaining for R11: interactive use of the application on a native Windows
+desktop (real display, not the offscreen platform) has not been exercised.
+Hosted runners provide native Windows for the automated suite and packaged
+startup only.

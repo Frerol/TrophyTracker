@@ -7,7 +7,7 @@ validation results below are recorded evidence, not new checks run on each edit.
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| Desktop reliability and performance, R01–R15 | Local follow-up implemented; R11 platform validation open | Preserve regression coverage; obtain native Windows and hosted CI evidence. |
+| Desktop reliability and performance, R01–R15 | Implemented; hosted CI passes on Linux/Windows; R11 interactive Windows validation open | Preserve regression coverage; validate interactive use on native Windows; keep the PySide6 6.10.1 pin until the upgrade probe passes. |
 | Desktop interface revamp, R16–R27 | Planned | Start R16: map the reference screens, existing actions and missing data. |
 | Android companion | Planned; no app or APK yet | Run Phase 0 of the separate [Android roadmap](AndroidRoadmap.md). |
 | Original release buckets and investigation notes | Historical / superseded | Consult for context only; do not treat them as a task queue. |
