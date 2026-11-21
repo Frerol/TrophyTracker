@@ -129,6 +129,19 @@ class BrandAssetTests(unittest.TestCase):
                 self.assertEqual(unit(5, 2), QColor(styles.SURFACE_APP).name())   # opening
                 self.assertEqual(unit(5, 7), QColor(styles.ACCENT_GOLD).name())   # stem
 
+    def test_icons_have_a_transparent_background_and_a_dark_outline(self) -> None:
+        for size in (16, 24, 32, 48, 64, 128, 256):
+            image = QImage(str(assets_dir() / 'icons' / f'trophytracker-{size}.png'))
+            with self.subTest(size=size):
+                for x, y in ((0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1)):
+                    self.assertEqual(image.pixelColor(x, y).alpha(), 0)
+                # Walk in from the left edge along the stem's row: the first
+                # opaque pixel must be the outline, never gold.
+                row = size // 2
+                first = next(image.pixelColor(x, row) for x in range(size)
+                             if image.pixelColor(x, row).alpha() > 0)
+                self.assertEqual(first.name(), QColor(styles.SURFACE_APP).name())
+
 class PreviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

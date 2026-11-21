@@ -7,7 +7,7 @@
 - Clear obsolete automatic ROM matches when a forced rehash finds no catalog match; manual matches are preserved.
 - Require explicit selection of the displayed account; saving an account no longer switches to it.
 - Apply the new visual system: dark purple surfaces, gold progress and primary actions, turquoise highlights and visible keyboard focus.
-- Replace the application icon and header emblem with the new pixel-trophy icon, drawn sharp at every size from 16 px up.
+- Replace the application icon and header emblem with the new pixel-trophy icon: a gold trophy with a dark outline on a transparent background, drawn sharp at every size from 16 px up.
 - Bundle the Inter and Space Grotesk fonts (SIL Open Font License) so the interface looks the same without system fonts.
 - Fix the Home avatar menu not opening on hover, and the Library scan buttons staying disabled after a folder scan or re-hash finished (regressions in 0.1.0).
 

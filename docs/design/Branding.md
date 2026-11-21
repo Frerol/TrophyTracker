@@ -48,9 +48,14 @@ system draws it: window, taskbar, tray, launcher and AppImage icon, with a
 tighter variant (less padding, larger trophy) for 16–24 px. Concept C is the
 illustrative variant for large artwork, 128 px and up: onboarding, About and
 release pages. Both share A's trophy geometry, and the wordmark keeps it too.
-Concept B is not used. On a native Windows 11 taskbar at 125% scaling (icons
-drawn at 30 px, title bar at 20 px), icon A stayed legible on dark and light
-themes on 2026-11-21; the dark tile keeps it contrasted on the light taskbar.
+Concept B is not used.
+
+**Revision (2026-11-21):** the maintainer preferred no dark tile behind the
+trophy. Icon A now has a transparent background and a dark pixel outline
+around the trophy. On a native Windows 11 taskbar at 125% scaling (icons drawn
+at 30 px, title bar at 20 px), both the tiled and the outlined versions stayed
+legible on dark and light themes; on the light taskbar the outline provides
+the contrast the tile used to.
 
 ## Runtime artwork
 
@@ -71,11 +76,12 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python tools/brand/generate_i
 
 **Rules for concept A.** The trophy is a pixel grid and is always drawn at an
 integer number of pixels per grid unit, never resampled, so it stays sharp.
-At 16 and 24 px the trophy is enlarged relative to the tile (one and two
-pixels per unit) and the tile outline is dropped; from 32 px the tile has its
-outline and the trophy keeps about half the tile width. The tile is
-`SURFACE_SIDEBAR`, the outline `SURFACE_RAISED`, the trophy `ACCENT_GOLD` and
-its opening `SURFACE_APP`, so the icon reads on both dark and light taskbars.
+The background is transparent. A dark outline of a whole number of pixels
+(1 px at 16–24 px, 2 px at 32–64 px, then about 1/30 of the size) follows the
+trophy's silhouette, and the trophy with its outline fills about 70–85% of the
+canvas. The trophy is `ACCENT_GOLD`; the outline, the cup opening and the gaps
+inside the handles are `SURFACE_APP`, so the icon reads on both dark and light
+taskbars.
 
 **Rules for concept C.** Use only at 128 px and above. Its trophy uses the same
 geometry as A.

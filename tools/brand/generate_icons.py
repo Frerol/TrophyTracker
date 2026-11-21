@@ -3,7 +3,9 @@
 Concept A (pixel trophy) is the application icon at every size the system
 draws. Its trophy is a pixel grid, so each size is painted at an integer
 scale instead of resampling a vector: edges stay crisp at 16 and 24 px, where
-the trophy is also enlarged relative to the tile (the "tight" small variant).
+the trophy is also enlarged relative to the canvas (the "tight" small variant).
+The background is transparent; a dark pixel outline traced around the trophy
+keeps it readable on both dark and light surfaces.
 Concept C (cartridge with the same trophy) and the wordmark are rendered from
 their SVG masters for large artwork.
 
@@ -18,7 +20,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 from retrocheevos.gui import styles
@@ -37,46 +39,46 @@ TROPHY_CELLS = (
 )
 # The dark opening in the cup.
 TROPHY_NOTCH = (5, 2, 2, 2)
+# The gaps inside the handles. Filled dark rather than left transparent, so
+# large sizes don't show a speck of the background ringed by the outline.
+HANDLE_GAPS = ((2, 3, 1, 1), (9, 3, 1, 1))
 TROPHY_BOUNDS = (1, 1, 10, 9)  # x, y, width, height of the trophy in grid units
 
-# Integer pixels per grid unit for each icon size. 16 and 24 px use a larger
-# trophy (62% and 83% of the tile) so the small variant stays legible.
-ICON_SCALES = {16: 1, 24: 2, 32: 2, 48: 3, 64: 4, 128: 8, 256: 16, 512: 32}
+# Integer pixels per grid unit, and the dark outline's width in pixels, for
+# each icon size. There is no tile: the background is transparent and the
+# outline traced around the trophy's silhouette keeps it readable on dark and
+# light surfaces. Trophy plus outline fills about 70-85% of the canvas.
+ICON_GEOMETRY = {
+    16: (1, 1), 24: (2, 1), 32: (2, 2), 48: (4, 2), 64: (5, 2),
+    128: (10, 4), 256: (20, 8), 512: (40, 16),
+}
 
-TILE_COLOR = styles.SURFACE_SIDEBAR
-TILE_OUTLINE = styles.SURFACE_RAISED
+OUTLINE_COLOR = styles.SURFACE_APP
 TROPHY_COLOR = styles.ACCENT_GOLD
 NOTCH_COLOR = styles.SURFACE_APP
 
 
 def render_icon_a(size: int) -> QPixmap:
-    scale = ICON_SCALES[size]
+    scale, outline = ICON_GEOMETRY[size]
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    radius = size * 0.22
-    if size >= 32:
-        stroke = max(1.0, size / 50)
-        painter.setPen(QPen(QColor(TILE_OUTLINE), stroke))
-        inset = stroke / 2
-        tile = QRectF(inset, inset, size - stroke, size - stroke)
-    else:
-        painter.setPen(Qt.PenStyle.NoPen)
-        tile = QRectF(0, 0, size, size)
-    painter.setBrush(QColor(TILE_COLOR))
-    painter.drawRoundedRect(tile, radius, radius)
-
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     painter.setPen(Qt.PenStyle.NoPen)
     bx, by, bw, bh = TROPHY_BOUNDS
     origin_x = (size - bw * scale) // 2 - bx * scale
     origin_y = (size - bh * scale) // 2 - by * scale
 
-    def fill(cell: tuple[int, int, int, int], color: str) -> None:
+    def fill(cell: tuple[int, int, int, int], color: str, grow: int = 0) -> None:
         x, y, w, h = cell
-        painter.fillRect(origin_x + x * scale, origin_y + y * scale, w * scale, h * scale, QColor(color))
+        painter.fillRect(origin_x + x * scale - grow, origin_y + y * scale - grow,
+                         w * scale + 2 * grow, h * scale + 2 * grow, QColor(color))
 
+    # Outline first: every cell grown by the outline width, so the gold drawn
+    # over it leaves a uniform dark border around the whole silhouette.
+    for cell in TROPHY_CELLS:
+        fill(cell, OUTLINE_COLOR, outline)
+    for cell in HANDLE_GAPS:
+        fill(cell, OUTLINE_COLOR)
     for cell in TROPHY_CELLS:
         fill(cell, TROPHY_COLOR)
     fill(TROPHY_NOTCH, NOTCH_COLOR)
@@ -100,7 +102,7 @@ def render_svg(path: Path, width: int, height: int) -> QPixmap:
 
 def outputs() -> dict[Path, QPixmap]:
     files = {ICONS_DIR / f'trophytracker-{size}.png': render_icon_a(size)
-             for size in ICON_SCALES if size <= 256}
+             for size in ICON_GEOMETRY if size <= 256}
     # Single-file fallbacks: desktop/AppImage icon and the header emblem.
     files[ASSETS / 'icon.png'] = render_icon_a(512)
     files[ASSETS / 'logo.png'] = render_icon_a(128)
