@@ -30,6 +30,10 @@ def build_game_completions(
             game_id=game.game_id,
             percent_complete=compute_percent_complete(game.num_awarded, game.max_possible),
             highest_award_kind=game.highest_award_kind.value if game.highest_award_kind else None,
+            # The combined count RA reports (D8), shown on cards as
+            # "X/Y achievements". None when the API omitted it.
+            achievements_unlocked=game.num_awarded if game.max_possible else None,
+            achievements_total=game.max_possible or None,
         )
         for game in completion_progress
     ]

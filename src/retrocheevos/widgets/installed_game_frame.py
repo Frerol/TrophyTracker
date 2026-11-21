@@ -1,14 +1,14 @@
 """Large cover-art frame for the Library list (UI.md 3.6, Bloco 13).
 
 The whole image is the button. Every other launch surface in this app uses an
-explicit button — `ContinuePlayingGameRow` has "Continue", the ROM Location
+explicit button — Home's `ContinuePlayingRow` has "Play", the ROM Location
 page has "Play Selected" — but Library is a wall of box art whose only
 purpose is launching, so a row of small buttons underneath would be noise.
 Clicking the art launches; that's the entire interaction.
 
 Cover art reuses the shared async pipeline (`gui/image_loader.py::ImageLoader`
 -> `services/image_service.py`), filtering the loader's `image_ready`
-broadcast by `game.id` — the same shape as `ContinuePlayingGameRow` and
+broadcast by `game.id` — the same shape as `ContinuePlayingRow` and
 `gui/models/explorer_table_model.py`.
 """
 

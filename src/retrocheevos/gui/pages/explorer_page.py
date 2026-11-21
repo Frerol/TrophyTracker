@@ -246,6 +246,13 @@ class ExplorerPage(Page):
         self._search_row_widget.setVisible(visible)
         self._table.setVisible(visible)
 
+    def set_controls_visible(self, visible: bool) -> None:
+        """Shows/hides the catalog sync bar and the filter chips.
+
+        Home keeps them hidden until the catalog is opened (R19)."""
+        self._sync_bar_widget.setVisible(visible)
+        self._filter_bar.setVisible(visible)
+
     def set_search_text(self, text: str) -> None:
         """Drive either Explorer instance through the same debounced search path."""
         self._search_input.setText(text)

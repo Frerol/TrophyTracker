@@ -72,9 +72,12 @@ class MainWindow(QMainWindow):
         account_panel.sign_out_requested.connect(self._on_logout)
         account_panel.navigate_requested.connect(self.navigate)
         self._sidebar.set_account(self.app_context.active_account)
-        self._destinations["home"].profile_updated.connect(self._sidebar.refresh_avatar)
+        home = self._destinations["home"]
+        home.profile_updated.connect(self._sidebar.refresh_avatar)
+        home.navigate_requested.connect(self.navigate)
 
         self._pages = QStackedWidget()
+        self._pages.setObjectName("pages")
         for page in self._destinations.values():
             self._pages.addWidget(page)
 

@@ -33,8 +33,7 @@ from retrocheevos.widgets.cover_art import console_placeholder, fill_square
 from retrocheevos.widgets.text_layout import wrap_lines
 from retrocheevos.models.library import InstalledRom
 
-# Same size as `widgets/continue_playing_game_row.py::COVER_SIZE` — both
-# share Continue Playing's compact grid, so their cover slots line up.
+# Default cover size for the Library's unmatched ROM cards.
 COVER_SIZE = QSize(40, 40)
 IMAGE_FILE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
 
@@ -49,8 +48,7 @@ CAPTION_SIDE_PAD = 6
 CAPTION_MIN_COVER = 90
 MARGIN_RATIO = 0.04
 MIN_MARGIN = 2
-# Matches `continue_playing_game_row.PROGRESS_BAR_HEIGHT`, so a row of mixed
-# cards lines up.
+# Height of the optional progress bar, matching the other cover cards.
 PROGRESS_BAR_HEIGHT = 14
 
 
@@ -87,7 +85,7 @@ class UnmatchedRomCard(QFrame):
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setFrameShape(QFrame.Shape.Box)
 
-        # Laid out exactly like `ContinuePlayingGameRow`/`InstalledGameFrame`:
+        # Laid out exactly like `InstalledGameFrame`:
         # cover on top, caption underneath, no "Continue" button. It used to
         # be a horizontal strip with a button, which made unmatched ROMs read
         # as a different kind of thing sitting in the same grid — most

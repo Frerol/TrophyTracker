@@ -54,8 +54,8 @@ revamp. Status: **kept** (same function, restyled), **moved** (new location),
 | --- | --- | --- | --- |
 | Search catalog (expands embedded Explorer) | `_search_input`, embedded `ExplorerPage` | Home "Explore catalog" / search → Explorer | kept |
 | Back to Home from embedded Explorer | `_back_to_home_button` | Back navigation (R18) | changed |
-| Refresh Continue Playing | `_on_refresh_continue_playing` | Home "Sync now" area | moved |
-| Cover size slider | `widgets/cover_size_slider.py` | Removed from Home; card size fixed by layout | **decision in R19** |
+| Refresh Continue Playing | `_on_refresh_continue_playing` | Home "Sync now" (R19) | moved |
+| Cover size slider | `widgets/cover_size_slider.py` | Removed from Home; Continue Playing is a list with fixed 56 px covers (R19) | removed |
 | Play from Continue Playing (matched/unmatched) | `library_service.launch_game` / `launch_installed_rom` | Continue Playing card | kept |
 | Now Playing: refresh progress | `widgets/now_playing_panel.py` | Home Now Playing panel | kept |
 | Events: open event on RA | `widgets/event_row.py` → `openUrl` | Awards view (D7) | moved |
@@ -156,7 +156,7 @@ missing or fails. "Freshness" names the timestamp shown to the user.
 | Recent Activity (followed users) | `activity_feed_service.get_recent_activity_feed` (live, in-memory only) | Loading; partial ("N users unavailable"); failed with last good entries kept for the session; following unavailable |
 | Now Playing | `now_playing_service.refresh_now_playing`; freshness `NowPlayingSnapshot.checked_at` | "No recent game activity reported"; unmatched ROM notice |
 | Badges and event awards → Awards view (D7) | Badges: new `ProfileRepository` read method (F1); events from `events_service.list_events_with_progress`; unread from `notification_service` | No badges synced → "Sync profile to load awards"; no events → Events section hidden |
-| Completion percentage, displayed account | `ProfileStats.completion_percentage`; active account | Account shown in the sidebar instead; completion % moves to a metric tooltip or is dropped (R19) |
+| Completion percentage, displayed account | `ProfileStats.completion_percentage`; active account | Account shown in the sidebar instead; completion % is the Mastered games card's tooltip (R19) |
 
 ### 3.2 Library
 

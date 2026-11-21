@@ -1,5 +1,4 @@
-﻿"""Community event row for Home's Events section — presentation-only, in the
-same shape as `widgets/continue_playing_game_row.py`.
+﻿"""Community event row for the Awards view's Events section — presentation-only.
 
 The whole row is clickable and opens the event's page on
 retroachievements.org. That works with no new plumbing because RA models

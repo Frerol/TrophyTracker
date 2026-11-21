@@ -251,18 +251,22 @@ Achievements/Systems destinations from the original proposal are not required.
   sync buttons wrap at 1024 px.
 
 - [ ] **R19 — Rebuild Home.**
-  - [ ] Header with last-sync freshness and Sync now.
-  - [ ] Points, True points, Beaten games and Mastered games from the selected
-    account's existing profile data.
-  - [ ] Continue Playing and Recent Activity in a roughly 2:1 split, with
+  - [x] Header with last-sync freshness and Sync now (forced profile sync
+    under the job slot; disabled with the running job's name while busy).
+  - [x] Points, True points, Beaten games and Mastered games from the selected
+    account's existing profile data. Beaten links to the external
+    leaderboard; average completion is the Mastered card's tooltip.
+  - [x] Continue Playing and Recent Activity in a roughly 2:1 split, with
     covers, progress and guarded Play. Recent Activity stays followed-user
-    activity, not an unlock event stream.
-  - [ ] Keep Now Playing and catalog search.
+    activity, not an unlock event stream. Continue Playing is a list (the
+    cover size slider is gone); both stack below ~1100 px window width.
+  - [x] Keep Now Playing and catalog search. The catalog filters and sync
+    buttons show only while the catalog is open.
   - [ ] Add the Awards view (D7): the account's badges and event awards from
     a new `ProfileRepository` read method, plus the current Events list and
     new-events banner.
-  - [ ] Card counts are RetroAchievements' combined count, labeled
-    "achievements" (D8).
+  - [x] Card counts are RetroAchievements' combined count, labeled
+    "achievements" (D8). Profile sync now stores the counts.
 
   **Done when:** real or cached data drives the screen; no-account, no-history,
   active-session, offline and partial-feed variants work; narrower windows

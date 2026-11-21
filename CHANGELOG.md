@@ -13,6 +13,11 @@
 - Replace the top header and navigation row with a sidebar for Home, Library, Lists and Settings (Ctrl+1–4), showing the displayed account and the version at the bottom; points and profile statistics stay on Home.
 - Switch the displayed account, manage accounts or sign out from the sidebar account menu, which opens on click instead of on hover.
 - Keep Home's catalog search, filters and results, and the Library and Lists scroll positions, when navigating away and back; select Home again to clear the search.
+- Rebuild Home after the reviewed design: a header with the last sync time and Sync now, metric cards for points, true points, beaten and mastered games, Continue Playing beside Recent Activity, then Now Playing and a badges and event awards summary.
+- Show Continue Playing as a list with "X/Y achievements" (RetroAchievements' combined count), and disable Play with a reason when no emulator is configured for the console. The Home cover size slider is removed.
+- Show the catalog filters and sync buttons only while exploring the catalog from Home.
+- Store each game's unlocked and total achievement counts during profile sync; counts appear after the next sync.
+- Show pages on the darker application background so panels and cards stand out.
 - Set a minimum window size of 1024×720 and wrap the catalog filter and sync buttons onto more rows instead of clipping them in narrow windows.
 
 ## 0.1.0 — TrophyTracker

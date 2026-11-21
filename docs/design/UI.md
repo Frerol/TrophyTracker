@@ -37,12 +37,24 @@ results from a previous selection must never update the new account's screen.
 
 ### Home
 
-- Continue Playing and guarded Play actions for local games.
-- Points, true points, beaten/mastered/completion statistics.
-- Badges and event awards; no standalone profile page.
+- Header with "Last synced …" freshness and Sync now (forced profile sync;
+  disabled with the running job's name while another job holds the slot).
+- Catalog search with "Explore catalog" and "Your lists" shortcuts; the
+  embedded Explorer, its filters and catalog sync buttons appear only while
+  the catalog is open.
+- Metric cards: points, true points, beaten games (with a leaderboard link)
+  and mastered games (average completion in its tooltip). Missing data shows
+  "—" and "Not synced yet".
+- Continue Playing list beside Recent Activity (about 2:1; stacked below
+  ~1100 px window width). Rows show cover, console, "X/Y achievements"
+  (RetroAchievements' combined count), "NN% complete" or "Progress
+  unavailable", and a Play button that is disabled with a reason when no
+  emulator is configured. Unmatched ROMs say so and keep cover/removal
+  actions in a "⋯" menu.
 - Followed-user Recent Activity, with cached results and partial-failure feedback.
 - Now Playing, distinct from an achievement-unlock event stream.
-- Always-visible catalog search and embedded Explorer.
+- A badges and event awards summary leading to the Awards view; no
+  standalone profile page.
 
 Profile synchronization is opportunistic when stale and participates in the
 same job coordination as manual synchronization. Activity refresh keeps its

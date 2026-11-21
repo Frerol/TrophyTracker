@@ -78,6 +78,27 @@ class ProfileRepository:
         badge.id = row["id"]
         return badge
 
+    def list_badges(self, account_id: int) -> list[Badge]:
+        """The account's synced awards: regular badges first, then event
+        awards, each alphabetical (D7, ScreenDataMapping F1)."""
+        rows = self._connection.execute(
+            "SELECT * FROM badges WHERE account_id = ? "
+            "ORDER BY is_event, name COLLATE NOCASE",
+            (account_id,),
+        ).fetchall()
+        return [
+            Badge(
+                account_id=row["account_id"],
+                name=row["name"],
+                owned=bool(row["owned"]),
+                image_path=row["image_path"],
+                progress=row["progress"],
+                is_event=bool(row["is_event"]),
+                id=row["id"],
+            )
+            for row in rows
+        ]
+
     @staticmethod
     def _row_to_stats(row: sqlite3.Row) -> ProfileStats:
         return ProfileStats(

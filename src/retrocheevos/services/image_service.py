@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from retrocheevos.library.activity_icons import cached_activity_icon_path
+from retrocheevos.library.activity_icons import cached_activity_icon_path, cached_badge_image_path
 from retrocheevos.library.game_images import build_image_url, cached_image_path, download_image
 from retrocheevos.library.user_pics import cached_user_pic_path
 from retrocheevos.models.game import Game
@@ -164,4 +164,21 @@ def ensure_activity_icon_cached(game_id: int, icon_path: Optional[str]) -> Optio
         logger.warning("No cached activity icon available for game %d", game_id)
         return None
 
+    return destination
+
+
+def ensure_badge_image_cached(image_path: Optional[str]) -> Optional[Path]:
+    """Local path to an award image (Awards view), downloading it first if
+    needed. Same contract as `ensure_activity_icon_cached`: background thread
+    only; `None` when there is no image or the download fails."""
+    if not image_path or not Path(image_path).name:
+        return None
+    destination = cached_badge_image_path(image_path)
+    if destination.exists():
+        return destination
+    try:
+        download_image(build_image_url(image_path), destination)
+    except Exception:
+        logger.warning("No cached award image available for %s", image_path)
+        return None
     return destination

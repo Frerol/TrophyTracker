@@ -179,7 +179,7 @@ QLabel[pill="error"] {{ background: {STATUS_DANGER_SOFT}; color: {STATUS_DANGER}
 
 /* Shell */
 QWidget#sidebar {{ background-color: {SURFACE_SIDEBAR}; }}
-QFrame#sidebar {{ border: none; border-right: 1px solid {OUTLINE_MUTED}; }}
+QFrame#sidebar {{ border: none; border-right: 1px solid {OUTLINE_MUTED}; border-radius: 0; }}
 QFrame#sidebar QLabel {{ background: transparent; }}
 
 /* Surfaces */
@@ -315,6 +315,11 @@ QHeaderView::section {{
 }}
 QScrollArea {{ background: transparent; border: none; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
+/* The main page stack is a QFrame; keep it on the app background so panels
+   and metric cards stand out as in the reviewed boards (R19). */
+QStackedWidget#pages {{ background-color: {SURFACE_APP}; border: none; border-radius: 0; }}
+/* Layout-only containers inside scrolled pages */
+QWidget[transparent="true"] {{ background: transparent; }}
 
 /* Progress */
 QProgressBar {{

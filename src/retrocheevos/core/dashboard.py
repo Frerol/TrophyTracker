@@ -36,6 +36,10 @@ class ContinuePlayingEntry:
     game: Game
     last_played_at: Optional[datetime]
     percent_complete: Optional[float]
+    # RA's combined unlocked/total count (D8); None when only a percentage,
+    # or nothing, is known.
+    achievements_unlocked: Optional[int] = None
+    achievements_total: Optional[int] = None
 
 
 def get_continue_playing(
@@ -62,6 +66,7 @@ def get_continue_playing(
     They're kept and sorted last instead (`gui/pages/home_page.py`).
     """
     completion_by_game_id = game_completion_repository.get_all_for_account(account_id)
+    counts_by_game_id = game_completion_repository.get_achievement_counts_for_account(account_id)
     blocked_ids = list_repository.get_game_ids_by_slug(account_id, ListType.BLOCKED)
     installed_ids = library_repository.get_installed_game_ids()
     last_played_by_game_id = library_repository.get_last_played_by_game_id()
@@ -77,11 +82,14 @@ def get_continue_playing(
         # if it has no achievement set) — guard against it resurfacing one.
         if game is None or not game.has_achievements:
             continue
+        unlocked, total = counts_by_game_id.get(game_id, (None, None))
         entries.append(
             ContinuePlayingEntry(
                 game=game,
                 last_played_at=last_played_by_game_id.get(game_id),
                 percent_complete=percent,
+                achievements_unlocked=unlocked,
+                achievements_total=total,
             )
         )
     return entries
