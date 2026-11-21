@@ -162,6 +162,10 @@ class LibraryPage(Page):
         self._grid.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self._grid.setMouseTracking(True)
         self._grid.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        # Always shown: with "as needed", a row that only just fits made the
+        # bar appear, which narrowed the viewport, which re-sized the cells,
+        # which hid the bar again — the last card flickered between rows.
+        self._grid.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._grid.verticalScrollBar().setSingleStep(24)
         self._grid.setAccessibleName("Local games")
         self._grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

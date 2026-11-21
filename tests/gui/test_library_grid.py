@@ -200,6 +200,25 @@ class LibraryPageTests(unittest.TestCase):
         QTest.qWait(50)
         self.assertEqual(self.page.columns(), 3)
 
+    def test_grid_is_stable_at_the_minimum_width_with_one_full_row(self):
+        # Regression: three cards at the minimum width made the scroll bar
+        # toggle and the last card jump between rows endlessly.
+        with db.get_connection(self.database) as c:
+            c.execute("DELETE FROM installed_roms WHERE game_id > 3 OR game_id IS NULL")
+        self.page.refresh()
+        for width in range(1300, 1019, -8):
+            self.window.resize(width, 720)
+            QTest.qWait(2)
+        QTest.qWait(50)
+        changes = []
+        original = self.page._grid.setGridSize
+        with patch.object(self.page._grid, 'setGridSize', side_effect=lambda size: (changes.append(size), original(size))):
+            QTest.qWait(300)
+        self.assertEqual(changes, [])
+        self.assertEqual(self.page._model.rowCount(), 3)
+        tops = {self.page._grid.visualRect(self.page._model.index(row)).top() for row in range(3)}
+        self.assertEqual(len(tops), 1)
+
     def test_context_menu_actions_per_kind(self):
         entries = {entry.title: entry for entry in self.page._model.entries()}
         game_actions = [a.text() for a in self.page.build_context_menu(entries['Game 02']).actions() if a.text()]
