@@ -9,7 +9,7 @@ Completed review details and earlier planning history live in
 
 | Track | Status | Next action |
 | --- | --- | --- |
-| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16 done; R17 mostly done; R18–R27 planned | Review the component preview; check icon A on a Windows taskbar; start R18 (sidebar shell). |
+| [Desktop interface revamp, R16–R27](#active-desktop-plan--interface-revamp-r16r27) | R16–R17 done; R18–R27 planned | Start R18 (sidebar shell). |
 | [Desktop integration, R28–R30](#desktop-integration--r28r30) | Planned, after the revamp | Wait for R27; then start R28 (tray mode). |
 | [Platform and maintenance](#platform-and-maintenance) | R11 partially open | Exercise interactive use on native Windows; keep PySide6 at 6.10.1. |
 | [Reliability and performance, R01–R15](#completed-technical-review--r01r15) | Done except R11 | Preserve regression coverage. |
@@ -31,6 +31,14 @@ as described in `AGENTS.md`.
 | Next minor (0.2.0) | R16–R27 interface revamp, released once R27 passes | Confirmed (2026-11-20): published only after the full revamp. In development; `APP_VERSION` is already 0.2.0, so local test builds carry that number. |
 | Following minor (0.3.0) | R28–R30 desktop integration: tray mode, summary popup, local session signals | Proposed |
 | Windows package | Depends on R11's interactive Windows validation | Undecided ([D3](#open-decisions)) |
+
+### Before publishing 0.2.0
+
+Checks deferred from completed items. Run them while preparing the release,
+together with the release steps in `AGENTS.md`.
+
+- [ ] Check icon A at 16/24/32 px on a native Windows taskbar, on dark and
+  light themes (deferred from R17).
 
 ## Open decisions
 
@@ -185,8 +193,8 @@ Achievements/Systems destinations from the original proposal are not required.
   an application default. The decisions it raised (D7–D9) are resolved; the API
   fields marked "to verify" in §5 are checked when R21 starts.
 
-- [ ] **R17 — Implement the visual system and the brand assets.**
-  Token, component, font and preview work landed on 2026-11-20; see
+- [x] **R17 — Implement the visual system and the brand assets.**
+  Completed 2026-11-20; see
   [Branding.md](../design/Branding.md#visual-system-r17).
   - [x] Translate the palette, type scale, spacing and proportions into
     semantic tokens in `gui/styles.py`. The current screens already use the
@@ -198,11 +206,12 @@ Achievements/Systems destinations from the original proposal are not required.
     (`assets/fonts/`, PyInstaller spec).
   - [x] Build a component preview covering all states
     (`tools/preview/component_preview.py`).
-  - [ ] Maintainer review of the component preview.
+  - [x] Maintainer review of the component preview.
   - [x] Compare brand concepts A and C at 16/24/32 px and larger sizes on
     Linux, on dark and light backgrounds, with the wordmark (preview
     `--brand-sheet`).
-  - [ ] Repeat the brand comparison on a native Windows taskbar.
+  - Moved to the [0.2.0 release checklist](#before-publishing-020): check icon
+    A on a native Windows taskbar.
   - [x] Produce the D1 assets: icon A at 16/24/32/48/64/128/256 px (with a
     tighter 16–24 px variant), illustration C, the wordmark, the window,
     taskbar and AppImage icons, and the variant rules and licenses in
