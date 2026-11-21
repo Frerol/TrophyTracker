@@ -29,7 +29,7 @@ as described in `AGENTS.md`.
 | --- | --- | --- |
 | 0.1.0 | First TrophyTracker release; Linux x86_64 AppImage | Published |
 | Next patch (0.1.x) | Fixes already in `Unreleased`: account-switch activity refresh, cancellable API pacing, non-blocking close, coordinated Home sync, forced-rehash match cleanup, explicit account selection | Proposed |
-| Next minor (0.2.0) | R16–R27 interface revamp, released once R27 passes | Proposed |
+| Next minor (0.2.0) | R16–R27 interface revamp, released once R27 passes | Confirmed (2026-11-20): published only after the full revamp. In development; `APP_VERSION` is already 0.2.0, so local test builds carry that number. |
 | Following minor (0.3.0) | R28–R30 desktop integration: tray mode, summary popup, local session signals | Proposed |
 | Windows package | Depends on R11's interactive Windows validation | Undecided ([D3](#open-decisions)) |
 

@@ -5,7 +5,7 @@ are disabled until a public release source is explicitly configured.
 """
 
 APP_NAME = "TrophyTracker"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 # Leave empty for private development; never embed repository credentials.
 GITHUB_OWNER = ""
