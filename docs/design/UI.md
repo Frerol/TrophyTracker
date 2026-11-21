@@ -106,7 +106,8 @@ Common Play/list/RA actions should be reachable without unnecessary detail-page
 navigation. Long I/O runs off the GUI thread with visible, non-blocking progress.
 Shared API pacing is cancellable; sync jobs are mutually coordinated. Closing
 requests cancellation and keeps the event loop alive until workers and image
-signals have drained, instead of destroying running Qt objects.
+signals have drained, bounded by the shutdown timeout, instead of destroying
+running Qt objects; work that outlives the budget stays referenced.
 
 Preserve bounded image caching, debounced search, cancellation and partial
 progress. Cached content remains useful after refresh failures. Show no-account,

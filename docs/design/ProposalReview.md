@@ -99,7 +99,8 @@ clear explanation of the local data that will be removed.
 ## Validation and remaining design work
 
 The reviewed HTML is self-contained and static, with bundled licensed Latin
-font subsets and no external scripts, API requests or form submission.
+font subsets (with their SIL Open Font License notices) and no external scripts,
+API requests or form submission.
 Reference navigation links jump between boards; application controls illustrate
 intended behavior. The source-language reference and proper names are preserved
 in the original file; the reviewed copy uses English.

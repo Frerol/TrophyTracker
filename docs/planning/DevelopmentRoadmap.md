@@ -275,7 +275,7 @@ and gameplay-unlock monitoring rather than silently expanding backend scope.
 - [ ] **R25 — Define states and feedback beyond the static boards.**
   Complete the reference layouts with initial loading, cached refresh, empty,
   no-account, offline, partial-success, retryable-error and destructive-action
-  states. Show sync freshness in the Dashboard header and clear scan/job
+  states. Show sync freshness in the Home header and clear scan/job
   progress across navigation. Distinguish no achievements, locked achievements,
   missing metadata and zero progress. Use stable placeholders rather than layout
   jumps and reserve blocking dialogs for decisions that need them. Preserve
