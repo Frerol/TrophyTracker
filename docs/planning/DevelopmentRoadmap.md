@@ -20,15 +20,14 @@ imply validation on every native platform. Unchecked items are planned.
 
 ## Next releases
 
-Version numbers and scope below are proposals until the release is prepared;
-see decision [D2](#open-decisions). Changes since the last release are
+Version numbers and scope below are proposals until the release is prepared,
+except where marked confirmed. Changes since the last release are
 collected in the `Unreleased` section of [CHANGELOG.md](../../CHANGELOG.md),
 as described in `AGENTS.md`.
 
 | Release | Proposed scope | Status |
 | --- | --- | --- |
 | 0.1.0 | First TrophyTracker release; Linux x86_64 AppImage | Published |
-| Next patch (0.1.x) | Fixes already in `Unreleased`: account-switch activity refresh, cancellable API pacing, non-blocking close, coordinated Home sync, forced-rehash match cleanup, explicit account selection | Proposed |
 | Next minor (0.2.0) | R16–R27 interface revamp, released once R27 passes | Confirmed (2026-11-20): published only after the full revamp. In development; `APP_VERSION` is already 0.2.0, so local test builds carry that number. |
 | Following minor (0.3.0) | R28–R30 desktop integration: tray mode, summary popup, local session signals | Proposed |
 | Windows package | Depends on R11's interactive Windows validation | Undecided ([D3](#open-decisions)) |
@@ -40,7 +39,6 @@ These items wait on a product decision rather than on implementation work.
 | ID | Decision | Blocks | Current position |
 | --- | --- | --- | --- |
 | D1 | Final application icon: brand concept A (pixel trophy) or C (cartridge with pixel trophy), and how they combine | R17 brand sub-items, R27 packaging assets | Preference for A and C; recommendation is A for small icons and C as the larger variant, not yet selected. B is a documented alternative. |
-| D2 | Ship the `Unreleased` fixes as a patch before the revamp, or fold them into 0.2.0 | Next release | Patch release proposed. |
 | D3 | Whether and when to publish a Windows package | Windows release | Experimental build helper only; needs R11 interactive validation first. |
 | D4 | PySide6 upgrade | Dependency updates | Stay on 6.10.1; 6.12.0 crashes at interpreter teardown in the upgrade probe. |
 | D5 | Revive features cut by the proposal review (ranking, rarity, release year, global totals, near-mastery, instant unlock notifications) | Nothing in R16–R30 | Out of scope; tracked in [FutureIdeas.md](FutureIdeas.md). Each needs its own data contract. A delayed notification for locally detected unlocks is a separate idea that builds on R30. |
@@ -50,6 +48,7 @@ These items wait on a product decision rather than on implementation work.
 
 | ID | Decision | Outcome (2026-11-20) | Applied to |
 | --- | --- | --- | --- |
+| D2 | Ship the `Unreleased` fixes as a 0.1.x patch before the revamp, or fold them into 0.2.0 | No patch release. The fixes ship with 0.2.0 after the full revamp. | Next releases |
 | D7 | Where to show badges and event awards, which are synced but never displayed | An **Awards** view reached from Home, combining the account's badges and the current Events list (with the new-events banner). Needs a badge read method in `ProfileRepository`. | R19 |
 | D8 | Per-mode achievement counts on cards, or a labeled combined count | Cards keep RetroAchievements' **combined count**, labeled "achievements" and never "hardcore". Game and achievement details are per mode. Revisit per-mode card counts only if R21 confirms a hardcore count from the API. | R19, R20, R22, R23 |
 | D9 | Library's "No achievement set" filter | Replaced by **Unmatched** ("no catalog match; progress unavailable"), because a game without a set cannot be told apart from an unmatched ROM locally. | R22 |
