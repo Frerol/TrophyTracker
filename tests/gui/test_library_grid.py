@@ -81,7 +81,7 @@ class ModelAndDelegateTests(unittest.TestCase):
         no_hash = InstalledRom('/roms/game.rvz', '', 19, id=10)
         self.model.set_entries([LibraryEntry('rom', 'game', 19, [no_hash.file_path], rom=no_hash)], {19: 'Wii'})
         self.assertEqual(self.model.index(0).data(CaptionRole), 'No hash for this format')
-        self.assertIn('cannot read this format', self.model.index(0).data(Qt.ItemDataRole.ToolTipRole))
+        self.assertIn('cannot read this format directly', self.model.index(0).data(Qt.ItemDataRole.ToolTipRole))
 
     def test_covers_load_only_for_painted_rows_within_the_budget(self):
         self.model.set_entries([game_entry(i) for i in range(1, 501)], {3: 'SNES'})

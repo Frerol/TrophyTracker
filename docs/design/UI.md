@@ -110,7 +110,9 @@ yet get them fetched automatically (one request per console, once per console
 per session, under the job slot with progress and Cancel), then matching runs
 again. The Unmatched filter says when hashes are missing (with Fetch catalog
 hashes) or, once they exist, that the file is probably a hack or other dump;
-files without any hash say their format needs RAHasher. There is no cover size slider.
+files without any hash say their format cannot be read (GameCube and Wii
+RVZ/WIA/GCZ are hashed through Dolphin's dolphin-tool when installed, by
+converting only the start of the disc). There is no cover size slider.
 
 ### Lists
 

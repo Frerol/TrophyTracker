@@ -13,6 +13,10 @@ header-stripping on NES/N64, multi-track handling on disc systems, the
 executable-based hash PlayStation uses. That gap is why the RAHasher path
 exists; it is not a claim this module is finished.
 
+GameCube and Wii discs in Dolphin's own containers (RVZ, WIA, GCZ) go
+through `library.dolphin_hash`, which converts only the start of the disc
+with Dolphin's `dolphin-tool` and hashes that with RAHasher.
+
 PSP is the one disc case handled properly here, by `library.psp_hash` — both
 `.iso` and (via `library.ciso`) `.cso`. `.pbp` files need nothing special;
 RA hashes those as a plain whole file, same as the fallback below.
@@ -23,7 +27,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from retrocheevos.library import rahasher
+from retrocheevos.library import dolphin_hash, rahasher
 from retrocheevos.library.psp_hash import PSP_CONSOLE_ID, NotAPspDiscError, compute_psp_iso_hash
 
 logger = logging.getLogger(__name__)
@@ -61,10 +65,20 @@ def compute_rom_hash(file_path: Path, console_id: Optional[int] = None) -> str:
                 error,
             )
 
-    if file_path.suffix.lower() in {".rvz", ".wia"}:
-        # These containers are playable without being hashable here. Keep
-        # them in the library without inventing an RA hash or reading GBs
-        # of compressed data for an MD5 that cannot identify the game.
+    if file_path.suffix.lower() in dolphin_hash.DOLPHIN_ONLY_SUFFIXES:
+        # Dolphin's own containers. RAHasher cannot read them, but Dolphin can
+        # convert the start of the disc, which is all the RA hash reads.
+        if (
+            dolphin_hash.can_hash(file_path, console_id)
+            and rahasher.is_available()
+            and dolphin_hash.is_available()
+        ):
+            try:
+                return dolphin_hash.compute_hash(file_path, console_id, rahasher.compute_hash)
+            except (dolphin_hash.DolphinHashError, rahasher.RaHasherError, OSError) as error:
+                logger.warning("Could not hash %s through dolphin-tool: %s", file_path, error)
+        # Otherwise keep the file in the library without inventing an RA hash
+        # or reading GBs of compressed data for an MD5 that identifies nothing.
         logger.info("No compatible compressed-disc hasher for %s; manual matching available", file_path)
         return ""
 
