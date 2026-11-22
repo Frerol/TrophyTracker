@@ -268,12 +268,26 @@ class LibraryPageTests(unittest.TestCase):
         texts = [a.text() for a in self.page.build_context_menu(entries['Game 05']).actions()]
         self.assertIn(library_page.AUTOMATIC_MATCH_TEXT, texts)
 
-        menu = self.page.build_context_menu(entries['Game 05'])
-        next(a for a in menu.actions() if a.text() == library_page.AUTOMATIC_MATCH_TEXT).trigger()
+        self.hash_files_as_stems()
+        self.automatic_match(entries['Game 05'])
         entries = {e.title: e for e in self.page._model.entries()}
         self.assertIn('Game 02', entries)
         self.assertEqual(entries['Game 02'].manual_roms, [])
-        self.assertIn('back to the automatic match', self.page._scan_status_label.text())
+        self.assertIn('Back to the automatic match: Game 02', self.page._scan_status_label.text())
+
+    def test_automatic_match_rehashes_a_stale_stored_hash(self):
+        # The case found in use: the stored hash predates the current hasher,
+        # so matching it alone could not find the game until Verify hashes.
+        with db.get_connection(self.database) as c:
+            c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(2, 'h2')")
+            c.execute("UPDATE installed_roms SET game_id = 5, manual_match = 1, hash = 'stale-md5' WHERE game_id = 2")
+        self.page.refresh()
+        self.hash_files_as_stems()
+        entry = next(e for e in self.page._model.entries() if e.title == 'Game 05')
+        self.automatic_match(entry)
+        entries = {e.title: e for e in self.page._model.entries()}
+        self.assertIn('Game 02', entries)
+        self.assertEqual(entries['Game 02'].roms[0].hash, 'h2')
 
     def test_automatic_match_without_a_hash_hit_returns_to_unmatched(self):
         with db.get_connection(self.database) as c:
@@ -282,7 +296,8 @@ class LibraryPageTests(unittest.TestCase):
             c.execute("INSERT INTO game_hashes(game_id, hash) VALUES(1, 'other')")
         self.page.refresh()
         entry = next(e for e in self.page._model.entries() if e.title == 'Game 04')
-        self.page.use_automatic_match(entry)
+        self.hash_files_as_stems()
+        self.automatic_match(entry)
         titles = self.titles()
         self.assertNotIn('Game 04', titles)
         self.assertIn('4', titles)  # the file name, now an unmatched card
@@ -320,6 +335,20 @@ class LibraryPageTests(unittest.TestCase):
         tooltip = self.page._model.index(0).data(Qt.ItemDataRole.ToolTipRole)
         self.assertIn('hash is not in the synced catalog', tooltip)
         self.assertEqual(rom.title, 'Mystery Hack')
+
+    def hash_files_as_stems(self):
+        """Hashing a test ROM file gives 'h<file stem>', like the seeded rows."""
+        patcher = patch.object(
+            library_page.library_service, '_hash_recorded_rom',
+            side_effect=lambda path, _console: f'h{Path(path).stem}',
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def automatic_match(self, entry):
+        self.page.use_automatic_match(entry)
+        self.assertTrue(_wait(lambda: not self.page.app_context.workers.has_key(library_page.WORKER_AUTOMATIC_MATCH)
+                              and self.page._scan_button.isEnabled()))
 
     def fake_hash_sync(self, calls):
         """Stands in for the API: stores a hash for the unmatched ROM."""

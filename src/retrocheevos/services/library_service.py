@@ -308,23 +308,47 @@ def match_installed_rom_to_game(installed_rom_id: int, game_id: int) -> None:
         _library_repo(connection).set_game_id(installed_rom_id, game_id, manual=True)
 
 
-def use_automatic_match(installed_rom_id: int) -> Optional[int]:
-    """Undo a manual match: the ROM goes back to whatever its stored hash
-    matches in the local catalog, or to unmatched if nothing does.
+def use_automatic_match(installed_rom_id: int, *, rehash: bool = True) -> Optional[int]:
+    """Undo a manual match: the ROM goes back to whatever its hash matches in
+    the local catalog, or to unmatched if nothing does.
 
-    No hashing and no API calls — the hash is already on the row. Returns the
-    game id the ROM ends up with (None when it is unmatched again).
+    The file is hashed again first (`rehash=True`): a stored hash can predate
+    the current hasher — before RAHasher, or an RVZ before dolphin-tool — and
+    matching that would undo the user's choice for nothing. Hashing can take
+    a few seconds (a disc through dolphin-tool), so call it off the GUI
+    thread. If the file is gone or cannot be hashed, the stored hash is used.
+    Returns the game id the ROM ends up with (None when it is unmatched).
     """
     with get_connection() as connection:
+        rom = _library_repo(connection).get_by_id(installed_rom_id)
+    if rom is None:
+        return None
+    rom_hash = rom.hash
+    fingerprint = None
+    path = Path(rom.file_path)
+    if rehash and path.exists():
+        try:
+            fingerprint = _file_fingerprint(path)
+            rom_hash = _hash_recorded_rom(path, rom.console_id)
+        except Exception:  # noqa: BLE001 — fall back to the stored hash
+            logger.exception("Could not re-hash %s; using its stored hash", rom.file_path)
+            rom_hash, fingerprint = rom.hash, None
+    with get_connection() as connection:
         repository = _library_repo(connection)
-        rom = repository.get_by_id(installed_rom_id)
-        if rom is None:
-            return None
-        game_id = (
-            GameRepository(connection).find_game_id_by_hash(rom.hash) if rom.hash else None
-        )
-        repository.set_game_id(installed_rom_id, game_id, manual=False)
+        if fingerprint is not None:
+            repository.set_fingerprint(rom.id, *fingerprint)
+        if rom_hash != rom.hash:
+            logger.info("Re-hashed %s: %s -> %s", rom.file_path, rom.hash, rom_hash)
+            repository.set_hash(rom.id, rom_hash)
+        game_id = GameRepository(connection).find_game_id_by_hash(rom_hash) if rom_hash else None
+        repository.set_game_id(rom.id, game_id, manual=False)
+    logger.info("Automatic match for %s: game %s", rom.file_path, game_id)
     return game_id
+
+
+def use_automatic_matches(installed_rom_ids: list[int]) -> list[Optional[int]]:
+    """`use_automatic_match` for several copies (one card), in order."""
+    return [use_automatic_match(rom_id) for rom_id in installed_rom_ids]
 
 
 def consoles_needing_hashes() -> list[int]:

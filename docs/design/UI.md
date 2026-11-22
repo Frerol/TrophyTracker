@@ -102,7 +102,8 @@ unavailable" or "No catalog match", and a Play button drawn disabled with
 that console. The context menu adds Match to game… and Choose cover… (unmatched
 ROMs), Change match… (matched games, to correct a wrong automatic match;
 asks which file when there are several), Use automatic match (undoes a
-manual choice, back to the hash match or to Unmatched) and Remove from
+manual choice: hashes the file again in the background, then goes back to
+that hash's match or to Unmatched) and Remove from
 Library. Matching is automatic by hash at scan time, after Sync ROM Hashes
 and on Verify hashes; manual choices are never overwritten by those passes.
 After a scan or re-hash, consoles whose unmatched ROMs have no catalog hashes

@@ -68,6 +68,7 @@ AUTOMATIC_MATCH_TEXT = "Use automatic match"
 WORKER_SCAN = ("library", "scan")
 WORKER_REHASH = ("library", "rehash")
 WORKER_HASHES = ("library", "hashes")
+WORKER_AUTOMATIC_MATCH = ("library", "automatic-match")
 WORKER_PLAY = ("library", "play")
 MIN_COLUMNS = 2
 SEARCH_WIDTH = 300
@@ -466,15 +467,41 @@ class LibraryPage(Page):
         self.refresh()
 
     def use_automatic_match(self, entry: LibraryEntry) -> None:
-        """Drop manual choices: each copy goes back to its hash's match. When
-        the console's catalog hashes were never fetched, fetch them now."""
-        results = [library_service.use_automatic_match(rom.id) for rom in entry.manual_roms]
+        """Drop manual choices: each copy is hashed again and goes back to
+        that hash's match (in the background — a disc can take seconds).
+        When the console's catalog hashes were never fetched, fetch them."""
+        from retrocheevos.services.job_coordinator import JOB_REHASH_LIBRARY
+
+        token = self._acquire(JOB_REHASH_LIBRARY)
+        if token is None:
+            return
+        self._begin_job()
+        self._cancel_button.setVisible(False)
+        self._set_status_text(f"{entry.title}: checking the file's hash…")
+        rom_ids = [rom.id for rom in entry.manual_roms]
+        worker = ServiceWorker(library_service.use_automatic_matches, rom_ids)
+        worker.finished_ok.connect(
+            lambda results: (self._on_automatic_match_done(entry, results), self._release_job(token))
+        )
+        worker.failed.connect(
+            lambda message: (self._reset_scan_button(),
+                             self._set_status_text(f"{entry.title}: automatic match failed ({message})."),
+                             self._release_job(token))
+        )
+        self.app_context.workers.start(worker, key=WORKER_AUTOMATIC_MATCH)
+
+    def _on_automatic_match_done(self, entry: LibraryEntry, results: list) -> None:
+        self._reset_scan_button()
         self._model.forget_cover(entry.key)
+        for rom in entry.manual_roms:
+            self._image_loader.forget_rom(rom.id)
         self.refresh()
         if all(game_id is not None for game_id in results):
-            self._set_status_text(f"{entry.title}: back to the automatic match.")
+            titles = {e.game.id: e.title for e in self._entries if e.game is not None}
+            names = sorted({titles.get(game_id, f"game {game_id}") for game_id in results})
+            self._set_status_text(f"Back to the automatic match: {', '.join(names)}.")
         elif entry.console_id in library_service.consoles_needing_hashes():
-            self.fetch_missing_hashes(automatic=False)
+            QTimer.singleShot(0, lambda: self.fetch_missing_hashes(automatic=False))
         else:
             self._set_status_text(
                 f"{entry.title}: the file's hash has no catalog match, so it is in Unmatched now."
