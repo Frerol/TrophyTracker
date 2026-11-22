@@ -2,8 +2,8 @@
 
 Two hashers, and the first one that can answer wins:
 
-1. `library.rahasher` — RetroAchievements' own RAHasher binary, if it is
-   installed. Correct for every format RA supports, including the CHD, CD
+1. `library.rahasher` — RetroAchievements' own RAHasher binary, bundled in
+   the Windows and Linux packages (and looked up on PATH from source). Correct for every format RA supports, including the CHD, CD
    and header-stripped cases below, because it *is* RA's implementation.
 2. Everything in this module — the fallback for when it isn't installed.
 

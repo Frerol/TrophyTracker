@@ -117,9 +117,10 @@ class LibraryGridModel(QAbstractListModel):
             return None if entry.has_emulator else NO_EMULATOR
         if role == Qt.ItemDataRole.ToolTipRole:
             if entry.kind == "rom" and not entry.rom.hash:
-                return (f"{entry.title}\n{console} · {NO_HASH}: this format needs RAHasher, "
-                        "which the Linux version does not include. Right-click → Match to "
-                        "game… to choose the game yourself.")
+                return (f"{entry.title}\n{console} · {NO_HASH}: RetroAchievements' hasher "
+                        "cannot read this format (for example RVZ or WIA). Convert the disc "
+                        "to a supported format such as ISO to match it automatically, or "
+                        "right-click → Match to game… to choose the game yourself.")
             if entry.kind == "rom":
                 return (f"{entry.title}\n{console} · {NO_MATCH}: this file's hash is not in "
                         "the synced catalog. Right-click → Match to game… to choose it.")

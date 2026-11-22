@@ -10,8 +10,10 @@
   emblem, illustration and wordmark from the D1 brand concepts.
 - `rahasher/`: optional third-party helper and its redistribution notices.
   Keep the binary, `RAHasher-COPYING.txt` and `RAHasher-SOURCE.txt` together.
-  The committed helper is for Windows; Linux builds need a native `RAHasher`
-  in the same directory or use the application's built-in hashing.
+  Both are committed: `RAHasher.exe` (official Windows release) and `RAHasher`
+  (Linux x86_64, built from the same RALibretro tag by `build_linux.sh`, which
+  also documents the build; rerun it on the release platform before a Linux
+  release, since the binary needs that platform's glibc).
 
 Explorer/hash/artwork benchmark (temporary data, no live API):
 

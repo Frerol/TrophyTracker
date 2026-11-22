@@ -1,9 +1,12 @@
 RAHasher — corresponding source and licence notice
 ==================================================
 
-`RAHasher.exe` distributed alongside Retrocheevos is NOT part of Retrocheevos
-and is NOT covered by Retrocheevos' own licence. It is a separate program,
-redistributed unmodified, and Retrocheevos invokes it as a subprocess.
+`RAHasher.exe` (Windows) and `RAHasher` (Linux) distributed alongside
+TrophyTracker (formerly Retrocheevos) are NOT part of TrophyTracker and are
+NOT covered by its own licence. They are a separate program, which
+TrophyTracker invokes as a subprocess.
+
+Windows binary — redistributed unmodified
 
   Program:      RAHasher
   Version:      1.8.3
@@ -15,9 +18,28 @@ redistributed unmodified, and Retrocheevos invokes it as a subprocess.
   Licence:      GNU General Public License version 3 — full text in
                 RAHasher-COPYING.txt, in this same directory.
 
+Linux binary — built by the TrophyTracker maintainers from unmodified source
+
+  Program:      RAHasher
+  Version:      1.8.3 (RALibretro tag 1.8.3, commit
+                8ab61f745ab753a70b5482f2a0ccb6a4ced5193f, submodules as pinned
+                by that commit)
+  Build:        x86_64 Linux, `make -f Makefile.RAHasher HAVE_CHD=1
+                CC="gcc -DHAVE_UNISTD_H"`, then `strip`; see build_linux.sh in
+                this directory, which reproduces it. The source is not modified;
+                the HAVE_UNISTD_H define only lets the bundled zlib compile
+                with GCC 14 and later.
+  Compiler:     GCC 16.2.1 (CachyOS); requires glibc 2.38 or later at run time.
+                Release builds must be rebuilt with build_linux.sh on the
+                oldest supported platform (Ubuntu 22.04, glibc 2.35).
+  SHA-256:      3ae929ea33fc9efa620c6b3ca4af42ed1c8e1361bb352a6926eae123a5dbb2e3
+  Size:         1,273,352 bytes
+  Copyright:    The RetroAchievements team and RALibretro contributors
+  Licence:      GNU General Public License version 3, as above.
+
 Corresponding source (GPL-3.0 section 6)
 ----------------------------------------
-The complete corresponding source for this binary is the RALibretro
+The complete corresponding source for both binaries is the RALibretro
 repository at tag 1.8.3, including its submodules (notably `rcheevos`, which
 is itself MIT-licensed and contains the hashing implementation in
 `src/rhash/`):
@@ -43,11 +65,12 @@ the program that merely invokes it — running a separate executable is
 aggregation, not linking, so Retrocheevos does not become GPL. What it does
 require is that whoever receives the binary also receives its licence text
 and a way to get its source. That is this file and RAHasher-COPYING.txt, and
-`Retrocheevos.spec` refuses to build a bundle containing the .exe without
+`packaging/TrophyTracker.spec` refuses to build a bundle containing either binary without
 both of them.
 
 Updating RAHasher
 -----------------
-Replace the .exe, then update the version, SHA-256, size and tag above. The
+Replace the .exe, or rebuild the Linux binary with build_linux.sh, then
+update the version, SHA-256, size, tag and build details above. The
 version number in this file is the one users will rely on to fetch matching
 source; leaving it stale is the licence problem, not the .exe being old.

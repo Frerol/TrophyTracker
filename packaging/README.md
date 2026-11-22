@@ -51,7 +51,8 @@ APPIMAGE_EXTRACT_AND_RUN=1 .venv/bin/python tools/checks/packaging_smoke.py dist
 
 The extraction option works without FUSE. For normal use mark the AppImage
 executable (`chmod +x TrophyTracker-0.1.0-x86_64.AppImage`) and launch it.
-The Linux build omits the Windows-only RAHasher helper.
+The Linux build bundles `tools/rahasher/RAHasher`, built from RALibretro source by
+`tools/rahasher/build_linux.sh`; rebuild it on the release platform first.
 
 The canonical English release notes are tracked in `packaging/RELEASE-0.1.0.txt`.
 Copy them to `dist/release/RELEASE-0.1.0.txt` when preparing the release, and

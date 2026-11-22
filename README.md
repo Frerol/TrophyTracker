@@ -118,9 +118,10 @@ APPIMAGE_RUNTIME=/absolute/path/to/runtime-x86_64 packaging/build_appimage.sh
 
 The result is `dist/TrophyTracker-0.1.0-x86_64.AppImage` (version comes from
 `src/retrocheevos/version.py`). Build on the oldest Linux distribution you
-intend to support: AppImage does not bundle glibc. The Windows `RAHasher.exe`
-is omitted; provide a native `tools/rahasher/RAHasher` with its license/source files
-to bundle that optional helper, or use the app's built-in hashing.
+intend to support: AppImage does not bundle glibc. The Linux `RAHasher` in
+`tools/rahasher/` is bundled with its license/source files; rebuild it there with
+`tools/rahasher/build_linux.sh` on the same distribution before a release, since
+it needs the glibc of the machine it was built on.
 
 ## ROMs, artwork and live achievement tracking
 
